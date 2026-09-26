@@ -1,4 +1,4 @@
-"""TRMNL panel adoption: the buffer a client reports on every poll
+"""TRMNL panel adoption: the buffer a client reports on its first poll
 (png-width / png-height) becomes the device panel's native dims so the
 trmnl renderers can turn the composition onto the real screen.
 
@@ -114,17 +114,17 @@ def test_landscape_og_buffer_keeps_wide_composition(app_with_trmnl: Flask) -> No
     assert panel["h"] == 480
 
 
-def test_later_size_change_only_refreshes_native(
+def test_later_size_change_is_ignored_once_adopted(
     app_with_trmnl: Flask,
 ) -> None:
-    """A client that later reports a different screen (user moves the
-    token to another reader) updates the native block but never touches
-    a composition the user has since configured."""
+    """Adoption is one-shot. A different size reported later (a second
+    client on the same token, or the token moved to another reader)
+    leaves both the native block and the composition alone; the panel
+    settings are the place to change it."""
     app = app_with_trmnl
     with app.app_context():
         device = _instance(app, "trmnl_kindle")
-        trmnl_api._adopt_reported_panel(device, 758, 1024)
-    # User deliberately sets a custom composition canvas.
+        assert trmnl_api._adopt_reported_panel(device, 758, 1024) is True
     result = device_service.update_instance_panel(
         devices=app.config["DEVICE_REGISTRY"],
         renderers=app.config["RENDERER_REGISTRY"],
@@ -135,15 +135,33 @@ def test_later_size_change_only_refreshes_native(
         orientation="portrait",
     )
     assert result.ok
+    before = _panel_file(app, "trmnl_kindle").read_bytes()
     with app.app_context():
         device = _instance(app, "trmnl_kindle")
-        trmnl_api._adopt_reported_panel(device, 1072, 1448)
+        assert trmnl_api._adopt_reported_panel(device, 1072, 1448) is False
+    assert _panel_file(app, "trmnl_kindle").read_bytes() == before
     panel = _panel_block(app, "trmnl_kindle")
-    assert panel["native_w"] == 1072
-    assert panel["native_h"] == 1448
+    assert panel["native_w"] == 758
+    assert panel["native_h"] == 1024
     assert panel["w"] == 600
     assert panel["h"] == 800
     assert panel["orientation"] == "portrait"
+
+
+def test_adoption_patches_the_live_device_without_a_registry_reload(
+    app_with_trmnl: Flask,
+) -> None:
+    """The registry entry is the same object after adoption, patched in
+    place: no pop + reload from a request thread while background
+    threads iterate the registry."""
+    app = app_with_trmnl
+    with app.app_context():
+        device = _instance(app, "trmnl_kindle")
+        trmnl_api._adopt_reported_panel(device, 758, 1024)
+    after = _instance(app, "trmnl_kindle")
+    assert after is device
+    assert after.panel["native_w"] == 758
+    assert after.panel["w"] == 1024
 
 
 def test_garbage_reported_dims_are_ignored(app_with_trmnl: Flask) -> None:
@@ -159,3 +177,48 @@ def test_garbage_reported_dims_are_ignored(app_with_trmnl: Flask) -> None:
     assert "native_w" not in panel
     assert panel["w"] == 800
     assert panel["h"] == 480
+
+
+# -- through the poll route ---------------------------------------------
+
+
+def _poll(app: Flask, headers: dict[str, str]) -> int:
+    resp = app.test_client().get("/api/display", headers={"Access-Token": "abcde", **headers})
+    return resp.status_code
+
+
+def test_display_poll_adopts_the_reported_buffer(app_with_trmnl: Flask) -> None:
+    app = app_with_trmnl
+    assert _poll(app, {"png-width": "758", "png-height": "1024"}) == 200
+    panel = _panel_block(app, "trmnl_kindle")
+    assert (panel["native_w"], panel["native_h"]) == (758, 1024)
+    assert (panel["w"], panel["h"]) == (1024, 758)
+
+
+def test_display_poll_with_zero_headers_adopts_nothing(app_with_trmnl: Flask) -> None:
+    """A zero size header used to be clamped to 1 before the panel saw
+    it; it must reach the poll as 'no report', never as a 1x1 panel."""
+    app = app_with_trmnl
+    assert _poll(app, {"png-width": "0", "png-height": "0"}) == 200
+    assert _poll(app, {"Width": "-5", "Height": "480"}) == 200
+    assert _poll(app, {"png-width": "9000", "png-height": "9000"}) == 200
+    panel = _panel_block(app, "trmnl_kindle")
+    assert "native_w" not in panel
+    assert (panel["w"], panel["h"]) == (800, 480)
+
+
+def test_display_poll_without_size_headers_adopts_nothing(app_with_trmnl: Flask) -> None:
+    """The stored composition dims are not a hardware fact; a client that
+    doesn't say its size must not have them written back as native."""
+    app = app_with_trmnl
+    assert _poll(app, {}) == 200
+    panel = _panel_block(app, "trmnl_kindle")
+    assert "native_w" not in panel
+
+
+def test_display_poll_from_a_second_client_does_not_rewrite(app_with_trmnl: Flask) -> None:
+    app = app_with_trmnl
+    assert _poll(app, {"png-width": "758", "png-height": "1024"}) == 200
+    before = _panel_file(app, "trmnl_kindle").read_bytes()
+    assert _poll(app, {"Width": "800", "Height": "480"}) == 200
+    assert _panel_file(app, "trmnl_kindle").read_bytes() == before

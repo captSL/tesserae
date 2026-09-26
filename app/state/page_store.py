@@ -88,6 +88,18 @@ class Panel(BaseModel):
     # correctly (issue #200).
     native_declared: bool = False
 
+    @property
+    def declared_native(self) -> tuple[int, int] | None:
+        """The client's framebuffer dims, but only when the device vouched
+        for them (a manifest block, a ``rotation`` sent at registration,
+        or the size a TRMNL client reports on its polls). ``None`` when
+        the dims were guessed from the preset table, so a renderer whose
+        output shape follows the composition doesn't start turning
+        frames for a panel that was already painting correctly."""
+        if self.native_declared and self.native_w is not None and self.native_h is not None:
+            return (self.native_w, self.native_h)
+        return None
+
 
 class Cell(BaseModel):
     """One positioned widget. Coordinates are in panel pixels.

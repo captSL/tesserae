@@ -37,7 +37,7 @@ from typing import Any
 
 from PIL import Image, ImageEnhance
 
-from app.quantizer import fit_to_panel, quantize, underscan_image
+from app.quantizer import fit_to_panel, orient_onto_buffer, quantize, underscan_image
 from app.state.page_store import Panel
 
 # Black + white. ``quantize`` expects an RGB-tuple palette and
@@ -83,22 +83,14 @@ def transform(png_bytes: bytes, *, panel: Panel, settings: dict[str, Any]) -> by
     if img.size != (panel.w, panel.h):
         img = fit_to_panel(img, target_w=panel.w, target_h=panel.h, scale=fit, bg="white")
 
-    native_w, native_h = panel.native_w, panel.native_h
-    if native_w is None or native_h is None:
-        native_w, native_h = panel.w, panel.h
-    if (native_w > native_h) != (panel.w > panel.h):
-        # Composition and client buffer disagree on aspect: turn the
-        # finished composition 90° CW so its left edge lands on the
-        # client's top edge. PIL ``rotate`` is counter-clockwise;
-        # ``-90`` gives CW.
-        img = img.rotate(-90, expand=True)
-    if panel.flip:
-        # Upside-down physical mount, turn the whole thing 180° so it
-        # reads upright on the wall. Composes on top of the 90° turn.
-        img = img.rotate(180, expand=True)
-
-    if img.size != (native_w, native_h):
-        img = fit_to_panel(img, target_w=native_w, target_h=native_h, scale=fit, bg="white")
+    # Only a buffer the device itself reported counts. ``device_panel``
+    # also guesses native dims from the preset table when a panel block
+    # has none (800×480 matches three presets), and rotating onto a
+    # guess would reshape frames for clients that were already painting
+    # the composition correctly (same gate the CircuitPython renderers
+    # use, issue #200 / #275).
+    native_w, native_h = panel.declared_native or (panel.w, panel.h)
+    img = orient_onto_buffer(img, buffer_w=native_w, buffer_h=native_h, flip=panel.flip)
 
     if panel.underscan:
         # Per-device underscan: inset the rendered content so it clears

@@ -146,14 +146,18 @@ the TRMNL device's panel, etc.).
 
 The device reports its real screen on every poll (`png-width` /
 `png-height` on KOReader, `Width` / `Height` on native TRMNL
-firmware). Tesserae persists that as the panel's **native buffer** the
-first time it hears from a client, so a landscape dashboard mounted on
+firmware). Tesserae records that as the panel's **native buffer** the
+first time a client reports one, so a landscape dashboard mounted on
 a portrait e-reader is turned 90° server-side instead of being served
-at the wrong aspect and stretched by the client's scaler. The
-**Rotation** control on the device card is the turn from that reported
-buffer: 0° shows your composition as composed, 90° / 270° lay it
-across the screen's long axis (a landscape design filling a portrait
-Kindle), and the flipped variants add 180° for an upside-down mount.
+at the wrong aspect and stretched by the client's scaler. Later polls
+don't change it, so a second client on the same token with a different
+screen gets frames shaped for the first one; if you move the token to
+a different reader, set the new size on the device card's panel
+settings. The **Rotation** control on the device card is the turn from
+that reported buffer: 0° shows your composition as composed, 90° / 270°
+lay it across the screen's long axis (a landscape design filling a
+portrait Kindle), and the flipped variants add 180° for an upside-down
+mount.
 
 ## Browser-based "client" (no firmware, no native client)
 

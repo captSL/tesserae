@@ -21,6 +21,18 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Fixed
 
+- **A TRMNL client's screen is now the buffer its frames are turned onto (#333).**
+  The `trmnl_png`, `trmnl_png_gray16`, and `trmnl_png_color` renderers rotate
+  the finished composition 90° onto the client's reported buffer when the two
+  disagree on aspect, so a landscape dashboard on a portrait Kindle running
+  KOReader is no longer served at the wrong aspect and squashed by the
+  client's scaler. The size a client reports on its first poll (`png-width`
+  / `png-height`, or `Width` / `Height`) is recorded as the panel's native
+  buffer and the composition canvas is seeded to match the stored
+  orientation; later polls, missing headers, and zero or absurd values leave
+  the panel alone. Native dims guessed from the preset table never trigger
+  the turn.
+
 - **The first-run wizard no longer loops back to the opt-in step (#330).**
   The device step's Continue, Skip and Next buttons still pointed at the
   online-features step from before it moved to second place, so skipping the

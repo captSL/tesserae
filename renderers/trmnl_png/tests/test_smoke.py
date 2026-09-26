@@ -74,9 +74,7 @@ def test_no_native_block_passes_composition_through_unchanged(trmnl_png) -> None
     """Legacy / custom panels with no native block: output stays at the
     composition dims with no rotation, matching pre-fix behaviour."""
     panel = Panel(w=200, h=100, gamut="gray_16")
-    out = Image.open(
-        io.BytesIO(trmnl_png.transform(_landscape_comp(), panel=panel, settings={}))
-    )
+    out = Image.open(io.BytesIO(trmnl_png.transform(_landscape_comp(), panel=panel, settings={})))
     assert out.size == (200, 100)
     assert out.mode == "1"
 
@@ -86,10 +84,8 @@ def test_landscape_composition_rotated_onto_portrait_buffer(trmnl_png) -> None:
     portrait 100×200 screen. Selecting "Rotation: 90" means the frame is
     turned so it fills the portrait screen; without this the client's
     scaler squashes the landscape into portrait."""
-    panel = Panel(w=200, h=100, native_w=100, native_h=200)
-    out = Image.open(
-        io.BytesIO(trmnl_png.transform(_landscape_comp(), panel=panel, settings={}))
-    )
+    panel = Panel(w=200, h=100, native_w=100, native_h=200, native_declared=True)
+    out = Image.open(io.BytesIO(trmnl_png.transform(_landscape_comp(), panel=panel, settings={})))
     assert out.size == (100, 200)
     # Mode "1" pixels are 0 or 255. CW turn maps composition left (white)
     # → output top, right (black) → output bottom.
@@ -100,10 +96,8 @@ def test_landscape_composition_rotated_onto_portrait_buffer(trmnl_png) -> None:
 def test_portrait_composition_rotated_onto_landscape_buffer(trmnl_png) -> None:
     """Mirror case: portrait composition on a landscape buffer, the same
     mapping esp32_bin asserts (white top → right edge after CW turn)."""
-    panel = Panel(w=100, h=200, native_w=200, native_h=100)
-    out = Image.open(
-        io.BytesIO(trmnl_png.transform(_portrait_comp(), panel=panel, settings={}))
-    )
+    panel = Panel(w=100, h=200, native_w=200, native_h=100, native_declared=True)
+    out = Image.open(io.BytesIO(trmnl_png.transform(_portrait_comp(), panel=panel, settings={})))
     assert out.size == (200, 100)
     assert out.getpixel((180, 50)) == 255  # white (original top) → right
     assert out.getpixel((20, 50)) == 0  # black (original bottom) → left
@@ -112,10 +106,8 @@ def test_portrait_composition_rotated_onto_landscape_buffer(trmnl_png) -> None:
 def test_flip_adds_180_after_rotation(trmnl_png) -> None:
     """panel.flip composes on top of the 90° turn: same dims, content
     turned the other way (white half ends up at the bottom)."""
-    panel = Panel(w=200, h=100, native_w=100, native_h=200, flip=True)
-    out = Image.open(
-        io.BytesIO(trmnl_png.transform(_landscape_comp(), panel=panel, settings={}))
-    )
+    panel = Panel(w=200, h=100, native_w=100, native_h=200, native_declared=True, flip=True)
+    out = Image.open(io.BytesIO(trmnl_png.transform(_landscape_comp(), panel=panel, settings={})))
     assert out.size == (100, 200)
     assert out.getpixel((50, 10)) == 0
     assert out.getpixel((50, 190)) == 255
@@ -125,10 +117,8 @@ def test_matching_aspects_render_without_rotation(trmnl_png) -> None:
     """A portrait composition on a portrait buffer with matching native
     dims: no turn (this is the KOReader default, 758×1024 both ways)."""
     comp = _portrait_comp(100, 200)
-    panel = Panel(w=100, h=200, native_w=100, native_h=200)
-    out = Image.open(
-        io.BytesIO(trmnl_png.transform(comp, panel=panel, settings={}))
-    )
+    panel = Panel(w=100, h=200, native_w=100, native_h=200, native_declared=True)
+    out = Image.open(io.BytesIO(trmnl_png.transform(comp, panel=panel, settings={})))
     assert out.size == (100, 200)
     assert out.getpixel((50, 10)) == 255  # top still white
     assert out.getpixel((50, 190)) == 0  # bottom still black
@@ -137,3 +127,30 @@ def test_matching_aspects_render_without_rotation(trmnl_png) -> None:
 def test_payload_is_selfcontained_url(trmnl_png) -> None:
     p = trmnl_png.payload("abc123def456", "http://tesserae.local:8765", settings={})
     assert p == {"url": "http://tesserae.local:8765/renders/abc123def456.png"}
+
+
+def test_preset_guessed_native_dims_do_not_rotate(trmnl_png) -> None:
+    """``device_panel`` guesses native dims from the preset table when a
+    panel block has none. That guess must not turn the frame: a Kindle
+    set to portrait 480×800 with no reported buffer yet was painting the
+    composition correctly, and the first render after an upgrade must
+    look the same."""
+    comp = _portrait_comp(100, 200)
+    panel = Panel(w=100, h=200, native_w=200, native_h=100, native_declared=False)
+    out = Image.open(io.BytesIO(trmnl_png.transform(comp, panel=panel, settings={})))
+    assert out.size == (100, 200)
+    assert out.getpixel((50, 10)) == 255
+    assert out.getpixel((50, 190)) == 0
+
+
+def test_custom_canvas_fills_the_buffer_edge_to_edge(trmnl_png) -> None:
+    """A composition whose aspect doesn't match the reported buffer is
+    stretched onto it, the way the client used to stretch the served
+    frame, rather than letterboxed with white bars."""
+    comp = _portrait_comp(120, 200)
+    panel = Panel(w=120, h=200, native_w=100, native_h=200, native_declared=True)
+    out = Image.open(io.BytesIO(trmnl_png.transform(comp, panel=panel, settings={})))
+    assert out.size == (100, 200)
+    assert out.getpixel((2, 190)) == 0
+    assert out.getpixel((97, 190)) == 0
+    assert out.getpixel((50, 10)) == 255

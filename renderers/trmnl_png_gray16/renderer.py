@@ -46,7 +46,13 @@ from typing import Any
 
 from PIL import Image, ImageEnhance
 
-from app.quantizer import GRAY_16_PALETTE, fit_to_panel, quantize, underscan_image
+from app.quantizer import (
+    GRAY_16_PALETTE,
+    fit_to_panel,
+    orient_onto_buffer,
+    quantize,
+    underscan_image,
+)
 from app.state.page_store import Panel
 
 DEFAULTS: dict[str, Any] = {
@@ -97,9 +103,9 @@ def transform(png_bytes: bytes, *, panel: Panel, settings: dict[str, Any]) -> by
     disagrees with the buffer aspect, 180° more when ``panel.flip``,
     and a final fit to the native dims. Without this a landscape
     dashboard mounted on a portrait Kindle is stretched into a
-    squashed portrait by the client's scaler. Panels with no native
-    block fall back to the composition dims and behave exactly as
-    before.
+    squashed portrait by the client's scaler. Panels with no reported
+    buffer (or dims only guessed from the preset table) fall back to
+    the composition dims and behave exactly as before.
     """
     img = Image.open(io.BytesIO(png_bytes))
     fit = str(settings.get("image_fit") or "fit")
@@ -107,21 +113,14 @@ def transform(png_bytes: bytes, *, panel: Panel, settings: dict[str, Any]) -> by
     if img.size != (panel.w, panel.h):
         img = fit_to_panel(img, target_w=panel.w, target_h=panel.h, scale=fit, bg="white")
 
-    native_w, native_h = panel.native_w, panel.native_h
-    if native_w is None or native_h is None:
-        native_w, native_h = panel.w, panel.h
-    if (native_w > native_h) != (panel.w > panel.h):
-        # Composition and client buffer disagree on aspect: turn the
-        # finished composition 90° CW so its left edge lands on the
-        # client's top edge. PIL ``rotate`` is counter-clockwise;
-        # ``-90`` gives CW.
-        img = img.rotate(-90, expand=True)
-    if panel.flip:
-        # Upside-down physical mount; turn 180 deg so it reads upright.
-        img = img.rotate(180, expand=True)
-
-    if img.size != (native_w, native_h):
-        img = fit_to_panel(img, target_w=native_w, target_h=native_h, scale=fit, bg="white")
+    # Only a buffer the device itself reported counts. ``device_panel``
+    # also guesses native dims from the preset table when a panel block
+    # has none (800×480 matches three presets), and rotating onto a
+    # guess would reshape frames for clients that were already painting
+    # the composition correctly (same gate the CircuitPython renderers
+    # use, issue #200 / #275).
+    native_w, native_h = panel.declared_native or (panel.w, panel.h)
+    img = orient_onto_buffer(img, buffer_w=native_w, buffer_h=native_h, flip=panel.flip)
 
     if panel.underscan:
         img = underscan_image(img, underscan=panel.underscan)

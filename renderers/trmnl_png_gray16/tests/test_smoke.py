@@ -122,7 +122,7 @@ def test_landscape_composition_rotated_onto_portrait_buffer(trmnl_png_gray16) ->
     Kindle)."""
     img = Image.new("RGB", (200, 100), "white")
     img.paste((0, 0, 0), (100, 0, 200, 100))
-    panel = Panel(w=200, h=100, native_w=100, native_h=200, gamut="gray_16")
+    panel = Panel(w=200, h=100, native_w=100, native_h=200, native_declared=True, gamut="gray_16")
     artifact = trmnl_png_gray16.transform(
         _png_bytes(img), panel=panel, settings=trmnl_png_gray16.settings_defaults()
     )
