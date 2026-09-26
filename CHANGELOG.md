@@ -10,8 +10,9 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 - **`/api/mcp/catalog` can be asked for less (#257).** `?q=` keeps the
   widgets whose key, name or full description contains every term,
-  case-insensitively, and `?fields=` trims each entry to the named fields
-  (`key` is always kept; an unknown field is a 400 that lists the valid ones).
+  case-insensitively and ignoring punctuation, and `?fields=` trims each entry
+  to the named fields (`key` is always kept; an unknown or empty field list is
+  a 400 that lists the valid ones under `valid_fields`).
   A filtered response carries a `filter` block with how many of the catalog's
   widgets matched, so an empty list reads as "nothing matched". Without either
   parameter the response is unchanged.

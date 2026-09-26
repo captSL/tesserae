@@ -35,7 +35,7 @@ from werkzeug.wrappers import Response
 from app import agent_activity, experiments, mcp_bridge
 from app import panels_routes as _pr
 from app.auth import _is_loopback
-from app.panels_schema import build_catalog
+from app.panels_schema import CATALOG_FIELDS, build_catalog
 from app.state.panel_store import CanvasLayout, CanvasPage, ConfigInput
 from app.state.settings_store import SettingsStore
 from app.touch_spec import PRIMITIVE_KINDS
@@ -385,9 +385,15 @@ def _desc_summary(desc: str) -> str:
     return first[:_DESC_SUMMARY_MAX].rsplit(" ", 1)[0] + "…"
 
 
-def _catalog_query_terms(raw: str) -> list[str]:
-    """Lower-cased whitespace-separated terms of a ``?q=`` catalog filter."""
-    return raw.lower().split()
+_CATALOG_TERM = re.compile(r"[a-z0-9_]+")
+
+
+def _catalog_terms(raw: str) -> list[str]:
+    """The search terms of a ``?q=`` catalog filter: lower-cased runs of
+    letters, digits and underscores, so a pasted phrase like ``weather,
+    forecast.`` searches for ``weather`` and ``forecast`` rather than for
+    the comma and the full stop."""
+    return _CATALOG_TERM.findall(raw.lower())
 
 
 def _catalog_matches(widget: dict[str, Any], terms: list[str]) -> bool:
@@ -418,45 +424,47 @@ def catalog() -> Response:
 
     Two optional filters let a caller that knows what it wants ask for less
     (#257). ``?q=`` keeps the widgets whose key, name or full description
-    contains every whitespace-separated term, case-insensitively.
-    ``?fields=`` is a comma-separated list of per-widget fields to return;
-    ``key`` is always kept, so every entry can still be named in a follow-up
-    call, and an unknown field is a 400 that lists the valid ones rather than
-    an entry silently missing what was asked for. Either filter adds a
+    contains every term, case-insensitively; terms are runs of letters,
+    digits and underscores, so punctuation in a pasted phrase is ignored.
+    ``?fields=`` is a comma-separated list of per-widget fields to return
+    (``CATALOG_FIELDS``); ``key`` is always kept, so every entry can still
+    be named in a follow-up call, and an unknown or empty field list is a
+    400 that lists the valid ones under ``valid_fields`` rather than an
+    entry silently missing what was asked for. Either filter adds a
     ``filter`` block reporting what was applied and how many of the catalog's
     widgets matched, so an empty list reads as "nothing matched", not "no
     widgets exist". Neither touches the other top-level blocks."""
-    widgets = build_catalog(_pr._registry())
     raw_q = (request.args.get("q") or "").strip()
     raw_fields = (request.args.get("fields") or "").strip()
-    terms = _catalog_query_terms(raw_q)
+    # Validate the field list before any catalog work: a bad request should
+    # not pay for 37 preview samples first.
+    fields = list(dict.fromkeys(f.strip() for f in raw_fields.split(",") if f.strip()))
+    if raw_fields and not fields:
+        return _err(400, "fields names no catalog field", valid_fields=list(CATALOG_FIELDS))
+    unknown = [f for f in fields if f not in CATALOG_FIELDS]
+    if unknown:
+        return _err(
+            400,
+            f"unknown catalog field(s): {', '.join(unknown)}",
+            valid_fields=list(CATALOG_FIELDS),
+        )
+    terms = _catalog_terms(raw_q)
+    widgets = build_catalog(_pr._registry())
     matched = [w for w in widgets if _catalog_matches(w, terms)] if terms else widgets
+    keep = {"key", *fields} if fields else set(CATALOG_FIELDS)
     lean = [
         {
-            **{k: v for k, v in w.items() if k != "sample"},
+            **{k: v for k, v in w.items() if k in keep},
             # Summarised, not dropped: the descriptions are what let an agent
             # pick the right widget, so the full text stays reachable on the
             # per-widget call rather than riding along 36 times (#257).
-            "desc": _desc_summary(str(w.get("desc") or "")),
+            **({"desc": _desc_summary(str(w.get("desc") or ""))} if "desc" in keep else {}),
         }
         for w in matched
     ]
-    fields: list[str] = []
-    if raw_fields:
-        fields = list(dict.fromkeys(f.strip() for f in raw_fields.split(",") if f.strip()))
-        valid = sorted({k for w in widgets for k in w if k != "sample"})
-        unknown = [f for f in fields if f not in valid]
-        if unknown:
-            return _err(
-                400,
-                f"unknown catalog field(s): {', '.join(unknown)}",
-                fields=valid,
-            )
-        keep = {"key", *fields}
-        lean = [{k: v for k, v in w.items() if k in keep} for w in lean]
-    body: dict[str, Any] = {}
-    if raw_q or raw_fields:
-        body["filter"] = {
+    out: dict[str, Any] = {}
+    if raw_q or fields:
+        out["filter"] = {
             "q": raw_q or None,
             "fields": ["key", *(f for f in fields if f != "key")] if fields else None,
             "matched": len(lean),
@@ -465,7 +473,7 @@ def catalog() -> Response:
     appearance = _pr._appearance()
     return jsonify(
         {
-            **body,
+            **out,
             "widgets": lean,
             # Counts and an endpoint, not the lists (#257). Themes, styles and
             # fonts are ~14% of every catalog read and are only needed when

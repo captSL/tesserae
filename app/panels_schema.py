@@ -65,6 +65,24 @@ def _preview_sample(plugin: Plugin) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
+# The per-widget keys a catalog entry carries once ``sample`` (the editor's
+# preview payload, never served over the MCP route) is dropped. The MCP
+# catalog's ``?fields=`` filter validates against this rather than the
+# entries it happens to have loaded, so a valid name is accepted on an
+# instance with no widgets and the set can't vary from one request to the
+# next. Keep in step with ``catalog_entry``.
+CATALOG_FIELDS: tuple[str, ...] = (
+    "key",
+    "name",
+    "icon",
+    "desc",
+    "fragments",
+    "updates_on_change",
+    "updates_on_schedule",
+    "strings",
+)
+
+
 def catalog_entry(plugin: Plugin, locale: str = "en") -> dict[str, Any]:
     """Catalog entry for a placeable widget: identity, fragments, a preview
     sample for the editor's live mount, and this widget's resolved strings
