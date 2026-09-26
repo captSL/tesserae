@@ -585,6 +585,36 @@ def rotate_png(png_bytes: bytes, *, quarters: int) -> bytes:
     return out.getvalue()
 
 
+def orient_onto_buffer(
+    img: Image.Image,
+    *,
+    buffer_w: int,
+    buffer_h: int,
+    flip: bool = False,
+    scale: str = "stretch",
+) -> Image.Image:
+    """Map a finished composition onto the buffer the client paints.
+
+    Rotates 90° CW when the composition's aspect disagrees with the
+    buffer's (a landscape dashboard mounted on a portrait screen), adds
+    180° for ``flip`` (an upside-down mount), then resizes to the exact
+    buffer dims. ``scale`` is the ``fit_to_panel`` mode for that last
+    step; the default ``stretch`` matches what a TRMNL-style client does
+    with a frame that isn't its own size, so a custom canvas whose aspect
+    doesn't quite match the screen keeps filling it edge to edge. A
+    buffer equal to the composition dims makes this a flip-only pass.
+    """
+    if (buffer_w > buffer_h) != (img.width > img.height):
+        # PIL ``rotate`` is counter-clockwise; ``-90`` gives the CW turn
+        # that lands the composition's left edge on the buffer's top edge.
+        img = img.rotate(-90, expand=True)
+    if flip:
+        img = img.rotate(180, expand=True)
+    if img.size != (buffer_w, buffer_h):
+        img = fit_to_panel(img, target_w=buffer_w, target_h=buffer_h, scale=scale, bg="white")
+    return img
+
+
 def underscan_image(img: Image.Image, *, underscan: int, fill: str = "#ffffff") -> Image.Image:
     """Inset ``img`` by ``underscan`` pixels on every edge, padding the
     border with ``fill``. Size is preserved: content is downscaled to
