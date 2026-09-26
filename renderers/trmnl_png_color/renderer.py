@@ -46,6 +46,7 @@ from app.quantizer import (
     INKY_7COLOUR_PALETTE,
     WAVESHARE_E6_PALETTE,
     fit_to_panel,
+    orient_onto_buffer,
     underscan_image,
 )
 from app.state.page_store import Panel
@@ -112,14 +113,17 @@ def transform(png_bytes: bytes, *, panel: Panel, settings: dict[str, Any]) -> by
     yellow, green, black, white).
     """
     img = Image.open(io.BytesIO(png_bytes))
-    target_w, target_h = panel.w, panel.h
 
-    if panel.flip:
-        img = img.rotate(180, expand=True)
-
-    if img.size != (target_w, target_h):
+    if img.size != (panel.w, panel.h):
         fit = str(settings.get("image_fit") or "fit")
-        img = fit_to_panel(img, target_w=target_w, target_h=target_h, scale=fit, bg="white")
+        img = fit_to_panel(img, target_w=panel.w, target_h=panel.h, scale=fit, bg="white")
+
+    # Same mapping as trmnl_png / trmnl_png_gray16: turn the finished
+    # composition onto the buffer the client reported (90° CW when the
+    # aspects disagree, 180° more for ``panel.flip``). Only a reported
+    # buffer counts; a preset guess leaves the composition dims alone.
+    native_w, native_h = panel.declared_native or (panel.w, panel.h)
+    img = orient_onto_buffer(img, buffer_w=native_w, buffer_h=native_h, flip=panel.flip)
 
     if panel.underscan:
         img = underscan_image(img, underscan=panel.underscan)
