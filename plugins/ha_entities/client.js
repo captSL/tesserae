@@ -112,14 +112,15 @@ export default function render(shadow, ctx) {
   // saved before the options existed keep their title / names.
   const showTitle = data.show_title !== false;
   const showNames = data.show_names !== false;
-
+  const showLastUpdated = data.show_last_updated !== false;
+  
   // Count recently-changed items so the title bar can carry a hint.
   let recentCount = 0;
   for (const it of items) if (changeAgo(it.last_changed, t)) recentCount++;
 
   const rows = items.map((it, i) => {
     const accent = statusAccent(it.status);
-    const ago = changeAgo(it.last_changed, t);
+    const ago = showLastUpdated ? changeAgo(it.last_changed, t) : null;
     const changedClass = ago ? " is-changed" : "";
     const changeBadge = ago
       ? `<span class="entity-change-badge" title="${escapeHtml(t("changed", "changed"))} ${escapeHtml(it.last_changed)}">

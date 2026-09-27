@@ -304,8 +304,9 @@ def fetch(
         "title": options.get("title") or "Entities",
         "items": items,
         # Visibility toggles ride along so the client doesn't need the raw
-        # cell options. Both default on; ``is not False`` keeps cells saved
+        # cell options. All default on; ``is not False`` keeps cells saved
         # before the option existed rendering unchanged.
         "show_title": options.get("show_title") is not False,
         "show_names": options.get("show_names") is not False,
+        "show_last_updated": options.get("show_last_updated") is not False,
     }

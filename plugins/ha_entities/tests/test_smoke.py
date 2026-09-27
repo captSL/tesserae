@@ -66,12 +66,21 @@ def test_visibility_toggles_pass_through(app: Flask, monkeypatch) -> None:
         monkeypatch.setattr(core, "get_states", lambda: _STATES)
         default = ent.fetch({"entities": "light.desk"}, {}, ctx={})
         hidden = ent.fetch(
-            {"entities": "light.desk", "show_title": False, "show_names": False}, {}, ctx={}
+            {
+                "entities": "light.desk",
+                "show_title": False,
+                "show_names": False,
+                "show_last_updated": False,
+            },
+            {},
+            ctx={},
         )
     assert default["show_title"] is True
     assert default["show_names"] is True
+    assert default["show_last_updated"] is True
     assert hidden["show_title"] is False
     assert hidden["show_names"] is False
+    assert hidden["show_last_updated"] is False
 
 
 def test_choices_delegates_to_core(app: Flask, monkeypatch) -> None:
