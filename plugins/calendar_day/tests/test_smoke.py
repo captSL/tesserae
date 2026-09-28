@@ -12,14 +12,29 @@ slider value to the browser unclamped.
 
 from __future__ import annotations
 
-import sys
+import importlib.util
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import server
+_SERVER_PATH = Path(__file__).resolve().parent.parent / "server.py"
+
+
+def _load_server() -> Any:
+    """Load this plugin's ``server.py`` under a unique module name.
+
+    Every plugin ships a module called ``server``; a bare ``import server``
+    would hand back whichever plugin's module a sibling suite imported first.
+    """
+    spec = importlib.util.spec_from_file_location("calendar_day_server_under_test", _SERVER_PATH)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+server = _load_server()
 
 
 def _stub_calendar_core(events: list[dict[str, Any]]) -> MagicMock:

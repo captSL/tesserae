@@ -43,7 +43,7 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Fixed
 
-- **The Home Assistant Energy widget uses the configured timezone for its clock.**
+- **The Home Assistant Energy widget uses the configured timezone for its clock (#340).**
   Its displayed time and hour-based state now follow Tesserae's app timezone
   instead of the server's local timezone.
 - **Typing a value into a slider's number box now counts as a change (#337).**
