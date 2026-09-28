@@ -113,10 +113,15 @@ export default function render(shadow, ctx) {
   const showTitle = data.show_title !== false;
   const showNames = data.show_names !== false;
   const showLastUpdated = data.show_last_updated !== false;
-  
-  // Count recently-changed items so the title bar can carry a hint.
+
+  // Count recently-changed items so the title bar can carry a hint. The
+  // count follows the badge toggle: hiding the per-row marker also hides
+  // the title-bar count, otherwise the widget would still say "2 changed"
+  // while hiding which rows.
   let recentCount = 0;
-  for (const it of items) if (changeAgo(it.last_changed, t)) recentCount++;
+  if (showLastUpdated) {
+    for (const it of items) if (changeAgo(it.last_changed, t)) recentCount++;
+  }
 
   const rows = items.map((it, i) => {
     const accent = statusAccent(it.status);

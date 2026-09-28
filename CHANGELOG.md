@@ -8,6 +8,16 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Added
 
+- **Xteink X4 Pro in 4-level grayscale (#335).** `xteink_x4_pro_gray` is the
+  server half of the CrossInk `x4-pro` build, which ships with grayscale on
+  and already announced that id: same panel block as `xteink_x4_pro`, with
+  the renderer overridden to `esp32_gray2_bin` (96000-byte 2-bpp frame).
+  Confirmed on real hardware by the contributor, which also confirms the
+  mono entry's panel geometry and `portrait_flipped`.
+- **`ha_entities` can hide the last-updated badge (#336).** A new
+  "Show last updated" toggle (default on) drops the 'just now' / 'Nm ago'
+  badge, the changed-row wash and the changed count in the title row for
+  compact layouts. `ha_entities` 0.8.0.
 - **`list_widgets` can ask for less too (#257).** Bridge 0.18.0 passes `q` and
   `fields` through to the catalog route, and the tool text explains when to use
   them. `EXPECTED_VERSION` follows, so Settings → System → MCP offers the
