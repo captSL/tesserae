@@ -43,6 +43,14 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Fixed
 
+- **Typing a value into a slider's number box now counts as a change (#337).**
+  The box next to every slider (pre-dither contrast, saturation, and the rest
+  of the device-page fields) copied its value onto the range input without
+  firing an event, and the box itself has no form association, so the save
+  bar never appeared and the value was never saved unless the thumb was
+  dragged. The range input now re-emits `input` and `change` when the box
+  is edited.
+
 - **A TRMNL client's screen is now the buffer its frames are turned onto (#333).**
   The `trmnl_png`, `trmnl_png_gray16`, and `trmnl_png_color` renderers rotate
   the finished composition 90° onto the client's reported buffer when the two

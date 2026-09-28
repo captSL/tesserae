@@ -22,10 +22,16 @@
         if (number) number.value = slider.value;
         paintFill();
       };
+      // Setting ``slider.value`` from script fires no event, and the
+      // number box carries no ``form`` association of its own, so a
+      // typed value would never reach the dirty-form tracker (which
+      // matches on ``ev.target.form``). Re-emit on the range input so
+      // typing into the box behaves exactly like dragging the thumb.
       const syncFromNumber = () => {
         if (!number || number.value === "") return;
         slider.value = number.value;
         paintFill();
+        slider.dispatchEvent(new Event("input", { bubbles: true }));
       };
       // The range input is the one that carries the field's name, and it
       // silently clamps anything outside min/max. Typing 9 into a 0.7-1.5
@@ -35,6 +41,7 @@
         if (!number || number.value === "") return;
         syncFromNumber();
         number.value = slider.value;
+        slider.dispatchEvent(new Event("change", { bubbles: true }));
       };
       slider.addEventListener("input", syncFromSlider);
       slider.addEventListener("change", syncFromSlider);
