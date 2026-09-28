@@ -50,6 +50,11 @@ All notable changes to Tesserae are recorded here. Format loosely follows
   bar never appeared and the value was never saved unless the thumb was
   dragged. The range input now re-emits `input` and `change` when the box
   is edited.
+- **A whole-frame change no longer logs a warning (#337).** A gallery photo
+  swap or a picture-quality edit legitimately repaints the whole panel, so
+  `push not diverted to patches` for `over_budget` and
+  `render_settings_changed` now logs at INFO; the other reasons stay at
+  WARNING.
 
 - **A TRMNL client's screen is now the buffer its frames are turned onto (#333).**
   The `trmnl_png`, `trmnl_png_gray16`, and `trmnl_png_color` renderers rotate

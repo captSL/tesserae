@@ -1334,8 +1334,14 @@ class PushManager:
             return True
         if isinstance(payload, str):
             # A failed divert costs the panel a full-frame download and a
-            # full e-ink flash, so the reason deserves a warning.
-            logger.warning("push not diverted to patches for device=%s (%s)", device_id, payload)
+            # full e-ink flash, so the reason deserves a warning, except
+            # when the whole frame legitimately changed: a gallery photo
+            # swap lands in over_budget on every push, and a picture
+            # quality edit repaints everything by design (#337).
+            expected = payload.startswith("over_budget") or payload == "render_settings_changed"
+            (logger.info if expected else logger.warning)(
+                "push not diverted to patches for device=%s (%s)", device_id, payload
+            )
             return False
         blob, entries = payload
         if not self._stage_patches_locked(device_id, str(prev.get("digest") or ""), blob, entries):
