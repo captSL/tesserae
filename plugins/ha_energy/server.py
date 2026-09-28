@@ -13,7 +13,8 @@ paint:
       "battery_soc": float|None,  # 0-100 %, if entity provided
       "solar_today_kwh": float|None,
       "flow": "solar" | "grid" | "battery" | "mixed",
-      "sparkline": [float, ...]   # last 24h solar (or house if no solar)
+      "sparkline_today": [...],   # today, local midnight to now, 48 half-hour slots
+      "sparkline_yesterday": [...] # yesterday, midnight to midnight, 48 slots
     }
 
 The widget batches a single ``get_states`` call to cover all four power
@@ -24,7 +25,7 @@ queried when the user filled them in.
 from __future__ import annotations
 
 import time
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from flask import current_app
@@ -144,41 +145,30 @@ def fetch(
         if today_state is not None:
             solar_today_kwh = _f_or_none(today_state.get("state"))
 
-    # 48-hour sparkline split into yesterday + today so the client
-    # can paint a comparison ghost line. Prefer the solar entity (it
-    # has a clear day-shaped curve); fall back to house consumption
-    # when solar's not configured.
+    # Today-vs-yesterday sparkline: two calendar days in the panel's
+    # timezone, each binned into 48 half-hour slots by clock time, so the
+    # solid and the dashed line share an x-axis that runs midnight to
+    # midnight. Prefer the solar entity (it has a clear day-shaped curve);
+    # fall back to house consumption when solar's not configured.
+    now = datetime.now(app_timezone())
     spark_entity = (options.get("solar_entity") or options.get("house_entity") or "").strip()
-    sparkline_today: list[float] = []
-    sparkline_yesterday: list[float] = []
+    sparkline_today: list[float | None] = []
+    sparkline_yesterday: list[float | None] = []
     if spark_entity:
         try:
-            hist_24 = core.history(spark_entity, hours=24)
+            samples = core.history(spark_entity, hours=48)
         except Exception:
-            hist_24 = []
-        try:
-            hist_48 = core.history(spark_entity, hours=48)
-        except Exception:
-            hist_48 = []
-        # Today's 24h: the last 24h of samples. Yesterday's 24h: the
-        # 24-48h window. We bin BEFORE splitting so both halves get
-        # the same 48-slot density even if the underlying sample
-        # rate varies.
-        today_raw = [_f(s.get("state")) for s in hist_24]
-        sparkline_today = _downsample(today_raw, slots=48)
-        if hist_48:
-            full_48 = [_f(s.get("state")) for s in hist_48]
-            binned = _downsample(full_48, slots=96)
-            sparkline_yesterday = binned[:48]
-            # If today's downsample produced fewer than 48 samples
-            # (sparse history), pull today's half out of the 48h bin too
-            # so both lines line up under the same x-axis.
-            if not sparkline_today:
-                sparkline_today = binned[48:]
+            samples = []
+        if samples:
+            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            yesterday_start = today_start - timedelta(days=1)
+            sparkline_yesterday = _bin_day(samples, yesterday_start, today_start, slots=48)
+            sparkline_today = _bin_day(samples, today_start, now, slots=48)
 
     flow = _dominant_flow(solar, grid, battery, house)
 
-    now = datetime.now(app_timezone())
+    flow = _dominant_flow(solar, grid, battery, house)
+
     return {
         "label": options.get("label", "Home"),
         "place": options.get("label", "Home"),
@@ -191,8 +181,9 @@ def fetch(
         "battery_soc": round(soc, 1) if soc is not None else None,
         "solar_today_kwh": round(solar_today_kwh, 2) if solar_today_kwh is not None else None,
         "flow": flow,
-        # Backwards-compat: `sparkline` mirrors today's series.
-        "sparkline": sparkline_today,
+        # Backwards-compat: `sparkline` mirrors today's series without the
+        # trailing gap, for anything that still reads the old key.
+        "sparkline": [v for v in sparkline_today if v is not None],
         "sparkline_today": sparkline_today,
         "sparkline_yesterday": sparkline_yesterday,
         # Bookkeeping for the cache layer.
@@ -200,22 +191,59 @@ def fetch(
     }
 
 
-def _downsample(values: list[float], *, slots: int) -> list[float]:
-    """Bin a variable-length history into ``slots`` equal-time slots.
+def _parse_dt(raw: Any) -> datetime | None:
+    """A HA history timestamp as an aware datetime, or None. HA sends UTC
+    ISO strings; a naive one is read as UTC rather than guessed at."""
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt
 
-    HA's history endpoint returns one sample per state change, so a noisy
-    sensor over 24h might return 2000+ entries. The widget chart only
-    needs ~48 points (one every 30 minutes), so we bin + average."""
-    if not values or slots < 1:
+
+def _bin_day(
+    samples: list[dict[str, Any]], start: datetime, end: datetime, *, slots: int
+) -> list[float | None]:
+    """Bin a history into ``slots`` equal clock-time slots between two
+    local instants, and mark the slots after ``end`` as None.
+
+    HA's history endpoint returns one sample per state change, so a solar
+    sensor produces hundreds of samples while the sun is up and none all
+    night. Binning by sample count (what this widget did up to 0.432.3)
+    squeezed the night to nothing and put yesterday's peak after sunset
+    (#339). Each slot here covers the same span of clock time: the mean
+    of the samples that fall in it, or the last value seen before it,
+    since a state holds until the next change. Slots after ``end`` (the
+    rest of today) are None so the line stops at now."""
+    if slots < 1 or end <= start:
         return []
-    n = len(values)
-    if n <= slots:
-        return [round(v, 1) for v in values]
-    out: list[float] = []
-    step = n / slots
-    for i in range(slots):
-        lo = int(i * step)
-        hi = int((i + 1) * step) or lo + 1
-        bucket = values[lo:hi] or [0.0]
-        out.append(round(sum(bucket) / len(bucket), 1))
+    day_len = timedelta(days=1)
+    slot_len = day_len / slots
+    buckets: list[list[float]] = [[] for _ in range(slots)]
+    before: tuple[datetime, float] | None = None
+    for s in samples:
+        dt = _parse_dt(s.get("last_changed") or s.get("last_updated"))
+        if dt is None:
+            continue
+        value = _f(s.get("state"))
+        if dt < start:
+            if before is None or dt >= before[0]:
+                before = (dt, value)
+            continue
+        if dt >= start + day_len:
+            continue
+        idx = min(slots - 1, int((dt - start) / slot_len))
+        buckets[idx].append(value)
+    last_open = min(slots - 1, int((end - start) / slot_len))
+    out: list[float | None] = []
+    carry: float | None = before[1] if before else None
+    for i, bucket in enumerate(buckets):
+        if i > last_open:
+            out.append(None)
+            continue
+        if bucket:
+            carry = round(sum(bucket) / len(bucket), 1)
+        out.append(round(carry, 1) if carry is not None else None)
     return out

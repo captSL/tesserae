@@ -27,10 +27,13 @@ function fmtW(v) {
   return `${Math.round(n)} W`;
 }
 
-// SVG dual-line sparkline below the Sankey. Yesterday's series
-// renders as a thin dashed ghost; today's as a thick filled line in
-// the flow accent. "Now" pip rides today's line at the current hour.
-function comparisonSparklineSvg({ today, yesterday, nowHour, accent }) {
+// SVG dual-line sparkline below the Sankey. Both series are calendar
+// days in the panel's timezone binned by clock time, 48 half-hour slots
+// from midnight to midnight, so the two lines share an x-axis. Today's
+// series is null after the current slot, so its line stops at now and
+// the "now" pip rides its last point. Yesterday's series renders as a
+// thin dashed ghost; today's as a thick filled line in the flow accent.
+function comparisonSparklineSvg({ today, yesterday, accent }) {
   const w = 320;
   const h = 56;
   const padX = 6;
@@ -38,36 +41,46 @@ function comparisonSparklineSvg({ today, yesterday, nowHour, accent }) {
   const innerW = w - padX * 2;
   const innerH = h - padY * 2;
 
-  if (!Array.isArray(today) || today.length < 2) return "";
+  const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+  const todaySeries = Array.isArray(today) ? today : [];
+  const yesterdaySeries = Array.isArray(yesterday) ? yesterday : [];
+  if (todaySeries.filter(isNum).length < 2) return "";
 
-  const allPoints = [...today, ...(Array.isArray(yesterday) ? yesterday : [])];
+  const allPoints = [...todaySeries, ...yesterdaySeries].filter(isNum);
   const min = Math.min(...allPoints);
   const max = Math.max(...allPoints);
   const range = max - min < 1 ? 1 : max - min;
 
+  // Every series spans the whole day, so a slot's x depends on its
+  // index and the series length only, whatever is null.
+  const xFor = (i, len) => padX + i * (innerW / Math.max(1, len - 1));
+  const yFor = (v) => padY + innerH - ((v - min) / range) * innerH;
+
+  // A gap (null) breaks the line; the next number starts a new segment.
   function pathFor(series) {
-    const step = innerW / Math.max(1, series.length - 1);
-    return series.map((v, i) => {
-      const x = padX + i * step;
-      const y = padY + innerH - ((v - min) / range) * innerH;
-      return `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-    }).join(" ");
+    let d = "";
+    let open = false;
+    series.forEach((v, i) => {
+      if (!isNum(v)) { open = false; return; }
+      d += `${open ? " L" : (d ? " M" : "M")} ${xFor(i, series.length).toFixed(2)} ${yFor(v).toFixed(2)}`;
+      open = true;
+    });
+    return d;
   }
 
-  const todayPath = pathFor(today);
-  const yesterdayPath = yesterday && yesterday.length >= 2 ? pathFor(yesterday) : "";
-  const todayFillPath = `${todayPath} L ${padX + innerW} ${padY + innerH} L ${padX} ${padY + innerH} Z`;
+  const todayPath = pathFor(todaySeries);
+  const yesterdayPath = yesterdaySeries.filter(isNum).length >= 2 ? pathFor(yesterdaySeries) : "";
 
-  let nowPip = "";
-  if (Number.isFinite(nowHour) && today.length >= 24) {
-    const slot = Math.max(0, Math.min(today.length - 1, Math.round((nowHour / 24) * (today.length - 1))));
-    const step = innerW / Math.max(1, today.length - 1);
-    const x = padX + slot * step;
-    const y = padY + innerH - ((today[slot] - min) / range) * innerH;
-    nowPip = `
-      <circle cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="3.5"
+  let lastIdx = -1;
+  todaySeries.forEach((v, i) => { if (isNum(v)) lastIdx = i; });
+  const firstIdx = todaySeries.findIndex(isNum);
+  const lastX = xFor(lastIdx, todaySeries.length);
+  const firstX = xFor(firstIdx, todaySeries.length);
+  const todayFillPath = `${todayPath} L ${lastX.toFixed(2)} ${(padY + innerH).toFixed(2)} L ${firstX.toFixed(2)} ${(padY + innerH).toFixed(2)} Z`;
+
+  const nowPip = `
+      <circle cx="${lastX.toFixed(2)}" cy="${yFor(todaySeries[lastIdx]).toFixed(2)}" r="3.5"
               fill="${accent}" stroke="var(--surface)" stroke-width="1.5"/>`;
-  }
 
   return `
     <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"
@@ -187,7 +200,6 @@ export default function render(shadow, ctx) {
   const compSparkline = comparisonSparklineSvg({
     today: data.sparkline_today || data.sparkline || [],
     yesterday: data.sparkline_yesterday || [],
-    nowHour: data.hour,
     accent,
   });
 

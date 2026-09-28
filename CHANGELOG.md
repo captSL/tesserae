@@ -43,6 +43,14 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Fixed
 
+- **`ha_energy` "Today vs yesterday" chart is on a clock axis (#339).** The
+  sparkline binned Home Assistant history by sample count, and a solar
+  sensor that sits at 0 W all night has almost no night samples, so the
+  night was squeezed to nothing and yesterday's peak could land after
+  sunset. Both lines are now calendar days in the panel's timezone, 48
+  half-hour slots each, binned by timestamp with a state carried forward
+  until it changes. Today's line stops at now and the "now" pip rides its
+  last point. The two lines share an x-axis, so the sun peaks line up.
 - **The Home Assistant Energy widget uses the configured timezone for its clock (#340).**
   Its displayed time and hour-based state now follow Tesserae's app timezone
   instead of the server's local timezone.
