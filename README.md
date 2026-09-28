@@ -19,11 +19,16 @@ Self-hosted dashboard companion for e-ink displays. Compose tile-based
 dashboards in a browser, render the frame headless, push it to one or
 more panels over MQTT or HTTP.
 
-Open source under AGPL-3.0-or-later. No SaaS, no cloud account. The only
-outbound contact is `api.tesserae.ink` for update checks, an anonymous
-install count, and a daily aggregate heartbeat, off by default and opt-in
-(you're asked once at first-run setup; toggle in Settings → System → Online
-features).
+Open source under AGPL-3.0-or-later. The self-hosted server needs no
+account and never has to talk to us: the only outbound contact is
+`api.tesserae.ink` for update checks, an anonymous install count, and a
+daily aggregate heartbeat, off by default and opt-in (you're asked once at
+first-run setup; toggle in Settings → System → Online features).
+
+A hosted version, Tesserae Cloud, is on its way for people who would rather
+not run a server. The self-hosted server stays the full product and stays
+free; a dashboard made in the cloud can be exported to a server of your own.
+Waitlist at [tesserae.ink](https://tesserae.ink/#cloud).
 
 **📖 [Full documentation](https://docs.tesserae.ink/):**
 install guides, [hardware quickstarts](https://docs.tesserae.ink/quickstart/),
