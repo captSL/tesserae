@@ -29,6 +29,8 @@ from typing import Any
 
 from flask import current_app
 
+from app.tz_resolve import app_timezone
+
 
 def _core() -> Any:
     return current_app.config["PLUGIN_REGISTRY"].get("ha_core").server_module
@@ -176,11 +178,12 @@ def fetch(
 
     flow = _dominant_flow(solar, grid, battery, house)
 
+    now = datetime.now(app_timezone())
     return {
         "label": options.get("label", "Home"),
         "place": options.get("label", "Home"),
-        "time": datetime.now().strftime("%H:%M"),
-        "hour": datetime.now().hour,
+        "time": now.strftime("%H:%M"),
+        "hour": now.hour,
         "solar_w": round(solar, 1),
         "grid_w": round(grid, 1),
         "battery_w": round(battery, 1),
