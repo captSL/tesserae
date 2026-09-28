@@ -35,6 +35,13 @@
       "help": "Off hides the per-row entity name, leaving icon + value."
     },
     {
+      "name": "show_last_updated",
+      "type": "boolean",
+      "label": "Show last updated",
+      "default": true,
+      "help": "Off always hides the last updated marker. When On a marker is shown if the last entity update happened less than 10 minutes ago."
+    },
+    {
       "name": "entities",
       "type": "multiselect",
       "label": "Entities",
