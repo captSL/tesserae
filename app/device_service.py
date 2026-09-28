@@ -1014,6 +1014,81 @@ def kind_protocol(kind: Device) -> str:
     return kind.id
 
 
+# Protocols with a client that subscribes to the broker. The generic
+# ``esp32_client`` / ``esp32_bw_client`` folder kinds keep the MQTT flip
+# because the legacy bin / bw MQTT clients exist for them, but every
+# hardware-catalog SKU on those protocols runs tesserae-device-firmware,
+# which has spoken REST only since July 2026 (its MQTT transport was
+# replaced outright, nothing from esp_mqtt links into the image). The
+# other protocols with topics on their manifest (KOReader, PicPak) ship
+# REST-only clients too.
+_MQTT_CAPABLE_PROTOCOLS = frozenset(
+    {"esp32_client", "esp32_bw_client", "pi_bin_client", "pi_png_client", "pico_bin_client"}
+)
+_NATIVE_FIRMWARE_PROTOCOLS = frozenset({"esp32_client", "esp32_bw_client"})
+
+
+def is_hardware_sku(kind: Device) -> bool:
+    """True for a kind derived from the hardware catalog (a SKU), as
+    opposed to a protocol folder kind."""
+    return isinstance(kind.manifest.get("_catalog_entry"), dict)
+
+
+def transport_switchable(kind: Device) -> bool:
+    """Whether an instance of ``kind`` can follow a switch to MQTT.
+
+    The Settings card's transport flip only rewrites the instance
+    manifest; nothing is sent to the device. So it is only offered where
+    the client on the device could be one that subscribes to the broker.
+    A REST-only client flipped to MQTT keeps polling REST while the card
+    badge reads "HTTP" and every render is published to the broker for
+    nothing (#341). A switch *to* REST stays allowed for every kind: for
+    a REST-only client it is the only correct state."""
+    protocol = kind_protocol(kind)
+    if protocol not in _MQTT_CAPABLE_PROTOCOLS:
+        return False
+    return not (protocol in _NATIVE_FIRMWARE_PROTOCOLS and is_hardware_sku(kind))
+
+
+def restore_rest_only_transports(registry: DeviceRegistry) -> list[str]:
+    """Put instances of REST-only kinds that read as MQTT back on REST.
+
+    Before #341 the card offered "Switch to MQTT" on every instance, and
+    taking it on a REST-only client left the instance with no transport
+    field (read as MQTT) and its access token still on the manifest. The
+    device carried on over REST regardless, so that pair is the
+    signature of the mistake: a REST-only client never earns a token any
+    other way. Kinds with no MQTT topics at all (TRMNL-protocol clients)
+    never publish, so they are left alone. Idempotent; returns the ids
+    healed."""
+    healed: list[str] = []
+    for device in list(registry.devices.values()):
+        if device.kind_of is None:
+            continue
+        kind = registry.get(str(device.kind_of))
+        if kind is None or transport_switchable(kind) or kind.status_topic is None:
+            continue
+        if device.transport != "mqtt":
+            continue
+        token = device.manifest.get("access_token")
+        if not isinstance(token, str) or not token:
+            continue
+        try:
+            raw = json.loads(device.path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(raw, dict):
+            continue
+        raw["transport"] = "rest"
+        try:
+            device.path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+        except OSError:
+            continue
+        device.manifest["transport"] = "rest"
+        healed.append(device.id)
+    return healed
+
+
 def _refresh_inherited_panel(
     raw: dict[str, Any],
     *,

@@ -6,6 +6,7 @@ renderer manifests, and the form-driven update path."""
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -1475,3 +1476,102 @@ def test_quiet_hours_weekday_pickers_render_on_both_layers(
 
     assert re.search(r'name="quiet_hours_all_day" value="sat"[^>]*\bchecked', devices)
     assert not re.search(r'name="quiet_hours_all_day" value="mon"[^>]*\bchecked', devices)
+
+
+def test_rest_only_hardware_card_has_no_switch_to_mqtt(app_with_gate: Flask) -> None:
+    """A reTerminal Sticky runs the native firmware, which speaks REST
+    only. The card must not offer "Switch to MQTT" (#341): the flip only
+    rewrites the manifest, the device carries on over REST and the badge
+    turns into the legacy "HTTP" label. A hand-crafted POST is refused
+    too. A Pi PNG client can go either way, so its card keeps the flip."""
+    client = app_with_gate.test_client()
+    client.post("/setup", data={"password": "abcdefgh", "password_confirm": "abcdefgh"})
+    client.post(
+        "/settings/devices/add",
+        data={"id": "hall_sticky", "kind": "seeed_reterminal_sticky"},
+    )
+    client.post("/settings/devices/hall_sticky/set-transport", data={"transport": "rest"})
+    registry = app_with_gate.config["DEVICE_REGISTRY"]
+    sticky = registry.get("hall_sticky")
+    assert sticky is not None and sticky.transport == "rest"
+
+    body = client.get("/settings/devices/hall_sticky").get_data(as_text=True)
+    assert "Switch to MQTT" not in body
+
+    resp = client.post(
+        "/settings/devices/hall_sticky/set-transport",
+        data={"transport": "mqtt"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert registry.get("hall_sticky").transport == "rest"
+    with client.session_transaction() as sess:
+        flashes = sess.get("_flashes", [])
+    assert any("speaks REST only" in msg for _cat, msg in flashes)
+
+    client.post(
+        "/settings/devices/add",
+        data={"id": "wall_pi", "kind": "pi_png_client", "panel_preset": "inky_7_3"},
+    )
+    client.post("/settings/devices/wall_pi/set-transport", data={"transport": "rest"})
+    body = client.get("/settings/devices/wall_pi").get_data(as_text=True)
+    assert "Switch to MQTT" in body
+
+
+def test_rest_only_hardware_left_on_mqtt_still_offers_switch_to_rest(
+    app_with_gate: Flask,
+) -> None:
+    """An instance a pre-#341 version let the operator switch to MQTT
+    reads as MQTT until the startup heal runs; the card keeps the way
+    back so it can be corrected by hand as well."""
+    client = app_with_gate.test_client()
+    client.post("/setup", data={"password": "abcdefgh", "password_confirm": "abcdefgh"})
+    client.post(
+        "/settings/devices/add",
+        data={"id": "hall_sticky", "kind": "seeed_reterminal_sticky"},
+    )
+    registry = app_with_gate.config["DEVICE_REGISTRY"]
+    sticky = registry.get("hall_sticky")
+    assert sticky is not None
+    if sticky.transport == "rest":
+        raw = json.loads(sticky.path.read_text(encoding="utf-8"))
+        raw.pop("transport", None)
+        sticky.path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+        sticky.manifest.pop("transport", None)
+    assert sticky.transport == "mqtt"
+    body = client.get("/settings/devices/hall_sticky").get_data(as_text=True)
+    assert "Switch to REST" in body
+    assert "Switch to MQTT" not in body
+
+
+def test_startup_restores_rest_on_a_switched_rest_only_device(tmp_path: Path) -> None:
+    """The heal for #341 runs when the app starts: a Sticky instance a
+    pre-#341 version let the operator switch to MQTT (token kept, no
+    transport field) comes up on REST again."""
+    inst_dir = tmp_path / "devices"
+    inst_dir.mkdir(parents=True)
+    (inst_dir / "hall_sticky.json").write_text(
+        json.dumps(
+            {
+                "id": "hall_sticky",
+                "kind": "seeed_reterminal_sticky",
+                "name": "Hall",
+                "access_token": "7e57c0de-abcdef0123456789",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    app = create_app(
+        testing=True,
+        data_root=tmp_path,
+        plugins_dir=REPO_ROOT / "plugins",
+        renderers_dir=REPO_ROOT / "renderers",
+    )
+    device = app.config["DEVICE_REGISTRY"].get("hall_sticky")
+    assert device is not None
+    assert device.transport == "rest"
+    saved = json.loads((inst_dir / "hall_sticky.json").read_text(encoding="utf-8"))
+    assert saved["transport"] == "rest"
+    assert saved["access_token"] == "7e57c0de-abcdef0123456789"

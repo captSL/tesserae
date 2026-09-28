@@ -1179,3 +1179,101 @@ def test_update_quiet_hours_all_day_survives_blank_times(registries) -> None:
         "all_day": ["sat", "sun"],
         "sleep": False,
     }
+
+
+# -- #341: REST-only clients can't follow a switch to MQTT -------------------
+
+
+def test_transport_switchable_by_protocol_and_sku(registries_with_catalog) -> None:
+    """The MQTT flip is only meaningful where a client that subscribes to
+    the broker exists. Generic esp32 folder kinds keep it (legacy MQTT
+    clients), hardware SKUs on those protocols run the REST-only native
+    firmware, and the Pi / Pico clients speak both."""
+    devices, _renderers, _data_root = registries_with_catalog
+    switchable = {
+        kid: device_service.transport_switchable(devices.get(kid))
+        for kid in (
+            "esp32_client",
+            "esp32_bw_client",
+            "pi_png_client",
+            "pi_bin_client",
+            "pico_bin_client",
+            "seeed_reterminal_sticky",
+            "seeed_reterminal_e1004",
+            "koreader_client",
+            "trmnl_client",
+            "picpak_client",
+        )
+    }
+    assert switchable == {
+        "esp32_client": True,
+        "esp32_bw_client": True,
+        "pi_png_client": True,
+        "pi_bin_client": True,
+        "pico_bin_client": True,
+        "seeed_reterminal_sticky": False,
+        "seeed_reterminal_e1004": False,
+        "koreader_client": False,
+        "trmnl_client": False,
+        "picpak_client": False,
+    }
+
+
+def _strip_transport(data_root: Path, instance_id: str) -> None:
+    """Rewrite an instance file the way the pre-#341 flip did: no
+    transport field, token left in place."""
+    path = data_root / f"{instance_id}.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw.pop("transport", None)
+    path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+
+
+def test_restore_rest_only_transports_heals_a_switched_sticky(registries_with_catalog) -> None:
+    devices, renderers, data_root = registries_with_catalog
+    sticky = device_service.create_instance(
+        devices=devices,
+        renderers=renderers,
+        data_root=data_root,
+        instance_id="hall_sticky",
+        kind_id="seeed_reterminal_sticky",
+        transport="rest",
+    )
+    assert sticky.ok and sticky.device is not None
+    assert sticky.device.manifest.get("access_token")
+    # A generic esp32 instance with a token and no transport is a legit
+    # legacy-MQTT device that once visited REST; it must not be touched.
+    generic = device_service.create_instance(
+        devices=devices,
+        renderers=renderers,
+        data_root=data_root,
+        instance_id="shed_esp32",
+        kind_id="esp32_client",
+        transport="rest",
+    )
+    assert generic.ok and generic.device is not None
+    # TRMNL-protocol clients carry a token by design and never publish.
+    trmnl = device_service.create_instance(
+        devices=devices,
+        renderers=renderers,
+        data_root=data_root,
+        instance_id="desk_trmnl",
+        kind_id="trmnl_client",
+    )
+    assert trmnl.ok and trmnl.device is not None
+
+    for iid in ("hall_sticky", "shed_esp32"):
+        _strip_transport(data_root, iid)
+        devices.get(iid).manifest.pop("transport", None)
+    assert devices.get("hall_sticky").transport == "mqtt"
+
+    healed = device_service.restore_rest_only_transports(devices)
+
+    assert healed == ["hall_sticky"]
+    assert devices.get("hall_sticky").transport == "rest"
+    saved = json.loads((data_root / "hall_sticky.json").read_text(encoding="utf-8"))
+    assert saved["transport"] == "rest"
+    assert saved["access_token"] == sticky.device.manifest["access_token"]
+    assert devices.get("shed_esp32").transport == "mqtt"
+    assert devices.get("desk_trmnl").transport == "mqtt"
+    # Idempotent.
+    assert device_service.restore_rest_only_transports(devices) == []

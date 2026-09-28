@@ -161,6 +161,14 @@ per-clone renderer settings stay; only the transport flips.
   one doesn't exist, shows the token in a one-shot reveal so you can
   copy it into firmware.
 
+The switch only changes what the server does; nothing is sent to the
+device, so it is offered only where the client on the device could
+follow. Boards running `tesserae-device-firmware` (the reTerminal
+family, XIAO, M5Stack, Xteink and the other flashed ESP32 boards), the
+KOReader plugin and PicPak speak REST only, so their cards show no
+**Switch to MQTT**. An instance of one of those that an older version
+let you switch is put back on REST when the server starts.
+
 ## Synchronized wake (optional)
 
 By default each device counts its sleep from whenever it last checked

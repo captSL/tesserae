@@ -558,6 +558,7 @@ def create_app(
         backfill_native_panel_dims,
         migrate_retired_sticky_kinds,
         relocate_orphan_instance_files,
+        restore_rest_only_transports,
     )
 
     # Heal instance manifests a pre-fix REST /register wrote to the data
@@ -599,6 +600,16 @@ def create_app(
     )
     for derr in devices.errors:
         logger.warning("device loader: %s, %s", derr.device_id, derr.message)
+
+    # An instance of a REST-only kind (native ESP32 firmware, KOReader,
+    # PicPak) that an older version let the operator "switch to MQTT" is
+    # put back on REST; the client never left it (#341).
+    _restored_ids = restore_rest_only_transports(devices)
+    if _restored_ids:
+        logger.info(
+            "device migration: restored REST transport on %s (the client speaks REST only)",
+            ", ".join(_restored_ids),
+        )
 
     # Multi-head: for each user-created device instance, clone the
     # renderers of its kind with the instance's id substituted into

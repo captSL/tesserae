@@ -43,6 +43,17 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Fixed
 
+- **No "Switch to MQTT" on REST-only hardware (#341).** The device card
+  offered the transport flip on every instance, but the flip only rewrites
+  the manifest; nothing is sent to the device. On a reTerminal Sticky, whose
+  firmware has spoken REST only since July 2026, taking it left the device
+  polling REST as before while the card badge read "HTTP" and every render
+  was published to the broker for nothing. The button is now offered only
+  where the client could follow (the generic ESP32 folder kinds and the Pi
+  and Pico clients); hardware SKUs on the native firmware, KOReader and
+  PicPak get no switch to MQTT, the route refuses a hand-crafted POST, and
+  an instance an older version let you switch is put back on REST at
+  startup. The confirm dialog and the REST transport page say so.
 - **`ha_energy` "Today vs yesterday" chart is on a clock axis (#339).** The
   sparkline binned Home Assistant history by sample count, and a solar
   sensor that sits at 0 W all night has almost no night samples, so the

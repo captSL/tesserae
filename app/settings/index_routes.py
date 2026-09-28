@@ -20,7 +20,7 @@ from flask import current_app, flash, redirect, render_template, request, sessio
 from werkzeug.wrappers import Response
 
 from app import backup as _backup_mod
-from app import device_timetable, palette_profiles, test_patterns
+from app import device_service, device_timetable, palette_profiles, test_patterns
 from app import firmware_check as firmware_check_module
 from app import install_id as install_id_module
 from app import updater as _updater_mod
@@ -1066,9 +1066,18 @@ def _build_device_section(store: Any, device: Device) -> dict[str, Any] | None:
         # Push devices (OpenDisplay-via-HA) don't flip: there's no
         # broker to switch to and no REST poll to mint a token for,
         # the frame always goes out through the HA service call.
+        # A REST-only client (native ESP32 firmware, KOReader, PicPak)
+        # gets no "Switch to MQTT" either: the flip only rewrites the
+        # manifest and the device would carry on over REST (#341). The
+        # switch back to REST stays, so an instance of one left on MQTT
+        # can be corrected.
         "set_transport_endpoint": (
             url_for("auth.devices_set_transport", instance_id=device.id)
-            if is_instance and device.transport in ("mqtt", "rest")
+            if is_instance
+            and (
+                device.transport == "mqtt"
+                or (device.transport == "rest" and _transport_switchable(device))
+            )
             else None
         ),
         "transport": device.transport if is_instance else None,
@@ -1662,6 +1671,13 @@ def _device_meta_block(device: Device, is_instance: bool) -> dict[str, Any]:
 
 # Short transport label used by the device card's header badge.
 _TRANSPORT_BADGE = {"rest": "REST", "mqtt": "MQTT", "push": "HA"}
+
+
+def _transport_switchable(device: Device) -> bool:
+    """Whether the instance's kind has a client that could follow a
+    switch to MQTT (see ``device_service.transport_switchable``)."""
+    kind = devices().get(str(device.kind_of)) if device.kind_of else None
+    return kind is not None and device_service.transport_switchable(kind)
 
 
 def _transport_badge(device: Device) -> str:

@@ -365,6 +365,18 @@ def devices_set_transport(instance_id: str) -> Response:
     if new_transport not in ("mqtt", "rest"):
         flash("Transport must be 'mqtt' or 'rest'.", "error")
         return redirect_to
+    if new_transport == "mqtt":
+        kind = devs.get(str(device.kind_of))
+        if kind is None or not device_service.transport_switchable(kind):
+            # The flip only rewrites the manifest; a REST-only client would
+            # carry on polling REST while the server publishes to the broker
+            # for nothing (#341). The card hides the button for these kinds,
+            # so this only guards a hand-crafted POST.
+            flash(
+                f"{device.name} can't be switched to MQTT: its client speaks REST only.",
+                "error",
+            )
+            return redirect_to
 
     try:
         raw = json.loads(device.path.read_text(encoding="utf-8"))
