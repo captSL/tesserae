@@ -313,6 +313,20 @@ APP_FIELDS: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "quiet_hours_touch_off",
+        "type": "switch",
+        "label": "Touch off during quiet hours",
+        "default": False,
+        "group": "quiet_hours",
+        "group_role": "dependent",
+        "help": (
+            "Switch touch panels' touchscreens off inside the quiet window, so the "
+            "touch controller sleeps with the panel instead of staying awake to "
+            "catch a tap. A tap does nothing until the window ends; the buttons "
+            "still wake the panel. Always-on panels are unaffected."
+        ),
+    },
+    {
         "name": "low_battery_overlay",
         "type": "switch",
         "label": "Low-battery overlay on device pushes",

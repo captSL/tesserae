@@ -75,6 +75,7 @@ def _set_device_quiet_override(app: Flask, device_id: str, enabled: bool) -> str
     days: list[str] | None = None
     all_day: list[str] | None = None
     sleep: bool | None = None
+    touch_off: bool | None = None
     if enabled and not (start and end):
         from app.quiet_hours import ALL_DAYS, NO_DAYS, days_to_keys, parse_days
 
@@ -89,6 +90,8 @@ def _set_device_quiet_override(app: Flask, device_id: str, enabled: bool) -> str
             all_day = days_to_keys(parse_days(app_section.get("quiet_hours_all_day"), NO_DAYS))
         if not stored or "sleep" not in stored:
             sleep = bool(app_section.get("quiet_hours_sleep"))
+        if not stored or "touch_off" not in stored:
+            touch_off = bool(app_section.get("quiet_hours_touch_off"))
     result = device_service.update_instance_quiet_hours(
         devices=devices,
         renderers=app.config["RENDERER_REGISTRY"],
@@ -100,6 +103,7 @@ def _set_device_quiet_override(app: Flask, device_id: str, enabled: bool) -> str
         days=days,
         all_day=all_day,
         sleep=sleep,
+        touch_off=touch_off,
     )
     return None if result.ok else (result.error or "Couldn't save quiet hours.")
 

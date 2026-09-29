@@ -2409,6 +2409,95 @@ def test_next_poll_s_ignores_sleep_through_when_quiet_never_ends(app: Flask) -> 
     assert _poll_after_status(app, client, token) == 300
 
 
+# -- #327: touchscreen off inside a quiet window ---------------------------
+
+
+def _set_device_config(app: Flask, device_id: str, **values: Any) -> None:
+    store = app.config["SETTINGS_STORE"]
+    section = store.get_section("devices") or {}
+    entry = dict(section.get(device_id) or {})
+    entry.update(values)
+    store.patch_section("devices", {device_id: entry})
+
+
+def _status_config(client, token: str, device_id: str = "poll_panel") -> dict[str, Any]:
+    resp = client.post(
+        f"/api/v1/device/{device_id}/status",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        data=json.dumps({"battery_pct": 80}),
+    )
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    return resp.get_json()["config"]
+
+
+def _quiet_touch_off(app: Flask, *, touch_off: bool, inside: bool = True) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime.now(UTC).replace(second=0, microsecond=0)
+    # Inside: started an hour ago, ends in two. Outside: opens in two
+    # hours and closes in three, so now is before it.
+    start = now - timedelta(hours=1) if inside else now + timedelta(hours=2)
+    end = now + timedelta(hours=2) if inside else now + timedelta(hours=3)
+    app.config["SETTINGS_STORE"].patch_section(
+        "app",
+        {
+            "timezone": "UTC",
+            "quiet_hours_enabled": True,
+            "quiet_hours_start": start.strftime("%H:%M"),
+            "quiet_hours_end": end.strftime("%H:%M"),
+            "quiet_hours_touch_off": touch_off,
+        },
+    )
+
+
+def test_status_reports_touch_off_inside_a_quiet_window_that_asks(app: Flask) -> None:
+    """The panel is told touch is off for this wake, so its firmware parks
+    the digitiser for the sleep; the operator's stored setting is untouched,
+    so the first wake after the window turns it back on."""
+    client, token = _paired_client(app)
+    _set_device_config(app, "poll_panel", touch_enabled=True)
+    _quiet_touch_off(app, touch_off=True)
+
+    assert _status_config(client, token)["touch_enabled"] is False
+    stored = app.config["SETTINGS_STORE"].get_section("devices")["poll_panel"]
+    assert stored["touch_enabled"] is True
+
+
+def test_status_keeps_touch_on_in_quiet_hours_by_default(app: Flask) -> None:
+    """Opt-in: a tap can still wake a sleeping panel at night (a bedside
+    light switch) unless the operator asks otherwise."""
+    client, token = _paired_client(app)
+    _set_device_config(app, "poll_panel", touch_enabled=True)
+    _quiet_touch_off(app, touch_off=False)
+
+    assert _status_config(client, token)["touch_enabled"] is True
+
+
+def test_status_keeps_touch_on_outside_the_quiet_window(app: Flask) -> None:
+    client, token = _paired_client(app)
+    _set_device_config(app, "poll_panel", touch_enabled=True)
+    _quiet_touch_off(app, touch_off=True, inside=False)
+
+    assert _status_config(client, token)["touch_enabled"] is True
+
+
+def test_status_leaves_touch_alone_on_an_always_on_panel(app: Flask) -> None:
+    """An always-on panel never sleeps, so parking saves nothing and touch
+    is how it is used."""
+    client, token = _paired_client(app)
+    _set_device_config(app, "poll_panel", touch_enabled=True, always_on=True)
+    _quiet_touch_off(app, touch_off=True)
+
+    assert _status_config(client, token)["touch_enabled"] is True
+
+
+def test_status_does_not_add_touch_config_to_a_panel_without_it(app: Flask) -> None:
+    client, token = _paired_client(app)
+    _quiet_touch_off(app, touch_off=True)
+
+    assert "touch_enabled" not in _status_config(client, token)
+
+
 def test_next_poll_s_ignores_estimated_events(app: Flask) -> None:
     """An ``estimated`` projection is the engine guessing at an unanchored
     cadence; waking early for one trades a real wake for a maybe."""

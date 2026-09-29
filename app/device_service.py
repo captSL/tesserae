@@ -1217,6 +1217,7 @@ def update_instance_quiet_hours(
     days: list[str] | None = None,
     all_day: list[str] | None = None,
     sleep: bool | None = None,
+    touch_off: bool | None = None,
 ) -> InstanceResult:
     """Patch a registered instance's ``quiet_hours`` block on disk and
     hot-reload it in place. Empty or invalid times disable the timed
@@ -1225,8 +1226,8 @@ def update_instance_quiet_hours(
 
     The block on disk is the shape :mod:`app.quiet_hours` reads:
     ``{enabled: bool, start: 'HH:MM', end: 'HH:MM', days: [...],
-    all_day: [...], sleep: bool}``. ``days``, ``all_day`` and ``sleep``
-    passed as ``None`` keep whatever the block already holds, so a
+    all_day: [...], sleep: bool, touch_off: bool}``. ``days``,
+    ``all_day``, ``sleep`` and ``touch_off`` passed as ``None`` keep whatever the block already holds, so a
     caller that only knows about the times (the Home Assistant switch)
     never wipes the weekday choice. When the user clears every field we
     drop the block entirely so the device falls back to the app-level
@@ -1247,6 +1248,7 @@ def update_instance_quiet_hours(
     keep_days = previous.get("days") if days is None else days
     keep_all_day = previous.get("all_day") if all_day is None else all_day
     keep_sleep = previous.get("sleep") if sleep is None else sleep
+    keep_touch_off = previous.get("touch_off") if touch_off is None else touch_off
     if not enabled and not clean_start and not clean_end and not keep_all_day:
         # Fully cleared, drop the block entirely so the next reload
         # sees a manifest with no override and uses the app setting.
@@ -1265,6 +1267,8 @@ def update_instance_quiet_hours(
             block["all_day"] = days_to_keys(parse_days(keep_all_day, NO_DAYS))
         if keep_sleep is not None:
             block["sleep"] = bool(keep_sleep)
+        if keep_touch_off is not None:
+            block["touch_off"] = bool(keep_touch_off)
         raw["quiet_hours"] = block
     inst_file.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
 

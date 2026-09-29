@@ -233,6 +233,28 @@ def _quiet_sleep_through_s(device: Device) -> int | None:
     return min(int((ends - now).total_seconds()) + _QUIET_SLEEP_MARGIN_S, _QUIET_SLEEP_MAX_S)
 
 
+def quiet_touch_off(device: Device) -> bool:
+    """True when this device is inside a quiet window that asked for its
+    touchscreen to be off. The REST status response then reports
+    ``touch_enabled: false`` for that wake only; the stored config is
+    untouched, so the first wake after the window turns touch back on.
+    Firmware that reads touch config per heartbeat parks the digitiser
+    for the sleep instead of leaving it scanning for a wake tap. Always-on
+    panels are excluded for the same reason as sleep-through: they never
+    sleep, so nothing is saved, and touch is how they are used."""
+    if device_awake_poll_s(device) is not None:
+        return False
+    from datetime import UTC, datetime
+
+    from app.quiet_hours import is_in_window, resolve_quiet_hours
+    from app.tz_resolve import app_timezone
+
+    window = resolve_quiet_hours(_settings().get_section("app") or {}, device)
+    if window is None or not window.touch_off:
+        return False
+    return is_in_window(window, datetime.now(UTC), app_timezone())
+
+
 def next_poll_decision(device: Device, *, configured_s: int) -> tuple[int, int | None]:
     """How many seconds until the client should poll again, plus the
     absolute wake instant (epoch) when wake alignment issued one.

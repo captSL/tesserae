@@ -1181,6 +1181,37 @@ def test_update_quiet_hours_all_day_survives_blank_times(registries) -> None:
     }
 
 
+def test_update_quiet_hours_touch_off_persists_and_survives_a_times_only_save(
+    registries,
+) -> None:
+    """#327: the touch-off switch is stored on the override block, and a
+    caller that passes only times (the Home Assistant switch) keeps it."""
+    devices, renderers, data_root = registries
+    device_service.create_instance(
+        devices=devices,
+        renderers=renderers,
+        data_root=data_root,
+        instance_id="bedside",
+        kind_id="esp32_client",
+    )
+    common = {
+        "devices": devices,
+        "renderers": renderers,
+        "data_root": data_root,
+        "instance_id": "bedside",
+        "enabled": True,
+        "start": "22:00",
+        "end": "07:00",
+    }
+    first = device_service.update_instance_quiet_hours(**common, sleep=True, touch_off=True)
+    assert first.ok and first.device is not None
+    assert first.device.manifest["quiet_hours"]["touch_off"] is True
+    second = device_service.update_instance_quiet_hours(**common)
+    assert second.ok and second.device is not None
+    assert second.device.manifest["quiet_hours"]["touch_off"] is True
+    assert second.device.manifest["quiet_hours"]["sleep"] is True
+
+
 # -- #341: REST-only clients can't follow a switch to MQTT -------------------
 
 

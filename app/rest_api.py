@@ -907,6 +907,25 @@ def _current_config(device: Device) -> dict[str, Any]:
     return device_config_doc(_settings(), device)
 
 
+def _status_config(device: Device) -> dict[str, Any]:
+    """The config block for a /status response: :func:`_current_config`
+    with the quiet-hours touch override applied. Inside a quiet window that
+    asked for touch off, a touch panel is told ``touch_enabled: false`` for
+    this wake, so it parks its digitiser through the sleep. Only here, on
+    the per-wake reply: the stored config, the registration responses and
+    the relay config mailbox keep the operator's own setting."""
+    config = _current_config(device)
+    if config.get("touch_enabled") is True:
+        try:
+            if device_poll.quiet_touch_off(device):
+                config["touch_enabled"] = False
+        except Exception:
+            current_app.logger.exception(
+                "rest /status: quiet-hours touch check failed for device=%s", device.id
+            )
+    return config
+
+
 def _advertised_ota_schema(body: dict[str, Any]) -> int | None:
     """The OTA schema version a device advertises support for, from the
     ``ota`` capability object in its register/status body
@@ -1713,7 +1732,7 @@ def post_status(device_id: str) -> Response:
     next_poll_s, wake_at = _next_poll_decision(device)
     response = {
         "status": 200,
-        "config": _current_config(device),
+        "config": _status_config(device),
         "next_poll_s": next_poll_s,
         # Integer epoch, NOT a float: CircuitPython / MicroPython clients parse a
         # JSON float into a single-precision float32, whose resolution near 1.78e9

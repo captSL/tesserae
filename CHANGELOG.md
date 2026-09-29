@@ -8,6 +8,14 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Added
 
+- **Touch off during quiet hours (#327).** A new quiet-hours switch, off by
+  default, on the app-level window and on a device's override (touch panels
+  only). Inside the window, the REST status response reports
+  `touch_enabled: false` for that wake, so firmware v1.40.0 or later puts the
+  touch controller to sleep instead of keeping it awake for a tap. The saved
+  setting is untouched, so the first wake after the window turns touch back
+  on. Always-on panels and the relay config mailbox are unaffected.
+
 - **The relay can cap frames per panel per day.** A relay configured with
   `FRAME_DAILY_LIMIT` answers a frame upload past the cap with `429
   rate_limited` and a `Retry-After` of the next 00:00 UTC; the upload is not

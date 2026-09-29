@@ -338,6 +338,18 @@ def test_resolve_defaults_to_every_day_and_no_sleep_for_old_settings() -> None:
     assert window.days == ALL_DAYS and window.all_day == NO_DAYS and not window.sleep_through
 
 
+def test_resolve_reads_touch_off_from_either_layer() -> None:
+    """#327: the touch-off switch rides the same two layers as sleep-through
+    and defaults off, so existing settings keep touch on at night."""
+    assert resolve_quiet_hours(_OFFICE, _device(None)).touch_off is False  # type: ignore[union-attr]
+    app_window = resolve_quiet_hours({**_OFFICE, "quiet_hours_touch_off": True}, _device(None))
+    assert app_window is not None and app_window.touch_off is True
+    dev = _device({"enabled": True, "start": "21:00", "end": "06:00", "touch_off": True})
+    dev_window = resolve_quiet_hours(_OFFICE, dev)
+    assert dev_window is not None and dev_window.touch_off is True
+    assert dev_window.sleep_through is False
+
+
 def test_resolve_keeps_all_day_days_when_the_times_are_blank() -> None:
     """A weekend-only office leaves the nightly window empty; the
     all-day days must still count rather than the whole thing vanishing."""

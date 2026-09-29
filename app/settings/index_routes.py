@@ -1217,6 +1217,9 @@ def _build_device_section(store: Any, device: Device) -> dict[str, Any] | None:
             if is_instance
             else None
         ),
+        # The touch-off switch only means something on a kind whose
+        # firmware takes touch config (touch_enabled in its schema).
+        "quiet_hours_touch": "touch_enabled" in (device.config_schema or {}),
         # Per-device battery-display offset (mV + %). Manifest
         # block is ``battery_offset: {mv, pct}``; both default to
         # 0 and the block drops when both are 0. Like quiet

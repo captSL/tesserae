@@ -943,14 +943,15 @@ def _quiet_days_from_form(form: Any) -> dict[str, Any]:
     """The weekday and sleep-through parts of a quiet-hours submission.
     The pickers post a ``<name>__present`` marker, so a form without them
     (an older client, a test posting only the times) leaves the stored
-    days alone rather than wiping them; the sleep switch rides along with
-    the pickers, since the templates render the three together."""
+    days alone rather than wiping them; the sleep and touch switches ride
+    along with the pickers, since the templates render them together."""
     if "quiet_hours_days__present" not in form:
         return {}
     return {
         "days": [d for d in form.getlist("quiet_hours_days") if d],
         "all_day": [d for d in form.getlist("quiet_hours_all_day") if d],
         "sleep": bool(form.get("quiet_hours_sleep")),
+        "touch_off": bool(form.get("quiet_hours_touch_off")),
     }
 
 

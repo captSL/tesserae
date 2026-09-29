@@ -27,7 +27,9 @@ day's early morning up to ``end`` and its evening from ``start``, and
 an all-day day is quiet from midnight to midnight. A layer can ask
 for the device to *sleep through* its quiet window: the REST status
 response then stretches ``next_poll_s`` to the end of the window
-instead of letting the panel wake for nothing.
+instead of letting the panel wake for nothing. It can also switch a
+touch panel's touchscreen off inside the window, so the digitiser is
+parked through those sleeps rather than scanning for a tap nobody makes.
 """
 
 from __future__ import annotations
@@ -63,13 +65,15 @@ class QuietHoursWindow(NamedTuple):
     ``all_day`` the weekdays that are quiet from midnight to midnight;
     both are ``datetime.weekday()`` numbers. ``sleep_through`` asks the
     device REST path to sleep until the window ends rather than waking
-    on its usual interval inside it."""
+    on its usual interval inside it. ``touch_off`` asks it to report a
+    touch panel's touchscreen as off to wakes inside the window."""
 
     start: time
     end: time
     days: frozenset[int] = ALL_DAYS
     all_day: frozenset[int] = NO_DAYS
     sleep_through: bool = False
+    touch_off: bool = False
 
 
 def _parse_hhmm(value: str | None) -> time | None:
@@ -124,6 +128,7 @@ def _build_window(
     days: frozenset[int],
     all_day: frozenset[int],
     sleep_through: bool,
+    touch_off: bool = False,
 ) -> QuietHoursWindow | None:
     """Assemble a window, or ``None`` when it could never be quiet. A
     missing or degenerate start/end pair disables the timed part but
@@ -133,7 +138,7 @@ def _build_window(
         start, end, days = time(0, 0), time(0, 0), NO_DAYS
     if not days and not all_day:
         return None
-    return QuietHoursWindow(start, end, days, all_day, bool(sleep_through))
+    return QuietHoursWindow(start, end, days, all_day, bool(sleep_through), bool(touch_off))
 
 
 def _device_override(device: Any) -> dict[str, Any] | None:
@@ -172,6 +177,7 @@ def resolve_quiet_hours(
             parse_days(override.get("days"), ALL_DAYS),
             parse_days(override.get("all_day"), NO_DAYS),
             bool(override.get("sleep")),
+            bool(override.get("touch_off")),
         )
         if window is not None:
             return window
@@ -184,6 +190,7 @@ def resolve_quiet_hours(
         parse_days(app_settings.get("quiet_hours_days"), ALL_DAYS),
         parse_days(app_settings.get("quiet_hours_all_day"), NO_DAYS),
         bool(app_settings.get("quiet_hours_sleep")),
+        bool(app_settings.get("quiet_hours_touch_off")),
     )
 
 

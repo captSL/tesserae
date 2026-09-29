@@ -94,6 +94,20 @@ Devices that never sleep (always-on kiosks) are unaffected. Any client that
 honours `next_poll_s` gets this for free; there is nothing to configure on the
 device.
 
+**Touch off during quiet hours** is for touch panels. With touch on, the
+touch controller stays awake through every sleep so that a tap can wake the
+panel, and that costs battery all night. With this switch on, a wake inside
+the window is told that touch is off, so the panel puts its touch controller
+to sleep as well. The first wake after the window turns touch back on. Your
+saved touch setting is never changed. A tap does nothing until the window
+ends; the physical buttons still wake the panel. Leave it off if you use the
+panel at night, for example as a bedside light switch. Always-on panels are
+unaffected. It pairs well with sleep-through, but works without it: the panel
+then parks its touchscreen on each wake inside the window. It needs firmware
+v1.40.0 or later on the panel; older firmware leaves the touch controller
+running, which is no worse than before. On the device page the switch only
+appears for panels with a touchscreen.
+
 ## Compose a dashboard
 
 The page editor models a dashboard as **one page → one layout preset → one

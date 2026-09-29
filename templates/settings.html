@@ -359,6 +359,11 @@
       {{ switch(section.id ~ '-qh-sleep', 'quiet_hours_sleep', 'Sleep through quiet hours',
                 checked=section.quiet_hours.get('sleep', False),
                 help='Sleep until the window ends instead of waking on the usual interval inside it. A manual push during the window is not seen until it ends.') }}
+      {% if section.quiet_hours_touch %}
+      {{ switch(section.id ~ '-qh-touch-off', 'quiet_hours_touch_off', 'Touch off during quiet hours',
+                checked=section.quiet_hours.get('touch_off', False),
+                help='Switch the touchscreen off inside the window so the touch controller sleeps with the panel. A tap does nothing until the window ends; the buttons still wake it.') }}
+      {% endif %}
     </div>
     {% endif %}
 

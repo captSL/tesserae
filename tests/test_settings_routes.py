@@ -1417,6 +1417,7 @@ def test_update_quiet_hours_persists_days_all_day_and_sleep(
             "quiet_hours_days": ["mon", "tue", "wed", "thu", "fri"],
             "quiet_hours_all_day": ["sat", "sun"],
             "quiet_hours_sleep": "on",
+            "quiet_hours_touch_off": "on",
         },
         follow_redirects=False,
     )
@@ -1430,6 +1431,7 @@ def test_update_quiet_hours_persists_days_all_day_and_sleep(
         "days": ["mon", "tue", "wed", "thu", "fri"],
         "all_day": ["sat", "sun"],
         "sleep": True,
+        "touch_off": True,
     }
     # A later post without the pickers (the times only) keeps them.
     client.post(
@@ -1444,6 +1446,7 @@ def test_update_quiet_hours_persists_days_all_day_and_sleep(
     assert dev is not None
     qh = dev.manifest.get("quiet_hours") or {}
     assert qh["start"] == "21:00" and qh["all_day"] == ["sat", "sun"] and qh["sleep"] is True
+    assert qh["touch_off"] is True
 
 
 def test_quiet_hours_weekday_pickers_render_on_both_layers(
@@ -1476,6 +1479,30 @@ def test_quiet_hours_weekday_pickers_render_on_both_layers(
 
     assert re.search(r'name="quiet_hours_all_day" value="sat"[^>]*\bchecked', devices)
     assert not re.search(r'name="quiet_hours_all_day" value="mon"[^>]*\bchecked', devices)
+
+
+def test_quiet_hours_touch_off_switch_renders_only_where_touch_exists(
+    app_with_gate: Flask,
+) -> None:
+    """#327: the app layer always offers the switch; a device card only
+    when its kind takes touch config, so a panel with no touchscreen isn't
+    shown a control that does nothing."""
+    client = app_with_gate.test_client()
+    client.post("/setup", data={"password": "abcdefgh", "password_confirm": "abcdefgh"})
+    client.post(
+        "/settings/devices/add",
+        data={"id": "esp32_lab", "kind": "esp32_client", "panel_preset": "inky_7_3"},
+    )
+    client.post(
+        "/settings/devices/add",
+        data={"id": "hall_sticky", "kind": "seeed_reterminal_sticky"},
+    )
+    server = client.get("/settings/server").get_data(as_text=True)
+    assert 'name="quiet_hours_touch_off"' in server
+    sticky = client.get("/settings/devices/hall_sticky").get_data(as_text=True)
+    assert 'name="quiet_hours_touch_off"' in sticky
+    plain = client.get("/settings/devices/esp32_lab").get_data(as_text=True)
+    assert 'name="quiet_hours_touch_off"' not in plain
 
 
 def test_rest_only_hardware_card_has_no_switch_to_mqtt(app_with_gate: Flask) -> None:
