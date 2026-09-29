@@ -8,6 +8,20 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Added
 
+- **Device log upload and failure reporting.** Native firmware that
+  advertises `logs: {schema: 1}` on its status can now send its serial log
+  to the server. The device page gains a Logs section (only for such panels)
+  to collect logs on the next 1, 5 or 20 wakes, view an upload inline or
+  download it, and see the last detected failure. The status response asks
+  for an upload with a top-level `logs: {upload: true}`, never inside
+  `config`. A status carrying a new `diag` report (failed paint, brownout,
+  panic or watchdog reset) writes an error row to Events, and by default
+  pulls the log up on that same wake; the "Collect a device's log after a
+  failed paint" switch in Settings › Server turns that off. `POST /log` with
+  `Content-Type: text/plain` stores a batch (64 KB cap, `413` above) under
+  `data/core/device_logs/<device_id>/`, keeping the newest 20 uploads up to
+  1 MB per device; JSON log lines keep their single Events row. Deleting the
+  device deletes its logs.
 - **Touch off during quiet hours (#327).** A new quiet-hours switch, off by
   default, on the app-level window and on a device's override (touch panels
   only). Inside the window, the REST status response reports

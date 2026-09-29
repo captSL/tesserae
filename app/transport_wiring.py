@@ -25,7 +25,14 @@ from typing import Any
 
 from flask import Flask
 
-from app import collection_sync, deck_sync, device_loader, overlay_sync, renderer_loader
+from app import (
+    collection_sync,
+    deck_sync,
+    device_loader,
+    device_logs,
+    overlay_sync,
+    renderer_loader,
+)
 from app.device_service import awake_poll_interval_s
 from app.discovery import DiscoveryCache, device_id_from_status_topic
 from app.embedded_broker import EmbeddedBroker
@@ -285,7 +292,7 @@ def record_status_heartbeat(
     status_cache: dict[str, dict[str, Any]],
     event_log: EventLog,
     event_target: str,
-) -> None:
+) -> dict[str, Any] | None:
     """Single source of truth for "a device heartbeat just arrived":
 
     * Parse the body via the device kind's ``parse_status`` hook.
@@ -306,8 +313,16 @@ def record_status_heartbeat(
     and the REST status endpoint in ``app.rest_api`` call this. Keeping
     the side effects in one helper means a future third transport
     can't accidentally skip telemetry/battery/event-log updates the
-    way the initial v0.52 REST handler did."""
+    way the initial v0.52 REST handler did.
+
+    Returns the ``diag`` failure report this beat carried when it was new
+    (not a re-send of one already seen), else None; the REST status handler
+    answers a new one with a log upload request."""
     parsed = device.parse_status(payload)
+    # A diag report is a one-off event with its own dedup and cache slot
+    # (below), not a reading: merged into the heartbeat it would stick to
+    # every later beat and read as a current failure.
+    parsed.pop("diag", None)
     received_at = time.time()
     prev_entry = status_cache.get(device.id, {})
     prev = prev_entry.get("parsed", {})
@@ -397,6 +412,39 @@ def record_status_heartbeat(
         entry["can_stay_awake"] = can_stay_awake
     elif prev_entry.get("can_stay_awake") is not None:
         entry["can_stay_awake"] = prev_entry["can_stay_awake"]
+    # Log upload capability: sticky like ota_schema (a firmware property).
+    logs_schema = device_logs.advertised_logs_schema(payload)
+    if logs_schema is not None:
+        entry["logs_schema"] = logs_schema
+    elif prev_entry.get("logs_schema") is not None:
+        entry["logs_schema"] = prev_entry["logs_schema"]
+    # Detected failure (paint error / abnormal reset). The firmware re-sends
+    # the same report on every beat until one returns 2xx, so dedup on its
+    # id: one error row per failure, and the latest one stays on the cache
+    # for the device page's "last paint failure" line.
+    new_diag: dict[str, Any] | None = None
+    diag_prev = prev_entry.get("diag")
+    diag = device_logs.parse_diag(payload)
+    if diag is not None:
+        log_store = app.config.get("DEVICE_LOGS")
+        if log_store is not None:
+            is_new = log_store.note_diag(device.id, diag, received_at)
+        else:
+            is_new = not (isinstance(diag_prev, dict) and diag_prev.get("id") == diag["id"])
+        if is_new:
+            new_diag = {**diag, "received_at": received_at}
+            event_log.record(
+                type="device",
+                source=device.id,
+                target=event_target,
+                status="error",
+                error=device_logs.describe_diag(diag),
+                extra={"diag": diag},
+            )
+    if new_diag is not None:
+        entry["diag"] = new_diag
+    elif diag_prev is not None:
+        entry["diag"] = diag_prev
     status_cache[device.id] = entry
     # Persist the merged heartbeat so a restart seeds the cache with the
     # last known readings (the store skips steady beats itself). A parse
@@ -419,6 +467,7 @@ def record_status_heartbeat(
             overlay=entry.get("overlay"),
             proto=entry.get("proto"),
             can_stay_awake=entry.get("can_stay_awake"),
+            logs_schema=entry.get("logs_schema"),
         )
     # Automatic updates (opt-in per-device switch): make sure an auto-update
     # device is queued for its kind's newest release before the response is
@@ -509,6 +558,7 @@ def record_status_heartbeat(
             ha.note_device_heartbeat(device.id, merged)
         except Exception:
             logger.exception("HA discovery: heartbeat notify failed for %s", device.id)
+    return new_diag
 
 
 def _subscribe_device_status(

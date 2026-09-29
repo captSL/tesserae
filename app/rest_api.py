@@ -1001,6 +1001,31 @@ def _pending_ota(device: Device, body: dict[str, Any]) -> dict[str, str] | None:
     return _staged_ota(device, advertised) or _released_ota(device, body)
 
 
+def _should_request_logs(device: Device, new_diag: dict[str, Any] | None) -> bool:
+    """Whether this /status response carries ``logs.upload``. Only for a
+    device that advertised ``logs.schema >= 1``; then either a wake of the
+    operator's collection window (spent here, once per response that asks)
+    or a new ``diag`` with auto-collect on error switched on."""
+    store = current_app.config.get("DEVICE_LOGS")
+    if store is None:
+        return False
+    from app import device_logs
+
+    if not device_logs.logs_capable(
+        device.id, _device_status_cache(), current_app.config.get("DEVICE_FACTS")
+    ):
+        return False
+    try:
+        if store.take_wake(device.id):
+            return True
+    except Exception:
+        current_app.logger.exception("rest /status: log collection failed for device=%s", device.id)
+    if new_diag is None:
+        return False
+    app_section = _settings().get_section("app") or {}
+    return bool(app_section.get("device_logs_auto_on_error", True))
+
+
 @bp.get("/<device_id>/frame")
 def get_frame(device_id: str) -> Response:
     """Latest frame URL for this device.
@@ -1660,8 +1685,9 @@ def post_status(device_id: str) -> Response:
     from app.transport_wiring import record_status_heartbeat
 
     events = _events()
+    new_diag = None
     if events is not None:
-        record_status_heartbeat(
+        new_diag = record_status_heartbeat(
             app=current_app._get_current_object(),  # type: ignore[attr-defined]
             device=device,
             payload=request.get_data() or b"",
@@ -1773,6 +1799,11 @@ def post_status(device_id: str) -> Response:
     ota = _pending_ota(device, body if isinstance(body, dict) else {})
     if ota is not None:
         response["ota"] = ota
+    # Device log upload: ask for this wake's log while the operator has
+    # collection running, or once for a new failure report on this beat.
+    # Top-level, never inside config (the device persists config to NVS).
+    if _should_request_logs(device, new_diag):
+        response["logs"] = {"upload": True}
     # Deck cache: repeat the bound deck's current version so a capable
     # device knows when its SD cache is stale and re-syncs the manifest.
     # Gated on the capability being advertised in THIS body, so /status
@@ -2951,10 +2982,17 @@ def _coerce_log_msg(raw: Any) -> str:
 def post_log(device_id: str) -> Response:
     """Optional client-side log line. Persisted to the EventLog so the
     Events page surfaces it alongside server-side events. Bounded:
-    the EventLog's own cap evicts older entries."""
+    the EventLog's own cap evicts older entries.
+
+    A ``text/plain`` body is a log batch instead (device log upload,
+    protocol v1): stored whole under ``data/core/device_logs/<id>/`` for
+    the device page, capped at 64 KB, with one Events row per upload."""
     device, err = _auth_device(device_id)
     if err is not None or device is None:
         return err  # type: ignore[return-value]
+
+    if request.mimetype == "text/plain":
+        return _store_log_batch(device)
 
     raw = request.get_data() or b""
     try:
@@ -2978,6 +3016,42 @@ def post_log(device_id: str) -> Response:
             extra={"client_log": True, "msg": msg, "level": level, **extra},
         )
     return jsonify({"status": 200, "bytes": len(raw)})
+
+
+def _store_log_batch(device: Device) -> Response:
+    """Store one uploaded log batch (``text/plain``) and note it in Events."""
+    from app.state.device_logs import MAX_UPLOAD_BYTES
+
+    store = current_app.config.get("DEVICE_LOGS")
+    if store is None:
+        return _error(503, "log storage unavailable")
+    declared = request.content_length
+    if declared is not None and declared > MAX_UPLOAD_BYTES:
+        return _error(413, "log batch too large", max_bytes=MAX_UPLOAD_BYTES)
+    raw = request.get_data() or b""
+    if len(raw) > MAX_UPLOAD_BYTES:
+        return _error(413, "log batch too large", max_bytes=MAX_UPLOAD_BYTES)
+    try:
+        info = store.save_upload(device.id, raw)
+    except (OSError, ValueError):
+        current_app.logger.exception("rest /log: storing a batch failed for device=%s", device.id)
+        return _error(500, "could not store log batch")
+    events = _events()
+    if events is not None:
+        msg = f"log uploaded, {info.lines} line{'' if info.lines == 1 else 's'}"
+        events.record(
+            type="device",
+            source=device.id,
+            target="client_log",
+            status="info",
+            extra={
+                "client_log": True,
+                "msg": msg,
+                "level": "info",
+                "log_upload": {"name": info.name, "bytes": info.bytes, "lines": info.lines},
+            },
+        )
+    return jsonify({"status": 200, "bytes": len(raw), "stored": True})
 
 
 # -- register ------------------------------------------------------------

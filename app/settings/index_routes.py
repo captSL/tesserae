@@ -1428,6 +1428,9 @@ def device_page(instance_id: str) -> str | Response:
     if section is None:
         flash(f"Unknown device {instance_id!r}.", "error")
         return redirect(url_for("auth.settings_area", area="devices"))
+    # Built here rather than in the shared section builder: it lists the
+    # device's stored uploads, which only this page shows.
+    section["logs"] = _logs_view(str(section["device_id"]), request.args.get("log") or "")
     return render_template(
         "device_page.html",
         section=section,
@@ -1456,6 +1459,71 @@ def device_calibration(instance_id: str) -> str | Response:
         calibrating="",
         trmnl_token_reveal=None,
     )
+
+
+def _format_bytes(n: int) -> str:
+    if n < 1024:
+        return f"{n} B"
+    return f"{n / 1024:.1f} KB"
+
+
+def _logs_view(device_id: str, selected: str) -> dict[str, Any] | None:
+    """The device page's Logs section (device log upload), or None when
+    the device never advertised ``logs.schema``: collection controls, the
+    wakes left, the stored uploads, the last detected failure, and the
+    upload picked with ``?log=<name>`` for the inline viewer."""
+    from app import device_logs
+
+    store = current_app.config.get("DEVICE_LOGS")
+    if store is None or not device_logs.logs_capable(
+        device_id, device_status(), current_app.config.get("DEVICE_FACTS")
+    ):
+        return None
+    now = time.time()
+    uploads = [
+        {
+            "name": u.name,
+            "received_at": u.received_at,
+            "relative": format_relative(max(0.0, now - u.received_at)),
+            "size": _format_bytes(u.bytes),
+            "lines": u.lines,
+            "view_url": url_for("auth.device_page", instance_id=device_id, log=u.name) + "#logs",
+            "download_url": url_for(
+                "auth.devices_log_download", instance_id=device_id, name=u.name
+            ),
+        }
+        for u in store.list_uploads(device_id)
+    ]
+    viewing = None
+    picked = next((u for u in uploads if u["name"] == selected), None) if selected else None
+    if picked is not None:
+        text = store.read_upload(device_id, selected)
+        if text is not None:
+            viewing = {"name": selected, "received_at": picked["received_at"], "text": text}
+    failure = None
+    cached = (device_status().get(device_id) or {}).get("diag")
+    diag = cached if isinstance(cached, dict) else store.last_diag(device_id)
+    if isinstance(diag, dict):
+        received = diag.get("received_at")
+        failure = {
+            "text": device_logs.describe_diag(diag),
+            "received_at": received if isinstance(received, (int, float)) else None,
+            "relative": (
+                format_relative(max(0.0, now - float(received)))
+                if isinstance(received, (int, float))
+                else ""
+            ),
+        }
+    return {
+        "remaining": store.remaining(device_id),
+        "uploads": uploads,
+        "viewing": viewing,
+        "failure": failure,
+        "collect_endpoint": url_for("auth.devices_logs_collect", instance_id=device_id),
+        "auto_on_error": bool(
+            (settings_store().get_section("app") or {}).get("device_logs_auto_on_error", True)
+        ),
+    }
 
 
 # Config fields that only make sense on a panel the firmware says can hold

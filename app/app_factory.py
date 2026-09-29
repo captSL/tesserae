@@ -801,6 +801,11 @@ def create_app(
     from app.state.device_facts import DeviceFactsStore
 
     app.config["DEVICE_FACTS"] = DeviceFactsStore(data_root / "core" / "device_facts.json")
+    # Device log upload: per-device collection window, last failure report
+    # and the uploaded batches (data/core/device_logs/<id>/).
+    from app.state.device_logs import DeviceLogStore
+
+    app.config["DEVICE_LOGS"] = DeviceLogStore(data_root / "core")
     # Seed the in-memory status cache with the persisted overlay
     # capability so a patch-capable panel keeps getting patch reconciles
     # (not full-repaint fallbacks) between a server restart and its next

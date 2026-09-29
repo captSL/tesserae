@@ -4124,6 +4124,16 @@ select.dx-input:hover {
 .dx-devsec .dx-smart-sync { margin-top: 16px; }
 .dx-devsec .dx-empty { padding: 26px 22px; }
 
+/* Logs: uploaded batches + inline viewer. */
+.dx-log-row { flex-wrap: wrap; }
+.dx-log-row.is-active { border-color: var(--t-accent); }
+.dx-log-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dx-log-when { font-size: 13px; font-weight: 600; color: var(--t-fg); }
+.dx-log-meta { font-size: 12px; color: var(--dx-faint); }
+/* width 0 + min-width 100%: long lines scroll inside the box instead of
+   widening the page column on a phone. */
+.dx-log-view { box-sizing: border-box; width: 0; min-width: 100%; max-height: 420px; overflow: auto; white-space: pre; }
+
 /* Overview: thumbnail + tiles. */
 .dx-overview {
   display: grid;

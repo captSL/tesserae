@@ -1036,6 +1036,57 @@ def devices_album_resync(instance_id: str) -> Response:
     return redirect_to
 
 
+# Wake counts the Logs section offers; 0 stops a running collection.
+_LOG_COLLECT_CHOICES = (0, 1, 5, 20)
+
+
+@bp.post("/settings/devices/<instance_id>/logs/collect")
+def devices_logs_collect(instance_id: str) -> Response:
+    """Ask the device to upload its log on its next N wakes (device log
+    upload). Stored in the log store, not settings ``devices.<id>``, so it
+    never reaches the device's config. Nothing is pushed here; the panel
+    sees it on its next check-in."""
+    anchor = "logs"
+    redirect_to = _device_page_redirect(instance_id, anchor)
+    device = devices().get(instance_id)
+    store = current_app.config.get("DEVICE_LOGS")
+    if device is None or device.kind_of is None or store is None:
+        flash(f"Unknown device {instance_id!r}.", "error")
+        return redirect_to
+    try:
+        wakes = int(request.form.get("wakes") or 0)
+    except ValueError:
+        wakes = -1
+    if wakes not in _LOG_COLLECT_CHOICES:
+        flash("Pick 1, 5 or 20 wakes.", "error")
+        return redirect_to
+    store.set_collect(device.id, wakes)
+    if wakes:
+        flash(
+            f"{device.name!r} will upload its log on its next "
+            f"{wakes} wake{'' if wakes == 1 else 's'}.",
+            "ok",
+        )
+    else:
+        flash(f"Stopped collecting logs from {device.name!r}.", "ok")
+    return redirect_to
+
+
+@bp.get("/settings/devices/<instance_id>/logs/<name>")
+def devices_log_download(instance_id: str, name: str) -> Response:
+    """One uploaded log batch as a plain-text download."""
+    store = current_app.config.get("DEVICE_LOGS")
+    text = store.read_upload(instance_id, name) if store is not None else None
+    if text is None:
+        flash("That log is no longer stored.", "error")
+        return _device_page_redirect(instance_id, "logs")
+    resp = FlaskResponse(text, mimetype="text/plain")
+    resp.headers["Content-Type"] = "text/plain; charset=utf-8"
+    resp.headers["Content-Disposition"] = f'attachment; filename="{instance_id}-{name}"'
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
+
+
 @bp.post("/settings/devices/<instance_id>/battery-offset")
 def devices_update_battery_offset(instance_id: str) -> Response:
     """Save a per-device battery-display offset.
@@ -1687,6 +1738,13 @@ def devices_delete(instance_id: str) -> Response:
             device_facts.forget(instance_id)
         except Exception:
             current_app.logger.exception("device_facts: forget failed for %s", instance_id)
+    # And its uploaded logs + log collection state.
+    device_log_store = current_app.config.get("DEVICE_LOGS")
+    if device_log_store is not None:
+        try:
+            device_log_store.forget(instance_id)
+        except Exception:
+            current_app.logger.exception("device_logs: forget failed for %s", instance_id)
     # And the persisted last heartbeat, for the same reason.
     status_snapshot = current_app.config.get("DEVICE_STATUS_SNAPSHOT")
     if status_snapshot is not None:

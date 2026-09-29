@@ -673,10 +673,53 @@ the sense that they're marked volatile, so a change in one of them
 alone doesn't write an event-log row on every beat. Nothing else
 interprets them.
 
-The capability blocks (`ota`, `deck`, `collection`, `overlay`, `proto`)
-are nested objects rather than scalar fields, and they're sticky: the
-server carries the last advertised value forward across beats that omit
-it, so you only need to send them once per boot.
+The capability blocks (`ota`, `deck`, `collection`, `overlay`, `proto`,
+`logs`) are nested objects rather than scalar fields, and they're sticky:
+the server carries the last advertised value forward across beats that
+omit it, so you only need to send them once per boot.
+
+#### Log upload and failure reports
+
+Firmware that can upload its log (see [`/log`](#post-apiv1deviceidlog-optional))
+advertises it on every beat:
+
+```json
+"logs": {"schema": 1, "ring_bytes": 3072}
+```
+
+`schema` is the protocol version (1); `ring_bytes` is the size of the
+log carried across deep sleep in RTC memory, informational. The server
+only ever asks a device that advertised `schema >= 1` for its log, and
+remembers the capability across restarts.
+
+After a detected failure, the firmware adds a `diag` report to the next
+beat, and to every beat after it until one status POST carrying it
+returns 2xx:
+
+```json
+"diag": {
+  "id": 1234,
+  "paint_error": "refresh_timeout",
+  "reset": "brownout",
+  "at": 1790000000
+}
+```
+
+- `id`: uint32, required. Increments per latched failure (random start
+  at power-on). The server dedups on it, so a re-sent report is logged
+  once. A report without an `id` is ignored.
+- `paint_error` (optional): `init_failed` (controller never answered
+  after recovery), `ready_timeout` (controller busy / HRDY line stuck) or
+  `refresh_timeout` (refresh never reported done). Absent when the
+  failure is only a reset.
+- `reset` (optional): why this boot started, when abnormal: `brownout`,
+  `panic` or `watchdog`. Absent on power-on, deep-sleep wake and
+  software reset.
+- `at`: epoch of the latch, `0` when the clock was unknown.
+
+Each new report writes one error row to Settings › Events (for example
+`paint failed: refresh_timeout` or `reset: brownout`), and the device page
+shows the latest as "Last detected failure".
 
 #### When to send the heartbeat
 
@@ -828,6 +871,15 @@ above).
   response was received, and a relative countdown started at sleep
   entry drifts late by exactly that much). Treat it as a one-shot
   value, like `next_poll_s`: never persist it.
+- `logs` (optional): `{"upload": true}` asks the device to upload its
+  log on this wake, after the status and before Wi-Fi goes down (see
+  [`/log`](#post-apiv1deviceidlog-optional)). Absent means don't. Only
+  sent to a device that advertised `logs.schema >= 1`, and only when the
+  operator is collecting logs for it (a number of wakes set on the device
+  page, one spent per response that asks) or when this same status
+  carried a `diag` whose `id` the server hadn't seen, with "Collect a
+  device's log after a failed paint" switched on (the default).
+  Top-level, never inside `config`: don't persist it.
 
 The local-time fields are always present in the response regardless
 of whether the heartbeat sent `tz`. A pre-existing client that doesn't
@@ -835,8 +887,12 @@ know about them just ignores the extra keys; pay-for-what-you-use.
 
 ### `POST /api/v1/device/<id>/log` (optional)
 
-Forward a client log line into the server's Events tab. Useful for
-remote debugging without a serial cable.
+Two uses, told apart by the content type. Same bearer token as
+`/status`.
+
+**A single log line** (`Content-Type: application/json`, or anything
+other than `text/plain`): forwarded into the server's Events tab.
+Useful for remote debugging without a serial cable.
 
 **Body** (JSON, every field optional):
 ```json
@@ -851,6 +907,42 @@ remote debugging without a serial cable.
 Entries surface in Settings → Events with `type: device`,
 `source: <device_id>`, `target: client_log`. No retention guarantees;
 the Events store caps at 500 device rows.
+
+**A log batch** (`Content-Type: text/plain; charset=utf-8`): the
+device's own log, uploaded on a wake whose `/status` response carried
+`logs.upload` (see [log upload and failure
+reports](#log-upload-and-failure-reports)). UTF-8 text with `\n` line
+endings: ESP-IDF formatted lines with ANSI colour codes stripped. Each
+wake's section starts with a header line:
+
+```text
+# tesserae-log v1 fw=<ver> boot=<n> reset=<reason> wake=<cause> epoch=<t>
+```
+
+(`epoch=0` when the clock is unknown). A batch normally holds the unsent
+tail of the previous wake, from the RTC ring, followed by the current
+wake up to the upload, so a paint that failed with the radio off arrives
+on the next wake.
+
+- At most 64 KB; a larger body is `413` with the usual error body. Trim
+  from the front to fit and write a `# ... N bytes dropped` line.
+- Redact before a line is captured: replace the query string of any
+  `http://` / `https://` URL with `?<redacted>` and any `Bearer <token>`
+  with `Bearer <redacted>`. Never log Wi-Fi passphrases, device tokens
+  or relay keys.
+- Upload after the status and before Wi-Fi goes down. Treat any 2xx as
+  stored. A failed upload is not retried that wake; unsent ring bytes
+  stay eligible for the next request.
+
+**Response** (`200 OK`):
+```json
+{ "status": 200, "bytes": 9412, "stored": true }
+```
+
+Tesserae Cloud may answer `204` instead. The self-hosted server stores
+the batch under `data/core/device_logs/<device_id>/`, keeps the newest 20
+uploads up to 1 MB per device, and writes one Events row per upload
+(`log uploaded, N lines`). The device page's Logs section lists them.
 
 ### `GET /api/v1/device/<id>/frame.bmp`
 

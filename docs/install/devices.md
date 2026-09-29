@@ -108,6 +108,27 @@ v1.40.0 or later on the panel; older firmware leaves the touch controller
 running, which is no worse than before. On the device page the switch only
 appears for panels with a touchscreen.
 
+### Device logs
+
+A panel whose firmware supports log upload gets a **Logs** section on its
+device page. Pick **1, 5 or 20 wakes** and the panel uploads its own log on
+each of its next wakes, starting at its next check-in; **Stop** ends a
+collection early. Each upload holds the tail of the previous wake (including
+its paint, which happens with Wi-Fi off) and the current wake up to the
+upload, so you can read what a panel in the field did without a USB cable.
+Uploads are listed with their time, size and line count, and can be viewed on
+the page or downloaded. The newest 20 are kept, up to 1 MB per device, under
+`data/core/device_logs/`, and deleting the device deletes them.
+
+When a panel reports a failed paint or an abnormal reset (brownout, panic,
+watchdog), the failure is written to Settings › Events, shown in the Logs
+section as the last detected failure, and the log is collected once on that
+same wake. Turn **Collect a device's log after a failed paint** off in
+**Settings → Server** to stop that automatic upload; the Events row still
+appears. A log contains timings, the Wi-Fi network name, signal strength and
+IP address. The firmware strips URL query strings and tokens before a line is
+kept, and never logs passwords.
+
 ## Compose a dashboard
 
 The page editor models a dashboard as **one page → one layout preset → one

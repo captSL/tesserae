@@ -59,6 +59,7 @@ class DeviceFactsStore:
         overlay: dict[str, Any] | None = None,
         proto: dict[str, Any] | None = None,
         can_stay_awake: bool | None = None,
+        logs_schema: int | None = None,
     ) -> None:
         """Merge the given facts for ``device_id``; writes only on change.
         ``None`` values mean "no new information", never "clear".
@@ -85,6 +86,9 @@ class DeviceFactsStore:
                 changed = True
             if can_stay_awake is not None and entry.get("can_stay_awake") != can_stay_awake:
                 entry["can_stay_awake"] = can_stay_awake
+                changed = True
+            if logs_schema is not None and entry.get("logs_schema") != logs_schema:
+                entry["logs_schema"] = logs_schema
                 changed = True
             if not changed:
                 return

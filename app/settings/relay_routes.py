@@ -150,10 +150,13 @@ def relay_revoke() -> Response:
             client.revoke_device(device_id)
         except RelayError as exc:
             current_app.logger.warning("relay revoke %s: %s", device_id, exc)
-    device_service.delete_instance(
+    result = device_service.delete_instance(
         devices=devices(),
         renderers=renderers(),
         instance_id=device_id,
     )
+    log_store = current_app.config.get("DEVICE_LOGS")
+    if result.ok and log_store is not None:
+        log_store.forget(device_id)
     flash(f"Removed remote panel {device_id}.", "ok")
     return redirect(url_for("auth.relay_index"))

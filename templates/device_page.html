@@ -52,7 +52,9 @@
 
   {# SUB-NAV #}
   <nav class="dx-subnav" aria-label="Sections" data-subnav>
-    {% for anchor, label in [('overview', 'Overview'), ('identity', 'Identity'), ('display', 'Display'), ('timing', 'Timing'), ('controls', 'Controls'), ('rendering', 'Rendering'), ('power', 'Power'), ('lineups', 'Lineups'), ('connection', 'Connection'), ('remove', 'Remove')] %}
+    {% set _nav = [('overview', 'Overview'), ('identity', 'Identity'), ('display', 'Display'), ('timing', 'Timing'), ('controls', 'Controls'), ('rendering', 'Rendering'), ('power', 'Power'), ('lineups', 'Lineups'), ('connection', 'Connection')] %}
+    {% if section.logs %}{% set _nav = _nav + [('logs', 'Logs')] %}{% endif %}
+    {% for anchor, label in _nav + [('remove', 'Remove')] %}
     <a href="#{{ anchor }}" class="dx-subnav-link{% if loop.first %} is-active{% endif %}{% if anchor == 'remove' %} is-danger{% endif %}" data-subnav-link="{{ anchor }}">{{ label }}</a>
     {% endfor %}
   </nav>
@@ -683,6 +685,84 @@
         {% endif %}
       </div>
     </section>
+
+    {# ---------------- LOGS ----------------
+       Only for firmware that advertised log upload (logs.schema). The
+       log text is device-supplied: it is only ever rendered autoescaped. #}
+    {% if section.logs %}
+    {% set lg = section.logs %}
+    <section class="dx-section-card dx-devsec" id="logs" data-devsec>
+      <header class="dx-section-head">
+        <span class="dx-section-icon" aria-hidden="true"><i class="ph ph-scroll"></i></span>
+        <div class="dx-section-titleblock">
+          <h3 class="dx-section-title">Logs</h3>
+          <p class="dx-section-desc">The panel's own log, uploaded on the wakes you ask for.</p>
+        </div>
+      </header>
+      <div class="dx-section-body">
+        {% if lg.failure %}
+        <div class="dx-warn-band">
+          <i class="ph ph-warning" aria-hidden="true"></i>
+          <p><strong>Last detected failure:</strong> {{ lg.failure.text }}{% if lg.failure.received_at %}, reported {{ lg.failure.relative }} ({{ lg.failure.received_at|fmt_time }}){% endif %}</p>
+        </div>
+        {% endif %}
+
+        <div class="dx-band{% if lg.remaining %} is-active{% endif %}" style="margin-top: 0;">
+          <span class="dx-band-icon" aria-hidden="true"><i class="ph ph-scroll"></i></span>
+          <div class="dx-band-text">
+            {% if lg.remaining %}
+            <p class="dx-band-title">Collecting: {{ lg.remaining }} wake{{ '' if lg.remaining == 1 else 's' }} left</p>
+            {% else %}
+            <p class="dx-band-title">Not collecting</p>
+            {% endif %}
+            <p class="dx-band-desc">Collect logs for the next 1, 5 or 20 wakes. A sleeping panel starts on its next check-in.</p>
+          </div>
+          <form method="post" action="{{ lg.collect_endpoint }}" class="dx-band-actions">
+            {% for n in [1, 5, 20] %}
+            <button type="submit" name="wakes" value="{{ n }}" class="dx-btn is-sm">{{ n }} wake{{ '' if n == 1 else 's' }}</button>
+            {% endfor %}
+            {% if lg.remaining %}
+            <button type="submit" name="wakes" value="0" class="dx-btn is-sm is-ghost">
+              <i class="ph ph-stop" aria-hidden="true"></i><span>Stop</span>
+            </button>
+            {% endif %}
+          </form>
+        </div>
+        <p class="field-help">
+          {% if lg.auto_on_error %}A failed paint or an abnormal reset also pulls the log up once, on the wake that reports it.{% else %}Collecting after a failed paint is off in Settings › Server.{% endif %}
+          The newest 20 uploads are kept, up to 1 MB.
+        </p>
+
+        <hr class="dx-divider">
+        {% if lg.uploads %}
+        <ul class="dx-discovered-list dx-log-list">
+          {% for up in lg.uploads %}
+          <li class="dx-inset-row dx-log-row{% if lg.viewing and lg.viewing.name == up.name %} is-active{% endif %}">
+            <div class="dx-log-info">
+              <span class="dx-log-when">{{ up.received_at|fmt_time }}</span>
+              <span class="dx-log-meta">{{ up.relative }} · {{ up.size }} · {{ up.lines }} line{{ '' if up.lines == 1 else 's' }}</span>
+            </div>
+            <div class="dx-band-actions">
+              <a class="dx-btn-ghost-sm" href="{{ up.view_url }}"><i class="ph ph-eye" aria-hidden="true"></i><span>View</span></a>
+              <a class="dx-btn-ghost-sm" href="{{ up.download_url }}"><i class="ph ph-download-simple" aria-hidden="true"></i><span>Download</span></a>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% if lg.viewing %}
+        <p class="device-subhead" style="margin-top: 14px;">Upload from {{ lg.viewing.received_at|fmt_time }}</p>
+        <pre class="dx-code dx-log-view">{{ lg.viewing.text }}</pre>
+        {% endif %}
+        {% else %}
+        <div class="dx-empty">
+          <div class="dx-empty-icon"><i class="ph ph-scroll" aria-hidden="true"></i></div>
+          <p class="dx-empty-title">No logs uploaded yet</p>
+          <p class="dx-empty-help">Start a collection above; each wake's log lands here after the panel's next check-in.</p>
+        </div>
+        {% endif %}
+      </div>
+    </section>
+    {% endif %}
 
     {# ---------------- REMOVE ---------------- #}
     {% if section.delete_endpoint %}

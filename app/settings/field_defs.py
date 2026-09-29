@@ -223,6 +223,21 @@ APP_FIELDS: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "device_logs_auto_on_error",
+        "type": "switch",
+        "label": "Collect a device's log after a failed paint",
+        "default": True,
+        "group": "network",
+        "help": (
+            "When a panel reports a failed paint or an abnormal reset on its next "
+            "check-in, ask it to upload its log on that same wake, so the device "
+            "page shows what happened without a USB cable. Only firmware that "
+            "supports log upload is asked, once per failure. The log holds "
+            "timings, the Wi-Fi network name, signal and IP address, never "
+            "passwords or tokens."
+        ),
+    },
+    {
         "name": "automation_paused",
         "type": "switch",
         "label": "Pause automation",
