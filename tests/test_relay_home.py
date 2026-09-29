@@ -1043,4 +1043,5 @@ def test_relay_tab_shows_self_host_notice_for_capped_panels(relay_app: Any) -> N
     html = client.get("/settings/relay").get_data(as_text=True)
     assert "paused frames for 1 panel" in html
     assert "<strong>parents_panel</strong> resumes at" in html
+    assert "refresh these panels less often" in html
     assert "https://docs.tesserae.ink/relay/self-host/" in html

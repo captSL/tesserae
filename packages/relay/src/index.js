@@ -326,7 +326,7 @@ async function putFrame(env, request, installId, deviceId) {
       "rate_limited",
       `daily frame limit reached (${limit} per panel per day); ` +
         `the panel keeps its last frame until 00:00 UTC. ` +
-        `For frequent refreshes, self-host the relay: ${SELF_HOST_URL}`,
+        `Lower its refresh rate, or self-host the relay: ${SELF_HOST_URL}`,
       429,
     );
     response.headers.set("Retry-After", String(secondsToUtcMidnight(now)));

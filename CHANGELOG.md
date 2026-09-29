@@ -16,7 +16,8 @@ All notable changes to Tesserae are recorded here. Format loosely follows
   Unset means unlimited, so self-hosted relays are unaffected. Tesserae holds
   uploads for a capped panel until the reset instead of retrying on every
   render, and Settings → Cloud relay shows which panels are paused, when they
-  resume, and a link to self-hosting the relay. The contract gains the
+  resume, a suggestion to refresh them less often, and a link to self-hosting
+  the relay. The contract gains the
   `rate_limited` code.
 - **Xteink X4 Pro in 4-level grayscale (#335).** `xteink_x4_pro_gray` is the
   server half of the CrossInk `x4-pro` build, which ships with grayscale on

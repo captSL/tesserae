@@ -601,7 +601,10 @@ test("FRAME_DAILY_LIMIT caps uploads per panel per UTC day with a 429", async ()
   assert.ok(retryAfter > 0 && retryAfter <= 86400, `Retry-After ${retryAfter}`);
   const { error } = await r.json();
   assert.equal(error.code, "rate_limited");
+  assert.match(error.message, /refresh rate/);
   assert.match(error.message, /self-host/);
+  // The home client keeps the first 200 characters of a relay message.
+  assert.ok(error.message.length <= 200, `message is ${error.message.length} chars`);
   // The refused frame stored nothing; the mailbox still serves the last one.
   const pointer = JSON.parse(await (await bucket.get(`frame/${install_id}/panel1/latest.json`)).text());
   assert.equal(pointer.etag, "bbb");
