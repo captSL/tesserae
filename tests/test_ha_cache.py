@@ -151,6 +151,24 @@ def test_history_errors_are_not_cached(core: Any, monkeypatch: pytest.MonkeyPatc
     assert len(calls) == 2
 
 
+def test_history_requests_the_full_window(core: Any, monkeypatch: pytest.MonkeyPatch):
+    # HA ends the period a day after the start unless end_time is given,
+    # so a 48 h request used to come back as only its oldest 24 h (#339).
+    from datetime import UTC, datetime, timedelta
+    from urllib.parse import parse_qs, unquote, urlsplit
+
+    calls = []
+    monkeypatch.setattr(
+        core, "request_json", lambda path, **kw: calls.append(path) or _history_payload("1")
+    )
+    core.history("sensor.solar", hours=48)
+    parts = urlsplit(calls[0])
+    start = datetime.fromisoformat(unquote(parts.path.rsplit("/", 1)[1]))
+    end = datetime.fromisoformat(parse_qs(parts.query)["end_time"][0])
+    assert abs(end - datetime.now(UTC)) < timedelta(minutes=1)
+    assert end - start == timedelta(hours=48)
+
+
 # ---------------------------------------------------------------------------
 # ha_sensor parallel history
 

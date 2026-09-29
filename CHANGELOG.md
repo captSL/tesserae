@@ -95,6 +95,14 @@ All notable changes to Tesserae are recorded here. Format loosely follows
   half-hour slots each, binned by timestamp with a state carried forward
   until it changes. Today's line stops at now and the "now" pip rides its
   last point. The two lines share an x-axis, so the sun peaks line up.
+- **Home Assistant history longer than a day comes back whole (#339).**
+  `ha_core` asked HA's history endpoint for a start time only, and HA ends
+  the period one day after the start when no `end_time` is given. The
+  `ha_energy` sparkline asks for 48 hours, so it only got the day before
+  yesterday into yesterday at the current time; yesterday's line went flat
+  from there and today's was a flat carry of that last value. History
+  requests now send `end_time` as now. The HA data service's `hours`
+  option (up to 720) was cut to its oldest 24 hours the same way.
 - **The Home Assistant Energy widget uses the configured timezone for its clock (#340).**
   Its displayed time and hour-based state now follow Tesserae's app timezone
   instead of the server's local timezone.

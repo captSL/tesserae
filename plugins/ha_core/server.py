@@ -273,10 +273,15 @@ def history(entity_id: str, *, hours: int = 24, timeout: int = 12) -> list[dict[
         hit = _history_cache.get(key)
         if hit is not None and time.monotonic() - hit[0] < _HISTORY_TTL_S:
             return hit[1]
-    start = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
+    now = datetime.now(UTC)
+    start = (now - timedelta(hours=hours)).isoformat()
+    # end_time is explicit because HA ends the period one day after the
+    # start when it's omitted, so anything over 24 hours came back as
+    # only its oldest day (#339).
     path = (
         f"/api/history/period/{quote(start)}"
         f"?filter_entity_id={quote(entity_id)}"
+        f"&end_time={quote(now.isoformat())}"
         "&minimal_response&significant_changes_only"
     )
     data = request_json(path, timeout=timeout)
