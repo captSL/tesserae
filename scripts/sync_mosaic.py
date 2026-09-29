@@ -4,7 +4,8 @@
     python3 scripts/sync_mosaic.py [~/Documents/Projects/tesserae-mosaic]
 
 Run ``npm run build`` in the Mosaic checkout first. Copies dist/: core.css, looks/*.css,
-mosaic.js and mosaic.json (which names the looks and the icon weights each draws with).
+mosaic.js, mosaic.json (which names the looks and the icon weights each draws with) and
+specimens.json (six example dashboards).
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ if not (DIST / "mosaic.json").exists():
 if DEST.exists():
     shutil.rmtree(DEST)
 (DEST / "looks").mkdir(parents=True)
-for name in ("core.css", "mosaic.js", "mosaic.json"):
+for name in ("core.css", "mosaic.js", "mosaic.json", "specimens.json"):
     shutil.copy2(DIST / name, DEST / name)
 for css in sorted((DIST / "looks").glob("*.css")):
     shutil.copy2(css, DEST / "looks" / css.name)
