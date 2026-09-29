@@ -8,6 +8,12 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Added
 
+- **Mosaic looks for code elements.** [Mosaic](https://github.com/dmellok/tesserae-mosaic)
+  is an open design system for e-ink dashboards, now vendored and optional. A code element that
+  names a `data-look`, uses Mosaic's classes or calls `Mosaic.` gets its core, that look, its
+  script, the look's fonts and its icons. Five looks: `bauhaus`, `almanac`, `signal`, `pixel` and
+  `os7` (classic Macintosh System 7). See docs/mosaic.md.
+
 - **Device log upload and failure reporting.** Native firmware that
   advertises `logs: {schema: 1}` on its status can now send its serial log
   to the server. The device page gains a Logs section (only for such panels)
