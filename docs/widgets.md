@@ -524,6 +524,55 @@ def fetch(options: dict, settings: dict, *, ctx: dict) -> dict:
   pass everything else through with a tame fallback like
   `"Couldn't load <thing> right now."`.
 
+### Helper modules beside `server.py`
+
+A widget can ship more Python than one file. Everything in the plugin
+folder is installed (the catalog installer extracts the whole tarball),
+so a helper module or a small vendored library sits beside `server.py`
+and travels with it.
+
+The catch is that nothing imports it for you. The host loads
+`server.py` by file path under a synthetic module name; the plugin
+folder is neither a package nor on `sys.path`, so `import gcal` and
+`from . import gcal` both fail. Load siblings by path, under a module
+name that is unique to your widget:
+
+```python
+# plugins/<id>/server.py
+import importlib.util
+from pathlib import Path
+
+_HERE = Path(__file__).resolve().parent
+
+
+def _load_sibling(name: str):
+    spec = importlib.util.spec_from_file_location(f"_tesserae_plugins.<id>.{name}", _HERE / f"{name}.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+gcal = _load_sibling("gcal")
+
+
+def fetch(options, settings, *, ctx):
+    return gcal.events(settings["calendar_id"], settings["token"])
+```
+
+Adding the plugin folder to `sys.path` also works, but `sys.path` is
+process-wide: a helper called `utils` or `google` then shadows, or is
+shadowed by, the same name from another widget or a real installed
+package. The unique module name above sidesteps that.
+
+* The network allowlist wraps the whole `fetch()` call, so code in a
+  helper is held to the same `requires:` declarations as `server.py`.
+* Vendored third-party code needs its licence file in the folder and
+  gets read in review like everything else. A single module is fine;
+  a whole client library and its dependency tree is not, and the
+  usual answer there is a few `urllib` calls against the REST API
+  instead. Widgets cannot declare pip dependencies.
+
 ---
 
 ## Capabilities, `requires:`
