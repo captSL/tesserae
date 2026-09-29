@@ -1,0 +1,514 @@
+{
+ "_about": "Everything Tesserae and Tesserae Cloud ship or build on that someone else made. The single source for docs/credits.md (scripts/gen_credits.py) and the cloud's Credits page (tools/gen_credits.mjs). Fonts are read from each font file's own copyright metadata; tests fail when a bundled font or vendored library has no entry.",
+ "libraries": [
+  {
+   "name": "Chart.js",
+   "files": [
+    "static/vendor/chartjs/chart.umd.min.js",
+    "static/vendor/chart.umd.min.js"
+   ],
+   "version": "4.4.6",
+   "licence": "MIT",
+   "url": "https://www.chartjs.org",
+   "used_for": "Charts in widgets and code elements"
+  },
+  {
+   "name": "chartjs-plugin-datalabels",
+   "files": [
+    "static/vendor/chartjs/chartjs-plugin-datalabels.min.js"
+   ],
+   "version": "2.2.0",
+   "licence": "MIT",
+   "url": "https://chartjs-plugin-datalabels.netlify.app",
+   "used_for": "Value labels on charts"
+  },
+  {
+   "name": "chartjs-chart-sankey",
+   "files": [
+    "static/vendor/chartjs-chart-sankey.min.js"
+   ],
+   "version": "0.12.1",
+   "licence": "MIT",
+   "url": "https://github.com/kurkle/chartjs-chart-sankey",
+   "used_for": "Sankey charts"
+  },
+  {
+   "name": "canvas-gauges",
+   "files": [
+    "static/vendor/canvasgauges"
+   ],
+   "version": "2.1.7",
+   "licence": "MIT",
+   "url": "https://canvas-gauges.com",
+   "used_for": "Gauges"
+  },
+  {
+   "name": "Day.js",
+   "files": [
+    "static/vendor/dayjs"
+   ],
+   "version": "1.11",
+   "licence": "MIT",
+   "url": "https://day.js.org",
+   "used_for": "Dates and time zones in code elements"
+  },
+  {
+   "name": "qrcode-generator",
+   "files": [
+    "static/vendor/qrcode"
+   ],
+   "version": "1.4",
+   "licence": "MIT",
+   "url": "https://github.com/kazuhikoarase/qrcode-generator",
+   "used_for": "QR codes"
+  },
+  {
+   "name": "marked",
+   "files": [
+    "static/vendor/marked"
+   ],
+   "version": "12.0.2",
+   "licence": "MIT",
+   "url": "https://marked.js.org",
+   "used_for": "Markdown in code elements"
+  },
+  {
+   "name": "chroma.js",
+   "files": [
+    "static/vendor/chroma"
+   ],
+   "version": "2.4",
+   "licence": "BSD-3-Clause (Apache-2.0 for the colour-name table)",
+   "url": "https://gka.github.io/chroma.js",
+   "used_for": "Colour scales"
+  },
+  {
+   "name": "SVG.js",
+   "files": [
+    "static/vendor/svgjs"
+   ],
+   "version": "3.2.4",
+   "licence": "MIT",
+   "url": "https://svgjs.dev",
+   "used_for": "Vector drawing in code elements"
+  },
+  {
+   "name": "CodeMirror",
+   "files": [
+    "static/vendor/codemirror"
+   ],
+   "version": "5.65",
+   "licence": "MIT",
+   "url": "https://codemirror.net/5",
+   "used_for": "The code editor (never loaded into a render)"
+  },
+  {
+   "name": "js-beautify",
+   "files": [
+    "static/vendor/jsbeautify"
+   ],
+   "version": "1.x",
+   "licence": "MIT",
+   "url": "https://beautifier.io",
+   "used_for": "Tidy in the code editor (never loaded into a render)"
+  },
+  {
+   "name": "Mosaic",
+   "files": [
+    "static/vendor/mosaic"
+   ],
+   "version": "0.1.0",
+   "licence": "MIT",
+   "url": "https://github.com/dmellok/tesserae-mosaic",
+   "used_for": "The opt-in design system for code elements and the cloud's starters"
+  }
+ ],
+ "icons": [
+  {
+   "name": "Phosphor Icons",
+   "files": [
+    "static/vendor/phosphor"
+   ],
+   "version": "2.x",
+   "licence": "MIT",
+   "url": "https://phosphoricons.com",
+   "used_for": "Icons in the interface, widgets and dashboards, six weights"
+  }
+ ],
+ "data": [
+  {
+   "name": "paperlesspaper / epdoptimize",
+   "licence": "Apache-2.0",
+   "url": "https://github.com/paperlesspaper/epdoptimize",
+   "used_for": "Measured Spectra 6 and ACeP palettes behind the calibrated colour presets"
+  },
+  {
+   "name": "varanu5, PicPak 4.2\" BWRY calibration",
+   "licence": "Contributed",
+   "url": "https://github.com/varanu5",
+   "used_for": "The measured black, white, red and yellow palette for PicPak panels"
+  }
+ ],
+ "services": [
+  {
+   "name": "Open-Meteo",
+   "licence": "CC BY 4.0 (weather data)",
+   "url": "https://open-meteo.com",
+   "used_for": "Weather, air quality, marine forecasts and place search",
+   "credit": "Weather data by Open-Meteo.com"
+  },
+  {
+   "name": "Transport for London Unified API",
+   "licence": "Open Government Licence (TfL)",
+   "url": "https://api-portal.tfl.gov.uk",
+   "used_for": "London transport arrivals",
+   "credit": "Powered by TfL Open Data"
+  },
+  {
+   "name": "Public Transport Victoria Timetable API",
+   "licence": "CC BY 4.0",
+   "url": "https://www.ptv.vic.gov.au",
+   "used_for": "Melbourne transport departures",
+   "credit": "Source: Public Transport Victoria"
+  },
+  {
+   "name": "Transitous",
+   "licence": "Per-feed open licences",
+   "url": "https://transitous.org",
+   "used_for": "Public transport departures worldwide",
+   "credit": "Departures by Transitous"
+  },
+  {
+   "name": "Bureau of Meteorology",
+   "licence": "BoM terms",
+   "url": "https://www.bom.gov.au",
+   "used_for": "Australian weather",
+   "credit": "Weather data © Commonwealth of Australia, Bureau of Meteorology"
+  },
+  {
+   "name": "US National Weather Service",
+   "licence": "Public domain",
+   "url": "https://www.weather.gov",
+   "used_for": "US forecasts"
+  },
+  {
+   "name": "Wikimedia",
+   "licence": "CC BY-SA and per-item licences",
+   "url": "https://api.wikimedia.org",
+   "used_for": "On this day, featured articles and pictures",
+   "credit": "Content from Wikipedia and Wikimedia Commons, under their licences"
+  },
+  {
+   "name": "NASA APOD",
+   "licence": "Mostly public domain; per-image credits",
+   "url": "https://apod.nasa.gov",
+   "used_for": "Astronomy picture of the day",
+   "credit": "Image credits as given by NASA APOD"
+  },
+  {
+   "name": "The Metropolitan Museum of Art Collection API",
+   "licence": "CC0 (Open Access)",
+   "url": "https://metmuseum.github.io",
+   "used_for": "Artworks"
+  },
+  {
+   "name": "iNaturalist",
+   "licence": "Per-observation Creative Commons licences",
+   "url": "https://www.inaturalist.org",
+   "used_for": "Nature observations",
+   "credit": "Observations and photos by iNaturalist contributors"
+  }
+ ],
+ "protocols": [
+  {
+   "name": "TRMNL",
+   "url": "https://usetrmnl.com",
+   "used_for": "The open bring-your-own-server protocol Tesserae's TRMNL path implements, and the idea of playlists behind rotations"
+  },
+  {
+   "name": "Terminus (byos_laravel)",
+   "url": "https://github.com/usetrmnl/byos_laravel",
+   "used_for": "TRMNL's reference server, which Tesserae's envelopes and access-token flow were checked against"
+  },
+  {
+   "name": "KOReader",
+   "url": "https://github.com/koreader/koreader",
+   "used_for": "The e-reader platform behind Kindle and Kobo support"
+  }
+ ],
+ "fonts": [
+  {
+   "family": "Inter",
+   "dir": "plugins/fonts_core/static/inter",
+   "copyright": "Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "IBM Plex Sans",
+   "dir": "plugins/fonts_core/static/ibm_plex_sans",
+   "copyright": "Copyright 2019 IBM Corp. All rights reserved.",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Manrope",
+   "dir": "plugins/fonts_core/static/manrope",
+   "copyright": "Copyright 2019 The Manrope Project Authors (https://github.com/sharanda/manrope)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Outfit",
+   "dir": "plugins/fonts_core/static/outfit",
+   "copyright": "Copyright 2021 The Outfit Project Authors (https://github.com/Outfitio/Outfit-Fonts)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Space Grotesk",
+   "dir": "plugins/fonts_core/static/space-grotesk",
+   "copyright": "Copyright 2020 The Space Grotesk Project Authors (https://github.com/floriankarsten/space-grotesk)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Atkinson Hyperlegible",
+   "dir": "plugins/fonts_core/static/atkinson_hyperlegible",
+   "copyright": "Copyright 2020 Braille Institute of America, Inc.",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Archivo Black",
+   "dir": "plugins/fonts_core/static/archivo-black",
+   "copyright": "Copyright 2017 The Archivo Black Project Authors (https://github.com/Omnibus-Type/ArchivoBlack)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Anton",
+   "dir": "plugins/fonts_core/static/anton",
+   "copyright": "Copyright 2020 The Anton Project Authors (https://github.com/googlefonts/AntonFont.git)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Bebas Neue",
+   "dir": "plugins/fonts_core/static/bebas_neue",
+   "copyright": "Copyright 2019 The Bebas Neue Project Authors (https://github.com/dharmatype/Bebas-Neue)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "JetBrains Mono",
+   "dir": "plugins/fonts_core/static/jetbrains-mono",
+   "copyright": "Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "IBM Plex Mono",
+   "dir": "plugins/fonts_core/static/ibm_plex_mono",
+   "copyright": "Copyright 2017 IBM Corp. All rights reserved.",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "DM Serif Display",
+   "dir": "plugins/fonts_core/static/dm-serif-display",
+   "copyright": "Copyright 2014 - 2017 Adobe Systems Incorporated (http://www.adobe.com/), with Reserved Font Name 'Source'. Copyright 2019 Google LLC.",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "IBM Plex Serif",
+   "dir": "plugins/fonts_core/static/ibm_plex_serif",
+   "copyright": "Copyright 2020 IBM Corp. All rights reserved.",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Crimson Pro",
+   "dir": "plugins/fonts_core/static/crimson_pro",
+   "copyright": "Copyright 2018 The Crimson Pro Project Authors (https://github.com/Fonthausen/CrimsonPro)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Lora",
+   "dir": "plugins/fonts_core/static/lora",
+   "copyright": "Copyright 2011 The Lora Project Authors (https://github.com/cyrealtype/Lora-Cyrillic), with Reserved Font Name \"Lora\".",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Archivo",
+   "dir": "plugins/fonts_core/static/archivo",
+   "copyright": "Copyright 2020 The Archivo Project Authors (https://github.com/Omnibus-Type/Archivo)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Space Mono",
+   "dir": "plugins/fonts_core/static/space-mono",
+   "copyright": "Copyright 2016 The Space Mono Project Authors (https://github.com/googlefonts/spacemono)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Bodoni Moda",
+   "dir": "plugins/fonts_core/static/bodoni-moda",
+   "copyright": "Copyright 2020 The Bodoni Moda Project Authors (https://github.com/indestructible-type/Bodoni)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Archivo Narrow",
+   "dir": "plugins/fonts_core/static/archivo-narrow",
+   "copyright": "Copyright 2019 The Archivo Narrow Project Authors (https://github.com/Omnibus-Type/ArchivoNarrow)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Jost",
+   "dir": "plugins/fonts_core/static/jost",
+   "copyright": "Copyright 2020 The Jost Project Authors (https://github.com/indestructible-type/Jost)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Fira Code",
+   "dir": "plugins/fonts_core/static/fira_code",
+   "copyright": "Copyright 2014-2020 The Fira Code Project Authors (https://github.com/tonsky/FiraCode)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Source Code Pro",
+   "dir": "plugins/fonts_core/static/source_code_pro",
+   "copyright": "© 2023 Adobe (http://www.adobe.com/), with Reserved Font Name ‘Source’",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Martian Mono",
+   "dir": "plugins/fonts_core/static/martian_mono",
+   "copyright": "Copyright 2020 The Martian Mono Project Authors (https://github.com/evilmartians/mono)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Red Hat Mono",
+   "dir": "plugins/fonts_core/static/red_hat_mono",
+   "copyright": "Copyright 2024 The Red Hat Project Authors (https://github.com/RedHatOfficial/RedHatFont)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Fragment Mono",
+   "dir": "plugins/fonts_core/static/fragment_mono",
+   "copyright": "Copyright 2022 The Fragment-Mono Project Authors (https://github.com/weiweihuanghuang/fragment-mono)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Spline Sans Mono",
+   "dir": "plugins/fonts_core/static/spline_sans_mono",
+   "copyright": "Copyright 2022 The Spline Sans Mono Project Authors (https://github.com/SorkinType/SplineSansMono)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Overpass Mono",
+   "dir": "plugins/fonts_core/static/overpass_mono",
+   "copyright": "Copyright 2021 The Overpass Project Authors (https://github.com/RedHatOfficial/Overpass)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Press Start 2P",
+   "dir": "plugins/fonts_core/static/press_start_2p",
+   "copyright": "Copyright 2012 The Press Start 2P Project Authors (cody@zone38.net), with Reserved Font Name \"Press Start 2P\"",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "VT323",
+   "dir": "plugins/fonts_core/static/vt323",
+   "copyright": "Copyright 2011, The VT323 Project Authors (peter.hull@oikoi.com)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Silkscreen",
+   "dir": "plugins/fonts_core/static/silkscreen",
+   "copyright": "Copyright 2001 The Silkscreen Project Authors (https://github.com/googlefonts/silkscreen)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Pixelify Sans",
+   "dir": "plugins/fonts_core/static/pixelify_sans",
+   "copyright": "Copyright 2021 The Pixelify Sans Project Authors (https://github.com/eifetx/Pixelify-Sans)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Handjet",
+   "dir": "plugins/fonts_core/static/handjet",
+   "copyright": "Copyright 2018 The Handjet Project Authors (https://github.com/rosettatype/Handjet/)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Micro 5",
+   "dir": "plugins/fonts_core/static/micro_5",
+   "copyright": "Copyright 2023 The Soft Type Project Authors (https://github.com/scfried/soft-type-micro)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "DotGothic16",
+   "dir": "plugins/fonts_core/static/dotgothic16",
+   "copyright": "Copyright 2020 The DotGothic16 Project Authors (https://github.com/fontworks-fonts/DotGothic16/)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Jersey 10",
+   "dir": "plugins/fonts_core/static/jersey_10",
+   "copyright": "Copyright 2023 The Soft Type Project Authors (https://github.com/scfried/soft-type-jersey)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Jersey 25",
+   "dir": "plugins/fonts_core/static/jersey_25",
+   "copyright": "Copyright 2023 The Soft Type Project Authors (https://github.com/scfried/soft-type-jersey)",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "TRMNL12",
+   "dir": "plugins/fonts_core/static/trmnl12",
+   "copyright": "Copyright © 2026 Heavyweight Digital Type Foundry s.r.o. All rights reserved.",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "TRMNL16",
+   "dir": "plugins/fonts_core/static/trmnl16",
+   "copyright": "Copyright © 2026 Heavyweight Digital Type Foundry s.r.o. All rights reserved.",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "TRMNL21",
+   "dir": "plugins/fonts_core/static/trmnl21",
+   "copyright": "Copyright © 2026 Heavyweight Digital Type Foundry s.r.o. All rights reserved.",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  }
+ ]
+}
