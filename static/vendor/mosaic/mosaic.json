@@ -1,0 +1,26 @@
+{
+  "version": "0.1.0",
+  "looks": {
+    "bauhaus": {
+      "icons": [
+        "bold"
+      ]
+    },
+    "almanac": {
+      "icons": [
+        "light"
+      ]
+    },
+    "signal": {
+      "icons": [
+        "regular"
+      ]
+    },
+    "pixel": {
+      "icons": []
+    },
+    "os7": {
+      "icons": []
+    }
+  }
+}

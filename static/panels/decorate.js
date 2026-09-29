@@ -529,6 +529,23 @@
       return null;
     }
 
+    // Mosaic, the design system (static/vendor/mosaic, scripts/sync_mosaic.py): an element that
+    // uses it (a data-look, its classes, or calls to Mosaic.) gets the core CSS, the look it names,
+    // the script, the fonts that look sets and the icon weights it draws with. Those last two live
+    // in Mosaic's CSS, not the element's code, so the scans below read the look's CSS as well.
+    var mosaic = null;
+    var mosaicHit = autolibs ? (probeLibs.match(/\bMosaic\.|data-look\s*=|["'\s]m-page\b/) || [])[0] : null;
+    if (mosaicHit) {
+      var mMeta = null;
+      try { mMeta = JSON.parse(libSource(urls.mosaic_json) || "null"); } catch (e) { mMeta = null; }
+      var mLook = (probe.match(/data-look\s*=\s*["']?([a-z0-9_-]+)/) || [])[1] || "";
+      if (!(mMeta && mMeta.looks && mMeta.looks[mLook])) mLook = "";
+      var mCss = (libSource(urls.mosaic_core) || "") + "\n" + (mLook ? libSource(urls.mosaic_looks + mLook + ".css") || "" : "");
+      var mJs = libSource(urls.mosaic_js);
+      mosaic = { look: mLook, css: mCss, js: mJs, icons: mLook ? mMeta.looks[mLook].icons : ["bold"] };
+      libReport.libs.push({ name: "mosaic" + (mLook ? ":" + mLook : ""), injected: !!(mJs && mCss.trim()), kind: "js+css", inferred: true, matched: mosaicHit });
+      if (mCss.trim()) headCss += mCss + "\n";
+    }
     for (var i = 0; autolibs && i < SANDBOX_LIBS.length; i++) {
       var lib = SANDBOX_LIBS[i];
       var choice = iconChoice(lib.name);
@@ -538,6 +555,8 @@
         hit = "icons:declared";
       } else {
         hit = libMatch(lib, probeLibs);
+        // Mosaic.icon builds its classes at run time, so the weights come from the look.
+        if (!hit && mosaic && ICON_LIBS[lib.name] && mosaic.icons.indexOf(ICON_LIBS[lib.name]) !== -1) hit = "mosaic:" + (mosaic.look || "core");
       }
       if (!hit) continue;
       var joined = "";
@@ -572,10 +591,12 @@
     // ``font-src data:`` CSP, so the @font-face has to carry the woff2 as a
     // data: URL (the /fonts/face/<id>.css endpoint builds that). Only fonts the
     // code actually names are inlined, so a lean element stays lean.
+    if (mosaic && mosaic.js) libScripts += "<script>" + mosaic.js + "</" + "script>";
     var fonts = window.__TESSERAE_FONTS || [];
+    var fontProbe = mosaic ? probe + "\n" + mosaic.css : probe;
     for (var k = 0; autolibs && k < fonts.length; k++) {
       var fnt = fonts[k];
-      if (!fnt || !fnt.name || probe.indexOf(fnt.name) === -1) continue;
+      if (!fnt || !fnt.name || fontProbe.indexOf(fnt.name) === -1) continue;
       var fcss = libSource(fnt.url);
       if (fcss) { headCss += fcss + "\n"; needFont = true; }
       var fontEntry = {
