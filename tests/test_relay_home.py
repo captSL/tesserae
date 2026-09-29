@@ -939,3 +939,108 @@ def test_poller_ignores_buttonless_and_malformed_status_bodies(
     assert presses == []
     assert len(heartbeats) == 2  # both bodies ingested as heartbeats
     assert poller._wait_s() == pytest.approx(30.0)
+
+
+# --- relay frame cap (429 rate_limited) -------------------------------------
+
+
+class _CappedClient(_FakeClient):
+    def __init__(self, retry_after: int | None) -> None:
+        super().__init__()
+        self.attempts = 0
+        self.retry_after = retry_after
+
+    def put_frame(self, **kwargs: Any) -> None:
+        from app.relay_client import RelayError
+
+        self.attempts += 1
+        raise RelayError(
+            "PUT frame -> 429: daily frame limit reached",
+            status=429,
+            code="rate_limited",
+            retry_after=self.retry_after,
+        )
+
+
+def _capped_publisher(tmp_path: Path, client: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    renders_dir = tmp_path / "renders"
+    renders_dir.mkdir()
+    (renders_dir / "abc123.bin").write_bytes(b"frame")
+    dev = _Dev("panel1", b64u_encode(b"\x22" * 32))
+    latest = {"digest": "abc123", "filename": "abc123.bin", "ext": "bin", "renderer_id": "r"}
+    monkeypatch.setattr("app.relay_publisher.build_client", lambda _cfg: client)
+    monkeypatch.setattr("app.relay_publisher.relay_config", lambda _s: {})
+    return RelayPublisher(
+        app=None,  # type: ignore[arg-type]
+        devices=type("R", (), {"devices": {"panel1": dev}})(),
+        settings=None,
+        renders_dir=renders_dir,
+        latest_render_fn=lambda _id: latest,
+        run_async=False,
+    )
+
+
+def test_publisher_holds_frames_after_a_429_until_retry_after(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _CappedClient(retry_after=120)
+    pub = _capped_publisher(tmp_path, client, monkeypatch)
+    pub._process_once()
+    assert client.attempts == 1
+    [held] = pub.throttled()
+    assert held["device_id"] == "panel1"
+    assert "daily frame limit" in held["message"]
+
+    # Further renders don't re-hit the relay while the hold lasts.
+    pub._process_once()
+    pub._process_once()
+    assert client.attempts == 1
+
+    # Once the hold passes, the next push retries (and here is refused again).
+    clock = {"now": 0.0}
+    real = __import__("time").monotonic
+    clock["now"] = real() + 121
+    monkeypatch.setattr("app.relay_publisher.time.monotonic", lambda: clock["now"])
+    assert pub.throttled() == []
+    pub._process_once()
+    assert client.attempts == 2
+
+
+def test_publisher_bare_429_holds_for_the_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _CappedClient(retry_after=None)
+    pub = _capped_publisher(tmp_path, client, monkeypatch)
+    pub._process_once()
+    pub._process_once()
+    assert client.attempts == 1
+    assert len(pub.throttled()) == 1
+
+
+def test_relay_tab_shows_self_host_notice_for_capped_panels(relay_app: Any) -> None:
+    import time
+
+    app, client = relay_app
+    with app.app_context():
+        app.config["SETTINGS_STORE"].patch_section(
+            RELAY_SECTION,
+            {"enabled": True, "install_id": "i1", "publisher_token_secret": "p"},
+        )
+    html = client.get("/settings/relay").get_data(as_text=True)
+    assert "Self-host the relay" not in html
+
+    capped = type(
+        "P",
+        (),
+        {
+            "throttled": lambda self: [
+                {"device_id": "parents_panel", "until": time.time() + 600, "message": "m"}
+            ],
+            "on_config_change": lambda self, _d=None: None,
+        },
+    )()
+    app.config["RELAY_PUBLISHER"] = capped
+    html = client.get("/settings/relay").get_data(as_text=True)
+    assert "paused frames for 1 panel" in html
+    assert "<strong>parents_panel</strong> resumes at" in html
+    assert "https://docs.tesserae.ink/relay/self-host/" in html

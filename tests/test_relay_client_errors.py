@@ -75,3 +75,32 @@ def test_a_long_message_is_truncated(monkeypatch: pytest.MonkeyPatch) -> None:
         relay_client.register_install("https://relay.example", "PUB")
 
     assert len(str(caught.value)) < 400
+
+
+def test_a_429_carries_retry_after(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The relay's frame cap answers 429 with Retry-After; the publisher
+    holds uploads for that long, so the seconds must reach the error."""
+    body = json.dumps({"error": {"code": "rate_limited", "message": "daily frame limit"}})
+    err = urllib.error.HTTPError(
+        "https://relay.example/v1/i/x/d/p/frame",
+        429,
+        "Too Many Requests",
+        {"Retry-After": "3600"},  # type: ignore[arg-type]
+        io.BytesIO(body.encode("utf-8")),
+    )
+    _raise(monkeypatch, err)
+    client = relay_client.RelayClient("https://relay.example", "x", "tok")
+    with pytest.raises(relay_client.RelayError) as caught:
+        client.put_frame(
+            device_id="p",
+            etag="e",
+            sealed=b"s",
+            panel_w=1,
+            panel_h=1,
+            fmt="bin",
+            renderer_id="r",
+            meta_b64u="",
+        )
+    assert caught.value.status == 429
+    assert caught.value.code == "rate_limited"
+    assert caught.value.retry_after == 3600

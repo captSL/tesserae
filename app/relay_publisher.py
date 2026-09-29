@@ -24,6 +24,7 @@ import hashlib
 import json
 import logging
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,10 @@ from app.relay_config import build_client, relay_config
 from app.relay_crypto import seal
 
 logger = logging.getLogger(__name__)
+
+# Hold after a 429 that carries no Retry-After. A capping relay always sends
+# one; this only stops a bare 429 from being retried on every render.
+_THROTTLE_FALLBACK_S = 3600
 
 
 def config_doc_etag(doc: dict[str, Any]) -> str:
@@ -74,6 +79,11 @@ class RelayPublisher:
         self._after_frame_upload = after_frame_upload
         self._last_sent: dict[str, str] = {}
         self._last_config_sent: dict[str, str] = {}
+        # device id -> (monotonic resume time, wall-clock resume time, relay
+        # message) for panels the relay has capped for the day. Frame uploads
+        # for them wait until the resume time instead of re-hitting the relay
+        # on every render; the held frame goes out on the first push after.
+        self._throttled: dict[str, tuple[float, float, str]] = {}
         self._lock = threading.Lock()
         # Uploads are network-bound; push listeners run in the push thread, so
         # offload to a single serial worker and coalesce via a dirty flag so a
@@ -120,8 +130,11 @@ class RelayPublisher:
             return  # install not linked to a relay; nothing to publish
         for device in self._relay_devices():
             try:
-                self._maybe_send(client, device)
+                if not self._throttle_active(device.id):
+                    self._maybe_send(client, device)
             except RelayError as exc:
+                if exc.status == 429:
+                    self._hold(device.id, exc)
                 # Leave _last_sent unset so the next push retries this frame.
                 logger.warning("relay %s: upload failed (%s)", device.id, exc)
                 self._record_event(device, "frame", error=str(exc))
@@ -134,6 +147,32 @@ class RelayPublisher:
                 self._record_event(device, "config", error=str(exc))
             except Exception:
                 logger.exception("relay: config send failed for %s", device.id)
+
+    def _hold(self, device_id: str, exc: RelayError) -> None:
+        wait = exc.retry_after if exc.retry_after else _THROTTLE_FALLBACK_S
+        with self._lock:
+            self._throttled[device_id] = (time.monotonic() + wait, time.time() + wait, str(exc))
+
+    def _throttle_active(self, device_id: str) -> bool:
+        with self._lock:
+            entry = self._throttled.get(device_id)
+            if entry is None:
+                return False
+            if time.monotonic() < entry[0]:
+                return True
+            del self._throttled[device_id]
+            return False
+
+    def throttled(self) -> list[dict[str, Any]]:
+        """Panels the relay is currently refusing frames for, for the
+        Settings notice: ``{device_id, until (epoch s), message}``."""
+        now = time.monotonic()
+        with self._lock:
+            return [
+                {"device_id": dev, "until": wall, "message": msg}
+                for dev, (mono, wall, msg) in sorted(self._throttled.items())
+                if now < mono
+            ]
 
     def _record_event(
         self,

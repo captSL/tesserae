@@ -25,6 +25,11 @@
 			"dataset": "relay_events"
 		}
 	]
+	// Optional cap on frame uploads per panel per UTC day; unset means
+	// unlimited. Past the cap the relay answers 429 rate_limited and the panel
+	// keeps its last frame until 00:00 UTC. The hosted relay sets this:
+	// "vars": { "FRAME_DAILY_LIMIT": "750" },
+	//
 	// The relay is zero-knowledge: it stores opaque sealed frames and never
 	// holds a frame key, so there are no signing secrets to configure. Gate
 	// hosted registration by overriding checkEntitlement() in src/index.js.

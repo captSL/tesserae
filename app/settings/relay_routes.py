@@ -9,6 +9,7 @@ that flash the outcome and redirect back to the page.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from flask import current_app, flash, redirect, render_template, request, url_for
@@ -31,6 +32,20 @@ def _panel_kinds() -> list[Any]:
     return [d for d in devices().devices.values() if d.kind_of is None]
 
 
+def _throttled_panels() -> list[dict[str, Any]]:
+    """Panels the relay has capped for the day, with a local resume time,
+    for the self-host notice. Empty when no publisher is wired."""
+    publisher = current_app.config.get("RELAY_PUBLISHER")
+    throttled = getattr(publisher, "throttled", None)
+    if throttled is None:
+        return []
+    rows = []
+    for entry in throttled():
+        until = datetime.fromtimestamp(entry["until"]).astimezone()
+        rows.append({**entry, "until_label": f"{until:%H:%M} on {until.day} {until:%b}"})
+    return rows
+
+
 @bp.get("/settings/relay")
 def relay_index() -> str:
     cfg = relay_config(settings_store())
@@ -43,6 +58,7 @@ def relay_index() -> str:
         allow_local=bool(cfg.get("allow_local")),
         install_id=cfg.get("install_id") or "",
         relay_devices=_relay_devices(),
+        throttled=_throttled_panels(),
         panel_kinds=_panel_kinds(),
         # A freshly minted pairing code is passed through the redirect so the
         # operator can read it off the page (it isn't stored server-side).

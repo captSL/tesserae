@@ -577,3 +577,58 @@ async function sha256Hex(text) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
+
+test("FRAME_DAILY_LIMIT caps uploads per panel per UTC day with a 429", async () => {
+  const e = { ...env(), FRAME_DAILY_LIMIT: "2" };
+  const bucket = e.RELAY_BUCKET;
+  let r = await worker.fetch(req("POST", "/v1/install/register", { body: { install_pubkey: "PUB" } }), e);
+  const { install_id, publisher_token } = await r.json();
+  const put = (device, etag) =>
+    worker.fetch(
+      new Request(`https://relay.test/v1/i/${install_id}/d/${device}/frame`, {
+        method: "PUT",
+        headers: { authorization: "Bearer " + publisher_token, ETag: `"${etag}"` },
+        body: new Uint8Array([1]),
+      }),
+      e,
+    );
+
+  assert.equal((await put("panel1", "aaa")).status, 200);
+  assert.equal((await put("panel1", "bbb")).status, 200);
+  r = await put("panel1", "ccc");
+  assert.equal(r.status, 429);
+  const retryAfter = Number(r.headers.get("retry-after"));
+  assert.ok(retryAfter > 0 && retryAfter <= 86400, `Retry-After ${retryAfter}`);
+  const { error } = await r.json();
+  assert.equal(error.code, "rate_limited");
+  assert.match(error.message, /self-host/);
+  // The refused frame stored nothing; the mailbox still serves the last one.
+  const pointer = JSON.parse(await (await bucket.get(`frame/${install_id}/panel1/latest.json`)).text());
+  assert.equal(pointer.etag, "bbb");
+  assert.ok(!(await bucket.get(`frame/${install_id}/panel1/ccc.bin`)));
+
+  // The cap is per panel: another device on the same install is unaffected.
+  assert.equal((await put("panel2", "aaa")).status, 200);
+
+  // A new UTC day resets the count.
+  pointer.quota.day = "2000-01-01";
+  await bucket.put(`frame/${install_id}/panel1/latest.json`, JSON.stringify(pointer));
+  assert.equal((await put("panel1", "ddd")).status, 200);
+});
+
+test("no FRAME_DAILY_LIMIT means unlimited uploads", async () => {
+  const e = env();
+  let r = await worker.fetch(req("POST", "/v1/install/register", { body: { install_pubkey: "PUB" } }), e);
+  const { install_id, publisher_token } = await r.json();
+  for (let i = 0; i < 20; i++) {
+    r = await worker.fetch(
+      new Request(`https://relay.test/v1/i/${install_id}/d/panel1/frame`, {
+        method: "PUT",
+        headers: { authorization: "Bearer " + publisher_token, ETag: `"f${i}"` },
+        body: new Uint8Array([i]),
+      }),
+      e,
+    );
+    assert.equal(r.status, 200);
+  }
+});

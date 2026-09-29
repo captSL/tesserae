@@ -14,6 +14,7 @@
 //   PORT             listen port                 (default 8787)
 //   HOST             bind address                (default 0.0.0.0)
 //   RELAY_MAX_BODY   request body cap, bytes     (default 8 MiB)
+//   FRAME_DAILY_LIMIT  frames per panel per UTC day (default unlimited)
 //
 // Run TLS in front of it (Caddy, Traefik, nginx). This speaks plain HTTP.
 
@@ -54,9 +55,14 @@ export async function sweepExpired(bucket, now = Date.now()) {
   return removed;
 }
 
-export function createServer({ dataDir, maxBody = DEFAULT_MAX_BODY, sweepMs = DEFAULT_SWEEP_MS } = {}) {
+export function createServer({
+  dataDir,
+  maxBody = DEFAULT_MAX_BODY,
+  sweepMs = DEFAULT_SWEEP_MS,
+  frameDailyLimit = 0,
+} = {}) {
   const bucket = fileSystemBucket(dataDir);
-  const env = { RELAY_BUCKET: bucket };
+  const env = { RELAY_BUCKET: bucket, FRAME_DAILY_LIMIT: frameDailyLimit };
 
   if (sweepMs > 0) {
     const timer = setInterval(() => {
@@ -177,8 +183,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const host = process.env.HOST || "0.0.0.0";
   const dataDir = process.env.RELAY_DATA_DIR || "/data";
   const maxBody = Number(process.env.RELAY_MAX_BODY || DEFAULT_MAX_BODY);
+  const frameDailyLimit = Number(process.env.FRAME_DAILY_LIMIT || 0);
 
-  createServer({ dataDir, maxBody }).listen(port, host, () => {
+  createServer({ dataDir, maxBody, frameDailyLimit }).listen(port, host, () => {
     console.log(`relay listening on ${host}:${port}, storage ${dataDir}`);
   });
 }

@@ -34,12 +34,21 @@ _USER_AGENT: str = "tesserae/relay (+https://tesserae.ink)"
 
 class RelayError(Exception):
     """A relay call failed. ``status`` is the HTTP code (``None`` for transport
-    errors); ``code`` is the relay's error envelope ``code`` when present."""
+    errors); ``code`` is the relay's error envelope ``code`` when present;
+    ``retry_after`` is the ``Retry-After`` seconds a ``429`` carries."""
 
-    def __init__(self, message: str, *, status: int | None = None, code: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int | None = None,
+        code: str | None = None,
+        retry_after: int | None = None,
+    ) -> None:
         super().__init__(message)
         self.status = status
         self.code = code
+        self.retry_after = retry_after
 
 
 def _call(
@@ -103,7 +112,10 @@ def _call(
             detail = f"{detail}: {message}"
         elif code:
             detail = f"{detail}: {code}"
-        raise RelayError(detail, status=exc.code, code=code) from exc
+        retry_after: int | None = None
+        with contextlib.suppress(TypeError, ValueError):
+            retry_after = max(0, int(exc.headers.get("Retry-After", "")))
+        raise RelayError(detail, status=exc.code, code=code, retry_after=retry_after) from exc
     except urllib.error.URLError as exc:
         raise RelayError(f"{method} {url} failed: {exc.reason}") from exc
 

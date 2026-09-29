@@ -128,6 +128,14 @@ GROUP BY day ORDER BY day;
 SELECT SUM(multiIf(blob1='mailbox_created', 1, blob1='mailbox_removed', -1, 0)) AS mailboxes
 FROM relay_events;
 
+-- Heaviest panels today (frames pushed, and uploads refused by the cap)
+SELECT blob2 AS install, blob3 AS device,
+       SUM(if(blob1='frame_push', double1, 0)) AS frames,
+       SUM(if(blob1='frame_throttled', double1, 0)) AS throttled
+FROM relay_events
+WHERE timestamp >= toStartOfDay(NOW())
+GROUP BY install, device ORDER BY frames DESC LIMIT 20;
+
 -- Distinct devices that pushed in the last 30 days
 SELECT COUNT(DISTINCT blob3) AS active_mailboxes
 FROM relay_events
@@ -137,6 +145,17 @@ WHERE blob1='frame_push' AND timestamp >= NOW() - INTERVAL '30' DAY;
 Point your dashboard at those queries. For pure aggregate with no ids at all,
 drop the `install_id` / `device_id` blobs in `track()` and rely on the
 created-minus-removed count.
+
+## Frame cap (optional)
+
+Set `FRAME_DAILY_LIMIT` (a Worker var, or an environment variable for the
+container) to cap frame uploads per panel per UTC day. Past the cap,
+`PUT .../frame` answers `429 rate_limited` with `Retry-After` set to the next
+00:00 UTC; nothing is stored and the panel keeps showing its last frame. Tesserae
+holds uploads for that panel until the reset and shows a notice on the
+Settings → Cloud relay page. Unset or `0` means unlimited, which is the default.
+The count rides the frame pointer the Worker already reads and writes, so the
+cap adds no storage operations.
 
 ## Gating registration (optional)
 

@@ -71,7 +71,15 @@ previous token, so re-pairing a panel leaves exactly one working credential.
 ```
 
 Closed `code` set: `invalid_request`, `unauthorized`, `forbidden`, `not_found`,
-`pairing_expired`, `conflict`.
+`pairing_expired`, `conflict`, `rate_limited`.
+
+`rate_limited` (HTTP `429`) is returned by `PUT .../frame` when a relay caps
+frame uploads per panel per UTC day and the device has reached the cap. The
+upload is not stored, the mailbox keeps serving the previous frame, and
+`Retry-After` gives the seconds until 00:00 UTC, when the count resets. A home
+instance should hold further frame uploads for that device until then. The cap
+is relay configuration (`FRAME_DAILY_LIMIT`); a relay without it never returns
+this code. Panels are unaffected: they never see the `429`.
 
 ## Install registration
 

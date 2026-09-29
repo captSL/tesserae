@@ -15,6 +15,28 @@
 
 {{ settings_tabs('relay') }}
 
+{% if throttled %}
+<div class="rooms-notice rooms-notice--warn">
+  <i class="ph ph-gauge" aria-hidden="true"></i>
+  <div>
+    <h2>The relay has paused frames for {{ throttled | length }} panel{{ 's' if throttled | length != 1 }}</h2>
+    <p>
+      {% for t in throttled %}<strong>{{ t.device_id }}</strong> resumes at {{ t.until_label }}{{ ', ' if not loop.last else '.' }}{% endfor %}
+      This relay caps how many frames each panel can receive per day, and these panels
+      reached it. Until then they keep showing their last frame, and Tesserae sends the
+      latest one when the cap resets.
+    </p>
+    <p>
+      Panels that refresh this often are better served by your own relay. It runs as a
+      container or on a free Cloudflare account, and pairing works the same way.
+    </p>
+    <a class="btn btn-quiet" href="https://docs.tesserae.ink/relay/self-host/">
+      <i class="ph ph-arrow-square-out" aria-hidden="true"></i> Self-host the relay
+    </a>
+  </div>
+</div>
+{% endif %}
+
 {# ---- Link this install --------------------------------------------------- #}
 <section class="card">
   {{ card_head('Relay link', blurb='This install ' + ('is linked.' if linked else 'is not linked yet.')) }}

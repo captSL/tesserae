@@ -18,7 +18,7 @@
  *   pair/<install_id>/<code>.json      { code, expires_at, panel_pubkey?, completion? }
  *   token/<device_token_sha256>.json   { install_id, device_id }
  *   device/<install_id>/<device_id>.json         { token_sha256, code }
- *   frame/<install_id>/<device_id>/latest.json   { etag, blob_key, meta }
+ *   frame/<install_id>/<device_id>/latest.json   { etag, blob_key, meta, quota }
  *   frame/<install_id>/<device_id>/<digest>.bin  sealed frame bytes
  *   config/<install_id>/<device_id>.json | .bin  { etag } + sealed config doc
  *   status/<install_id>/<device_id>.json         { body, received_at }
@@ -33,7 +33,9 @@ const ERROR_CODES = new Set([
   "not_found",
   "pairing_expired",
   "conflict",
+  "rate_limited",
 ]);
+const SELF_HOST_URL = "https://docs.tesserae.ink/relay/self-host/";
 
 // --- helpers ---------------------------------------------------------------
 
@@ -124,6 +126,21 @@ function track(env, event, installId, deviceId) {
 // paid check) without any contract change; a rejection becomes 403.
 async function checkEntitlement(_env, _request) {
   return true;
+}
+
+// Optional per-device cap on frame uploads per UTC day, from the
+// FRAME_DAILY_LIMIT var. Unset or 0 means unlimited, which is what a
+// self-hosted relay gets by default; the hosted relay sets it so one install
+// can't run up the shared bill.
+function frameDailyLimit(env) {
+  const n = Number(env.FRAME_DAILY_LIMIT);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;
+}
+
+function secondsToUtcMidnight(now) {
+  const next = new Date(now);
+  next.setUTCHours(24, 0, 0, 0);
+  return Math.max(1, Math.ceil((next.getTime() - now) / 1000));
 }
 
 async function requirePublisher(env, request, installId) {
@@ -296,9 +313,28 @@ async function putFrame(env, request, installId, deviceId) {
   const pointerKey = `frame/${installId}/${deviceId}/latest.json`;
   const blobKey = `frame/${installId}/${deviceId}/${etag}.bin`;
   const previous = await getJson(env, pointerKey);
+  // The day's upload count rides the pointer this handler already reads and
+  // writes, so the cap costs no extra storage operations. Checked before the
+  // body is read: a refused upload stores nothing.
+  const now = Date.now();
+  const day = new Date(now).toISOString().slice(0, 10);
+  const count = previous?.quota?.day === day ? Number(previous.quota.count) || 0 : 0;
+  const limit = frameDailyLimit(env);
+  if (limit && count >= limit) {
+    track(env, "frame_throttled", installId, deviceId);
+    const response = fail(
+      "rate_limited",
+      `daily frame limit reached (${limit} per panel per day); ` +
+        `the panel keeps its last frame until 00:00 UTC. ` +
+        `For frequent refreshes, self-host the relay: ${SELF_HOST_URL}`,
+      429,
+    );
+    response.headers.set("Retry-After", String(secondsToUtcMidnight(now)));
+    return response;
+  }
   const body = await request.arrayBuffer();
   await env.RELAY_BUCKET.put(blobKey, body);
-  await putJson(env, pointerKey, { etag, blob_key: blobKey, meta });
+  await putJson(env, pointerKey, { etag, blob_key: blobKey, meta, quota: { day, count: count + 1 } });
   // Delete the frame this one supersedes so the mailbox holds only the latest
   // sealed blob (each render is a new digest; without this, blobs accumulate
   // forever). A repeated ETag points at the same blob, so never delete that.

@@ -8,6 +8,16 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Added
 
+- **The relay can cap frames per panel per day.** A relay configured with
+  `FRAME_DAILY_LIMIT` answers a frame upload past the cap with `429
+  rate_limited` and a `Retry-After` of the next 00:00 UTC; the upload is not
+  stored and the panel keeps its last frame. The count rides the frame pointer
+  the Worker already reads and writes, so the cap adds no storage operations.
+  Unset means unlimited, so self-hosted relays are unaffected. Tesserae holds
+  uploads for a capped panel until the reset instead of retrying on every
+  render, and Settings → Cloud relay shows which panels are paused, when they
+  resume, and a link to self-hosting the relay. The contract gains the
+  `rate_limited` code.
 - **Xteink X4 Pro in 4-level grayscale (#335).** `xteink_x4_pro_gray` is the
   server half of the CrossInk `x4-pro` build, which ships with grayscale on
   and already announced that id: same panel block as `xteink_x4_pro`, with
