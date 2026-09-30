@@ -56,6 +56,42 @@ def wire_transform(panel: dict[str, Any], canvas_w: int, canvas_h: int) -> WireF
     return _to_wire
 
 
+def wire_is_upright(panel: dict[str, Any]) -> bool:
+    """Whether the device framebuffer shows the composition upright.
+
+    False when the .bin renderer turns the frame on its way to the panel: a
+    quarter turn because the composition's orientation differs from the
+    firmware-native one (a portrait-native Sticky set to landscape), or a half
+    turn for a flipped mount. The rects survive that transform (see
+    :func:`wire_transform`), but the firmware draws a primitive's label and
+    icon in its own framebuffer orientation, so on a turned frame they come out
+    sideways or upside down (#343). Unusable geometry answers True: rects stay
+    in canvas space, as before."""
+    geo = _panel_geometry(panel)
+    if geo is None:
+        return True
+    comp_landscape = geo["comp_w"] > geo["comp_h"]
+    native_landscape = geo["native_w"] > geo["native_h"]
+    return comp_landscape == native_landscape and not geo["flip"]
+
+
+def is_spec_primitive(el: Element, *, upright: bool = True) -> bool:
+    """Whether ``el`` makes it into a frame spec (ignoring the wire transform's
+    off-panel check). The firmware draws only what the spec carries, so the
+    renderer must paint everything else rather than leave its rect blank, or
+    the control vanishes from the panel (#343).
+
+    ``upright=False`` (see :func:`wire_is_upright`) leaves buttons out: the
+    firmware would draw their label and icon sideways, and a server-painted
+    button still works through its ``on_tap`` region on the v1/v2 path.
+    Switches, sliders and steppers stay device-drawn there, since their only
+    action is the device-side ``value_key`` path and a server-painted one would
+    not respond to a tap."""
+    if not upright and el.kind == "button":
+        return False
+    return _primitive_for(el, None) is not None
+
+
 # Atlas role ids referenced by primitive text. The atlas descriptors themselves
 # are attached downstream by the atlas pipeline; here we only reference them.
 ATLAS_LABEL = "l20"
@@ -182,7 +218,9 @@ def touch_layout_digest(primitives: list[dict[str, Any]]) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
 
-def build_frame_spec(els: Iterable[Element], *, wire: WireFn | None = None) -> dict[str, Any]:
+def build_frame_spec(
+    els: Iterable[Element], *, wire: WireFn | None = None, upright: bool = True
+) -> dict[str, Any]:
     """Build the frame spec from a layout's elements.
 
     Returns a doc conforming to ``schema/frame-spec.schema.json``. Pass ``wire``
@@ -190,6 +228,11 @@ def build_frame_spec(els: Iterable[Element], *, wire: WireFn | None = None) -> d
     without it, rects stay in canvas space (preview / tests). The ``layout_digest``
     is derived from the primitive structure (stable across data-only redraws).
     ``atlases`` is omitted here; the atlas pipeline attaches descriptors for the
-    roles the primitives reference. Invalid primitives are skipped."""
-    primitives = [p for p in (_primitive_for(el, wire) for el in els) if p is not None]
+    roles the primitives reference. Invalid primitives are skipped, and so are
+    buttons when ``upright`` is False (see :func:`is_spec_primitive`)."""
+    primitives = [
+        p
+        for p in (_primitive_for(el, wire) for el in els if upright or el.kind != "button")
+        if p is not None
+    ]
     return {"layout_digest": touch_layout_digest(primitives), "primitives": primitives}

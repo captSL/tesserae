@@ -151,7 +151,10 @@
       // covering anything behind it, and draws its own control on top. Anywhere
       // else (a display-only panel, a preview, no device at all) nothing would
       // ever fill that rect, so the server paints the control itself (#228).
-      if (window.__TESSERAE_DEVICE_DRAWS_TOUCH) {
+      // A primitive the frame spec leaves out (t3_owned false, e.g. a button
+      // with no action) is never drawn by the firmware either, so it is
+      // painted here too (#343).
+      if (window.__TESSERAE_DEVICE_DRAWS_TOUCH && el.t3_owned !== false) {
         var rsv = document.createElement("div");
         rsv.style.cssText = "width:100%;height:100%;background:var(--bg, #FFFFFF)";
         return rsv;

@@ -368,3 +368,53 @@ def test_compose_carries_primitive_content_for_the_painter(app: Flask) -> None:
     assert by_id["sw1"]["label"] == "Desk" and by_id["sw1"]["state"] == "on"
     assert by_id["sl1"]["value_now"] == 65 and by_id["sl1"]["axis"] == "x"
     assert by_id["sl1"]["value_max"] == 100
+
+
+def test_compose_paints_a_button_the_spec_leaves_out(app: Flask) -> None:
+    """A button with no action is not in the frame spec, so the firmware never
+    draws it; the render must paint it rather than leave a blank rect (#343)."""
+    client = app.test_client()
+    _sign_in(client)
+    cid = _new_canvas(client)
+    resp = client.post(
+        f"/pages/canvas/c/{cid}/save",
+        json={
+            "els": [
+                {
+                    "id": "home",
+                    "kind": "button",
+                    "x": 10,
+                    "y": 10,
+                    "w": 60,
+                    "h": 60,
+                    "icon": "house",
+                }
+            ]
+        },
+    )
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    _bind_device(app, cid, "e1003", proto_v=2)
+    body = client.get(f"/compose/{cid}?for_push=1&device_id=e1003").get_data(as_text=True)
+    assert "window.__TESSERAE_DEVICE_DRAWS_TOUCH = true;" in body
+    assert '"t3_owned": false' in body
+
+
+def test_compose_paints_buttons_on_a_turned_frame(
+    app: Flask, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A portrait-native panel composed landscape: the firmware would draw the
+    button's label sideways, so the button leaves the spec and is painted
+    here, while an upright panel keeps the device-drawn button (#343)."""
+    from app.device_loader import Device
+
+    client = app.test_client()
+    _sign_in(client)
+    cid = _canvas_with_button(client)
+    _bind_device(app, cid, "sticky", proto_v=2)
+    panel: dict[str, int] = {"w": 800, "h": 480, "native_w": 480, "native_h": 800}
+    monkeypatch.setattr(Device, "panel", property(lambda self: panel))
+    body = client.get(f"/compose/{cid}?for_push=1&device_id=sticky").get_data(as_text=True)
+    assert '"t3_owned": false' in body
+    panel.update({"w": 480, "h": 800})
+    body = client.get(f"/compose/{cid}?for_push=1&device_id=sticky").get_data(as_text=True)
+    assert '"t3_owned": true' in body

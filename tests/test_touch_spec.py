@@ -10,7 +10,14 @@ from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 
 from app.state.panel_store import Element
-from app.touch_spec import build_frame_spec, classify_action, touch_layout_digest, wire_transform
+from app.touch_spec import (
+    build_frame_spec,
+    classify_action,
+    is_spec_primitive,
+    touch_layout_digest,
+    wire_is_upright,
+    wire_transform,
+)
 
 _SCHEMA_DIR = Path(__file__).resolve().parents[1] / "schema"
 
@@ -200,3 +207,41 @@ def test_build_frame_spec_emits_wired_rects() -> None:
 def test_wire_transform_none_for_bad_panel() -> None:
     assert wire_transform({}, 600, 400) is None
     assert wire_transform({"w": 600, "h": 400}, 0, 0) is None
+
+
+# -- turned frames (#343) ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("panel", "upright"),
+    [
+        ({"w": 480, "h": 800, "native_w": 480, "native_h": 800}, True),
+        # Portrait-native Sticky composed landscape: the renderer turns it.
+        ({"w": 800, "h": 480, "native_w": 480, "native_h": 800}, False),
+        ({"w": 800, "h": 480, "native_w": 800, "native_h": 480}, True),
+        ({"w": 800, "h": 480, "orientation": "landscape_flipped"}, False),
+        ({}, True),  # unusable geometry: rects stay in canvas space
+    ],
+)
+def test_wire_is_upright(panel: dict[str, object], upright: bool) -> None:
+    assert wire_is_upright(panel) is upright
+
+
+def _mixed_els() -> list[Element]:
+    return [
+        Element(id="b", kind="button", w=100, h=50, label="Open", on_tap="refresh"),
+        Element(id="s", kind="switch", w=100, h=50, value_key="ha:light.x"),
+    ]
+
+
+def test_turned_frame_leaves_buttons_out_of_the_spec() -> None:
+    doc = build_frame_spec(_mixed_els(), upright=False)
+    assert [p["id"] for p in doc["primitives"]] == ["s"]
+    assert [p["id"] for p in build_frame_spec(_mixed_els())["primitives"]] == ["b", "s"]
+
+
+def test_is_spec_primitive_matches_the_spec() -> None:
+    els = [*_mixed_els(), Element(id="home", kind="button", w=50, h=50, icon="house")]
+    for upright in (True, False):
+        in_spec = {p["id"] for p in build_frame_spec(els, upright=upright)["primitives"]}
+        assert {e.id for e in els if is_spec_primitive(e, upright=upright)} == in_spec

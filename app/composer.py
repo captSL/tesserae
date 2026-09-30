@@ -42,7 +42,7 @@ from app.panel import PANEL_PRESETS, panel_groups_for_push, resolve_panel_for_pa
 from app.plugin_http import fetch_json
 from app.plugin_loader import Font, PluginRegistry
 from app.state.page_store import Page, PageStore
-from app.touch_spec import PRIMITIVE_KINDS
+from app.touch_spec import PRIMITIVE_KINDS, is_spec_primitive, wire_is_upright
 
 logger = logging.getLogger(__name__)
 
@@ -1135,6 +1135,9 @@ def _build_canvas_els(
     # element" rule the grid path follows.
     locale = _resolve_locale_for_device_id(target_device_id)
     registry = _registry()
+    # Whether the target panel's framebuffer shows this canvas upright; on a
+    # turned frame buttons leave the touch-v3 spec and are painted here (#343).
+    upright = _device_wire_is_upright(target_device_id)
 
     # Dedupe fetches across elements that resolve to the same widget +
     # options: a canvas often has several data primitives (temp, humidity,
@@ -1352,6 +1355,11 @@ def _build_canvas_els(
                         "value_max": e.value_max,
                         "value_step": e.value_step,
                         "value_now": e.value_now,
+                        # Whether the firmware will draw it: only primitives the
+                        # frame spec carries. The rest (a button with no action)
+                        # are painted here even for a device that draws its own
+                        # controls, or they vanish from the panel (#343).
+                        "t3_owned": is_spec_primitive(e, upright=upright),
                     }
                 )
             els_out.append(deco)
@@ -1388,6 +1396,16 @@ def _build_canvas_els(
         _stamp_touch(item, e)
         els_out.append(item)
     return els_out
+
+
+def _device_wire_is_upright(device_id: str) -> bool:
+    """:func:`app.touch_spec.wire_is_upright` for a device id; True when there
+    is no such device (a preview), where nothing is device-drawn anyway."""
+    devices = current_app.config.get("DEVICE_REGISTRY")
+    device = devices.devices.get(device_id) if devices is not None and device_id else None
+    if device is None:
+        return True
+    return wire_is_upright(getattr(device, "panel", None) or {})
 
 
 def device_draws_touch_primitives(device_id: str) -> bool:

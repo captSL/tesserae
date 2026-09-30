@@ -2253,13 +2253,15 @@ def get_frame_spec(device_id: str) -> Response:
     info = _frame_info_for_digest(device, str(latest.get("digest") or ""))
     page_id = str(info.get("page_id") or "") if info else ""
 
-    from app.touch_spec import build_frame_spec, wire_transform
+    from app.touch_spec import build_frame_spec, wire_is_upright, wire_transform
 
     canvas = _canvas_for_page(page_id)
     if canvas is None:
         return jsonify(build_frame_spec([]))
     wire = wire_transform(device.panel or {}, int(canvas.w), int(canvas.h))
-    spec = build_frame_spec(canvas.els, wire=wire)
+    # On a turned frame buttons are left out and the renderer paints them
+    # (#343); composer._build_canvas_els makes the same call per element.
+    spec = build_frame_spec(canvas.els, wire=wire, upright=wire_is_upright(device.panel or {}))
     _attach_touch_atlases(spec, device)
     return jsonify(spec)
 

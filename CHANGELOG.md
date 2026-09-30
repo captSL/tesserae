@@ -82,6 +82,20 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Fixed
 
+- **Touch buttons on a rotated panel draw upright, and no button goes missing (#343).**
+  On a panel whose firmware draws its own touch controls (protocol v2), the renderer
+  left every button, switch, slider and stepper blank for the device to fill in. Two
+  things went wrong. The firmware draws labels and icons in its own framebuffer
+  orientation, so on a panel set to 90° or 270° (a portrait-native reTerminal Sticky
+  used in landscape) or to a flipped mount they came out sideways or upside down and
+  spilled out of the button. Buttons on such a turned frame now stay out of the touch
+  spec and the server paints them; taps still reach them through their action, as on
+  any other panel. And a primitive the spec skips, such as a button with no action,
+  was blanked but never drawn, so it disappeared from the panel; the renderer now
+  blanks only what the spec carries. Switches, sliders and steppers on a turned frame
+  are still drawn by the device, because a server-painted one would not respond to a
+  tap; their labels still read sideways until the firmware learns about rotation.
+
 - **No "Switch to MQTT" on REST-only hardware (#341).** The device card
   offered the transport flip on every instance, but the flip only rewrites
   the manifest; nothing is sent to the device. On a reTerminal Sticky, whose
