@@ -479,6 +479,96 @@
 /* Flashes read as ink notes rather than coloured cards. */
 :root[data-ui="paper"] .flash { border-radius: var(--t-radius); }
 
+/* ----- Flat sections, not cards ------------------------------------ */
+/* The mockups draw a page as headed sections divided by hairlines; a box
+   is kept only for things that float (menus, popovers, dialogs) and for
+   panel previews. The classic surfaces wrap every section in a filled,
+   bordered, rounded card, so Paper strips those back to a top hairline. */
+:root[data-ui="paper"] .card,
+:root[data-ui="paper"] .dx-section-card,
+:root[data-ui="paper"] .dx-devtable {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--t-border);
+  border-radius: 0;
+  padding: 24px 0 8px;
+  box-shadow: none;
+}
+:root[data-ui="paper"] .dx-section-card + .dx-section-card,
+:root[data-ui="paper"] .card + .card { margin-top: 24px; }
+/* Side-by-side sections (Stats) align their tops instead. */
+:root[data-ui="paper"] .dx-stats-columns > .dx-section-card { margin-top: 0; }
+:root[data-ui="paper"] .dx-devtable { padding: 0; }
+/* Section heads lose their decorative icon tile: the title carries it. */
+:root[data-ui="paper"] .dx-section-card .dx-section-icon,
+:root[data-ui="paper"] .card-head > .icon-box,
+:root[data-ui="paper"] .card-head h2 > .icon-box { display: none; }
+:root[data-ui="paper"] .dx-section-title,
+:root[data-ui="paper"] .card-head h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.015em; }
+:root[data-ui="paper"] .dx-card-footer {
+  background: transparent;
+  padding: 14px 0 0;
+  margin-inline: 0;
+  border-top: 1px solid var(--t-border);
+}
+/* List rows (dashboards, devices, inset rows) are rows, not tiles. */
+:root[data-ui="paper"] .dx-inset-row {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--t-border);
+  border-radius: 0;
+  padding: 14px 0;
+}
+:root[data-ui="paper"] .dx-inset-row:hover { background: var(--p-hover); }
+/* Stat tiles read as a strip of figures with hairline dividers. */
+:root[data-ui="paper"] .dx-stat-tile {
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--t-border);
+  border-radius: 0;
+  padding: 4px 16px;
+}
+/* Empty states and drop zones keep a single dashed hairline at most. */
+:root[data-ui="paper"] .dk-empty { border: 0; border-top: 1px solid var(--t-border); border-radius: 0; }
+:root[data-ui="paper"] .send-box { border-width: 1px; background: transparent; }
+
+/* Settings fields: label on the left, control on the right, as in the
+   mockups (toggle rows already read that way). Wide screens only; below
+   that the classic stacked layout stays. */
+@media (min-width: 1180px) {
+  :root[data-ui="paper"] .dx-section-body > .field:not(.field--slider):not(.field--days) {
+    display: grid;
+    grid-template-columns: minmax(200px, 300px) minmax(0, 1fr);
+    column-gap: 32px;
+    align-items: start;
+  }
+  :root[data-ui="paper"] .dx-section-body > .field:not(.field--slider):not(.field--days) > label {
+    grid-column: 1;
+    grid-row: 1 / span 4;
+    padding-top: 10px;
+  }
+  :root[data-ui="paper"] .dx-section-body > .field:not(.field--slider):not(.field--days) > :not(label) { grid-column: 2; }
+}
+
+/* ----- Corners: 4px everywhere, 2px on tags -------------------------- */
+/* The dx-* surfaces hard-code their own radii (8-16px) rather than using
+   the radius tokens, so cap every element here. Round things stay
+   round: switches, radios, status dots, avatars and slider knobs. */
+:root[data-ui="paper"] :where(body *:not(svg, svg *):not([class*="dot"]):not([class*="switch"]):not([class*="toggle"]):not([class*="avatar"]):not([class*="knob"]):not([class*="thumb"]):not([role="switch"]):not([role="switch"] *):not(input[type="radio"]):not(input[type="range"])) {
+  /* :where keeps this at the specificity of :root[data-ui] alone, so the
+     square-cornered rules in this file (sections, sidebar) still win. */
+  border-radius: 4px;
+}
+:root[data-ui="paper"] .topbar,
+:root[data-ui="paper"] .topnav { border-radius: 0; }
+/* Form controls carry two-class radius rules in the settings sheets. */
+:root[data-ui="paper"] :is(input, select, textarea, button):not([type="radio"]):not([type="checkbox"]):not([type="range"]):not([role="switch"]):not([class*="switch"]):not([class*="toggle"]),
+:root[data-ui="paper"] .seg,
+:root[data-ui="paper"] .dx-status-bar-toggle { border-radius: 4px; }
+:root[data-ui="paper"] .tg,
+:root[data-ui="paper"] .tg-count,
+:root[data-ui="paper"] [class*="pill"]:not([class*="switch"]) { border-radius: 2px; }
+
 /* ----- Motion -------------------------------------------------------- */
 
 @keyframes paper-enter {
