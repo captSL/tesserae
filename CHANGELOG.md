@@ -6,6 +6,8 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ## [Unreleased]
 
+## [0.436.1], 2026-10-01
+
 ### Added
 
 - **Mosaic looks for code elements.** [Mosaic](https://github.com/dmellok/tesserae-mosaic)
