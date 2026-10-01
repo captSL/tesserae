@@ -105,13 +105,19 @@ def test_history_page_renders_day_groups_with_counts(app: Flask) -> None:
     today_noon = now.replace(hour=12, minute=0, second=0, microsecond=0)
     if today_noon > now:
         today_noon = now
+    # Keep both of today's rows on today's date: just after midnight a fixed
+    # ten-minute gap would push the earlier row into yesterday.
+    since_midnight = (
+        today_noon - today_noon.replace(hour=0, minute=0, second=0, microsecond=0)
+    ).total_seconds()
+    gap = min(600, since_midnight / 2)
     # Oldest first: the log lists newest id first, as real pushes arrive.
     older = today_noon.timestamp() - 5 * 86400
     _record_at(log, older, target="weather")
     yesterday = today_noon.timestamp() - 86400
     _record_at(log, yesterday, target="weather")
     _record_at(
-        log, today_noon.timestamp() - 600, target="home", status="failed", digest=None, error="boom"
+        log, today_noon.timestamp() - gap, target="home", status="failed", digest=None, error="boom"
     )
     _record_at(log, today_noon.timestamp(), target="home")
 
