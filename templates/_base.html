@@ -488,6 +488,7 @@
   {% endif %}
   <script src="{{ url_for('static', filename='restart-form.js') }}"></script>
   <script src="{{ url_for('static', filename='components.js') }}"></script>
+  {% if _paper %}<script src="{{ url_for('static', filename='morph.js') }}"></script>{% endif %}
   <script src="{{ url_for('static', filename='info-pop.js') }}"></script>
   <script src="{{ url_for('static', filename='icon-picker.js') }}"></script>
   <script src="{{ url_for('static', filename='entity-overrides.js') }}"></script>
@@ -561,6 +562,10 @@
     // there with a panel hanging open after a casual glance.
     (function () {
       document.querySelectorAll('[data-batteries]').forEach((el) => {
+        // Paper morphs the pill into the panel, which needs the panel
+        // rendered all the time: the details stays open and .is-open
+        // drives a clip-path transition instead (paper.css).
+        if (document.documentElement.dataset.ui === 'paper') { morph(el); return; }
         let timer = null;
         function close() {
           if (timer) { clearTimeout(timer); timer = null; }
@@ -581,6 +586,37 @@
           }
         });
       });
+      function morph(el) {
+        const summary = el.querySelector('summary');
+        const hover = window.matchMedia && window.matchMedia('(hover: hover)').matches;
+        let timer = null;
+        let openedAt = 0;
+        el.open = true;
+        summary.setAttribute('aria-expanded', 'false');
+        function set(open) {
+          if (timer) { clearTimeout(timer); timer = null; }
+          if (open && !el.classList.contains('is-open')) {
+            openedAt = Date.now();
+            el.style.setProperty('--pill-w', summary.offsetWidth + 'px');
+            // Room to the left of the pill's right edge, less a 16px gutter.
+            el.style.setProperty('--pop-room', (summary.getBoundingClientRect().right - 16) + 'px');
+          }
+          el.classList.toggle('is-open', open);
+          summary.setAttribute('aria-expanded', String(open));
+          if (open && !el.matches(':hover')) timer = setTimeout(() => set(false), 5000);
+        }
+        // A click that lands just after hover opened the panel keeps it open.
+        summary.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          set(!el.classList.contains('is-open') || Date.now() - openedAt < 600);
+        });
+        if (hover) {
+          el.addEventListener('mouseenter', () => set(true));
+          el.addEventListener('mouseleave', () => { timer = setTimeout(() => set(false), 200); });
+        }
+        document.addEventListener('mousedown', (ev) => { if (!el.contains(ev.target)) set(false); }, true);
+        document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && el.classList.contains('is-open')) { set(false); summary.focus(); } });
+      }
     })();
     // Theme toggle: cycles System (follow the device) -> Light -> Dark.
     // The mode lives on <html data-theme-mode>; the effective theme is

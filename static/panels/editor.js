@@ -3247,14 +3247,14 @@
   function canvasMenuEsc(ev) { if (ev.key === "Escape") closeCanvasMenu(); }
 
   function closeCanvasMenu() {
-    var m = document.querySelector(".canvas-menu");
-    if (m) m.remove();
+    var m = document.querySelector(".canvas-menu:not([data-morph-leaving])");
+    if (m) { if (window.TesseraeMorph) window.TesseraeMorph.remove(m); else m.remove(); }
     document.removeEventListener("pointerdown", closeCanvasMenu);
     document.removeEventListener("keydown", canvasMenuEsc);
   }
 
   function toggleCanvasMenu(anchor) {
-    if (document.querySelector(".canvas-menu")) { closeCanvasMenu(); return; }
+    if (document.querySelector(".canvas-menu:not([data-morph-leaving])")) { closeCanvasMenu(); return; }
     var menu = el("div", "canvas-menu");
     menu.innerHTML =
       '<div class="cm-head"><span>Canvases</span><button class="cm-new"><i class="ph-bold ph-plus"></i>New</button></div>' +

@@ -579,7 +579,8 @@
 
   function closeLightbox() {
     if (!lightbox) return;
-    lightbox.el.remove();
+    if (window.TesseraeMorph) window.TesseraeMorph.remove(lightbox.el);
+    else lightbox.el.remove();
     lightbox = null;
     if (sheetPanel && state.selectedId) sheetPanel.focus();
   }

@@ -429,7 +429,8 @@
     function close() {
       const overlay = document.querySelector(".lightbox");
       if (!overlay) return;
-      overlay.remove();
+      if (window.TesseraeMorph) window.TesseraeMorph.remove(overlay);
+      else overlay.remove();
       document.body.classList.remove("lightbox-open");
     }
 

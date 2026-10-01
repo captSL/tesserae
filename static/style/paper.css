@@ -367,7 +367,6 @@
   :root[data-ui="paper"] .topbar > .topbar-batteries--topbar { display: block; order: 1; margin-left: auto; }
   :root[data-ui="paper"] .topbar > .nav-toggle { order: 2; margin-left: 4px; }
   :root[data-ui="paper"] .topnav .topbar-batteries--drawer { display: none; }
-  :root[data-ui="paper"] .topbar-batteries-popover { right: -48px; max-width: calc(100vw - 32px); }
 }
 
 /* ----- Batteries: a floating pill in the top-right corner ------------ */
@@ -400,7 +399,53 @@
 :root[data-ui="paper"] a.topbar-batteries--topbar.is-tone-critical { color: var(--t-danger); }
 :root[data-ui="paper"] .topbar-batteries--topbar.is-tone-low > summary,
 :root[data-ui="paper"] a.topbar-batteries--topbar.is-tone-low { color: var(--t-warn); }
-:root[data-ui="paper"] .topbar-batteries-popover { top: calc(100% + 8px); bottom: auto; left: auto; right: 0; }
+/* The pill morphs into the panel: the panel shares the pill's top-right
+   corner and starts clipped to exactly the pill's shape, then the clip
+   grows out to the whole panel (and back on close). The pill's icon and
+   count stay on top, so they read as the panel's own corner. The base
+   script keeps the <details> open in Paper and toggles .is-open. */
+:root[data-ui="paper"] .topbar-batteries--topbar > summary { position: relative; z-index: 2; transition: background-color 180ms ease-out, border-color 180ms ease-out; }
+:root[data-ui="paper"] .topbar-batteries--topbar.is-open > summary { background: transparent; border-color: transparent; }
+:root[data-ui="paper"] .topbar-batteries--topbar .topbar-batteries-popover {
+  display: block;
+  top: 0;
+  right: 0;
+  bottom: auto;
+  left: auto;
+  z-index: 1;
+  width: min(300px, var(--pop-room, 300px));
+  min-width: 0;
+  padding: 0 0 8px;
+  border-color: var(--t-border);
+  clip-path: inset(0 0 calc(100% - 36px) calc(100% - var(--pill-w, 72px)) round 18px);
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    clip-path 260ms var(--p-ease) 60ms,
+    visibility 0s linear 320ms;
+}
+:root[data-ui="paper"] .topbar-batteries--topbar.is-open .topbar-batteries-popover {
+  clip-path: inset(0 round 2px);
+  visibility: visible;
+  pointer-events: auto;
+  transition: clip-path 300ms var(--p-ease), visibility 0s;
+}
+:root[data-ui="paper"] .topbar-batteries--topbar .topbar-batteries-popover > * { opacity: 0; transition: opacity 90ms ease-out; }
+:root[data-ui="paper"] .topbar-batteries--topbar.is-open .topbar-batteries-popover > * { opacity: 1; transition: opacity 180ms ease-out 120ms; }
+:root[data-ui="paper"] .topbar-batteries--topbar .topbar-batteries-head {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 calc(var(--pill-w, 72px) + 8px) 0 14px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--t-border);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui="paper"] .topbar-batteries--topbar .topbar-batteries-popover,
+  :root[data-ui="paper"] .topbar-batteries--topbar.is-open .topbar-batteries-popover,
+  :root[data-ui="paper"] .topbar-batteries--topbar .topbar-batteries-popover > * { transition: none; }
+}
 :root[data-ui="paper"] .topbar-batteries-popover .topbar-batteries-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ----- The design switch --------------------------------------------- */
