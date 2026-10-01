@@ -20,6 +20,17 @@ All notable changes to Tesserae are recorded here. Format loosely follows
   on, the daily heartbeat now says which of the two designs the install
   runs (`ui`), so adoption can be counted; see docs/privacy.md.
 
+### Changed
+
+- **Paper follows the approved mockups more closely.** Sections, tables,
+  stats and empty states sit on raised sheets (a lighter surface with a 1px
+  edge and 2px corners) on a slightly darker page; Settings gets a second
+  sidebar for its sections on wide screens, with labels on the left and
+  controls on the right; sidebar items are square and the selected item is
+  a deeper shade with no accent bar; a small red square before each section
+  title is the one splash of colour; and every form control is one height
+  (40px, 44px on phones, 32px inside list rows).
+
 ## [0.436.1], 2026-10-01
 
 ### Added
