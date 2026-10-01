@@ -22,6 +22,20 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Changed
 
+- **The Dashboards list is a table.** It works like Settings › Devices: a
+  toolbar with search (name, panel or id), a Panel filter (each display, or
+  "Not on a panel"), the Active / Archived switch and a count; one row per
+  dashboard with a status dot (solid while a panel shows it, hollow while a
+  lineup holds it), a thumbnail, its panel, size, update and wake cadence,
+  last push and state. A row opens in place onto a larger preview, four
+  figures (on the panel, last pushed, updates, lineups) and its controls:
+  Updates, Wake, Push, settings, Duplicate, Archive or Restore, Delete and
+  Open in editor. Bulk select gains a select-all box for the rows shown. The
+  per-display groups give way to the Panel column and filter, and the create
+  form now opens from New dashboard beside Send now in the page head. Columns
+  drop as the table narrows (Wake, then Updates, Size and Last pushed), rows
+  become two lines on phones, and nothing scrolls sideways, in both designs.
+
 - **Paper follows the approved mockups more closely.** Sections, tables,
   stats and empty states sit on raised sheets (a lighter surface with a 1px
   edge and 2px corners) on a slightly darker page; Settings gets a second

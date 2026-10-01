@@ -844,6 +844,28 @@ def _lineups_by_page() -> dict[str, list[str]]:
     return out
 
 
+def _pages_on_glass(devices: Any) -> dict[str, list[str]]:
+    """Display names keyed by the dashboard each display is showing right
+    now, for the Dashboards list's live dot and "On the panel" state. Same
+    resolution as the Lineups screen (nav record, then the last served
+    render). Empty when it cannot be worked out; the list then reads idle."""
+    try:
+        from app.deck_routes import _live_map
+
+        live = _live_map()
+    except Exception:
+        current_app.logger.exception("dashboards list: resolving what each panel shows failed")
+        return {}
+    out: dict[str, list[str]] = {}
+    for device_id, (_deck_id, page_id) in live.items():
+        if not page_id:
+            continue
+        device = devices.devices.get(device_id) if devices is not None else None
+        name = device.display_name if device is not None else device_id
+        out.setdefault(page_id, []).append(name)
+    return out
+
+
 @bp.get("")
 def index() -> str:
     tab = "archived" if request.args.get("tab") == "archived" else "active"
@@ -872,6 +894,25 @@ def index() -> str:
 
     page_devices = {p.id: _device_names(p) for p in pages}
     page_groups = _group_pages_for_index(pages, devices)
+    # The list is one table now: each dashboard once, in the order the
+    # per-display groups used to give (first display's group first, then
+    # alphabetical, unbound last). The groups still feed the Panel filter.
+    rows: list[Page] = []
+    seen_rows: set[str] = set()
+    for _device, group in page_groups:
+        for page in group:
+            if page.id not in seen_rows:
+                seen_rows.add(page.id)
+                rows.append(page)
+    panel_filters = [(d.id, d.display_name) for d, _group in page_groups if d is not None]
+    page_device_ids: dict[str, list[str]] = {}
+    for page in pages:
+        page_device_ids[page.id] = [
+            did
+            for did in dict.fromkeys(page.device_ids)
+            if devices is not None and devices.devices.get(did) is not None
+        ]
+    page_live = _pages_on_glass(devices)
     # "Last pushed" per page for the redesigned Dashboards list. One
     # SQL roundtrip aggregates MAX(timestamp) per target across every
     # successful push row; targets with no row are absent (and
@@ -909,6 +950,10 @@ def index() -> str:
         page_dims=page_dims,
         page_devices=page_devices,
         page_groups=page_groups,
+        rows=rows,
+        panel_filters=panel_filters,
+        page_device_ids=page_device_ids,
+        page_live=page_live,
         page_last_pushed_rel=page_last_pushed_rel,
         page_preview_tokens=page_preview_tokens,
         composer_enabled=experiments.is_enabled("composer"),

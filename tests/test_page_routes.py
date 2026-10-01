@@ -2084,10 +2084,11 @@ def test_editor_hosts_the_schedule_form_in_a_dialog(app: Flask) -> None:
     assert 'href="/schedules"' in html
 
 
-def test_dashboard_groups_are_disclosures_with_a_collapse_all_control(app: Flask) -> None:
-    """Every per-display group on the Dashboards list is a ``<details>``
-    that opens by default, and with two or more groups a Collapse all /
-    Expand all control sits beside the Active / Archived chips (#280)."""
+def test_dashboards_list_is_a_table_with_toolbar_and_opening_rows(app: Flask) -> None:
+    """The Dashboards list is one table, like Settings › Devices: a toolbar
+    (search, panel filter, Active / Archived, count), a head row, one row per
+    dashboard with a status dot, thumbnail and its panel, and an opened-row
+    panel holding the four figures and the row's own controls."""
     client = app.test_client()
     _sign_in(client)
     resp = client.post(
@@ -2097,31 +2098,83 @@ def test_dashboard_groups_are_disclosures_with_a_collapse_all_control(app: Flask
     from app.state.page_store import Page
 
     store = app.config["PAGE_STORE"]
-    store.save(Page(id="bound", name="Bound", device_ids=["lounge"]))
-    store.save(Page(id="loose", name="Loose"))
+    store.save(Page(id="bound", name="Bound", device_ids=["lounge"], refresh_minutes=30))
+    store.save(Page(id="loose", name="Loose", sleep_interval_s=900))
     body = client.get("/pages").get_data(as_text=True)
-    assert body.count('<details class="dx-dashboard-group" open') == 2
-    assert 'data-dash-group="lounge"' in body
-    assert 'data-dash-group="unbound"' in body
-    # The head is the summary: caret, icon, name, count pill.
-    head = body[body.index('data-dash-group="lounge"') : body.index('data-dash-group="unbound"')]
-    assert '<summary class="dx-dashboard-group-head">' in head
-    assert "dx-dashboard-caret" in head
-    assert "Lounge" in head and '<span class="tg tg--sm tg--mono">1</span>' in head
-    # Folded state is restored by an inline script keyed on localStorage.
-    assert "tesserae-dash-groups" in body
-    assert 'class="dx-btn-ghost-sm dx-dash-groups-toggle" data-dash-groups-toggle' in body
-    assert "Collapse all" in body
-    # Rows and their bulk-select checkboxes still live inside the groups.
-    assert head.count("dx-dash-select") == 1
+
+    # Toolbar.
+    assert 'placeholder="Search dashboards"' in body and "data-dashtable-search" in body
+    assert "data-dashtable-filter" in body
+    assert '<option value="lounge">Lounge</option>' in body
+    assert '<option value="-">Not on a panel</option>' in body
+    assert 'href="/pages?tab=archived"' in body
+    assert "2 dashboards · 0 on a panel" in body
+    # Head + rows: the grouping is gone; the Panel column carries the display.
+    assert "dx-dashboard-group" not in body
+    assert body.count("data-dashrow ") == 2
+    bound = body[body.index('id="dash-bound"') : body.index('id="dash-loose"')]
+    assert 'data-panels="lounge"' in bound
+    assert "Lounge" in bound and "every 30 min" in bound and "panel's own" in bound
+    assert 'aria-controls="dashq-bound"' in bound and "dx-dash-select" in bound
+    loose = body[body.index('id="dash-loose"') :]
+    assert 'data-panels="-"' in loose[:2000]
+    assert "not on a panel" in loose and "No panel" in loose and "every 15 min" in loose
+    # Opened-row panel: tiles, Updates / Wake forms, actions, Open in editor.
+    panel = body[body.index('id="dashq-bound"') : body.index('id="dash-loose"')]
+    for label in ("On the panel", "Last pushed", "Updates", "Lineups"):
+        assert f'<span class="dx-qtile-label">{label}</span>' in panel
+    assert 'name="refresh_minutes"' in panel and 'name="sleep_interval_s"' in panel
+    assert 'action="/pages/bound"' in panel
+    assert 'action="/pages/bound/duplicate"' in panel
+    assert 'action="/pages/bound/archive"' in panel
+    assert 'action="/pages/bound/delete"' in panel
+    assert "Open in editor" in panel
+    # Closed unless asked for; ?opened=<id> lands with that row open.
+    assert 'id="dashq-bound" data-dashquick hidden' in body
+    opened = client.get("/pages?opened=bound").get_data(as_text=True)
+    assert 'id="dashq-bound" data-dashquick>' in opened
+    assert 'id="dashq-loose" data-dashquick hidden' in opened
 
 
-def test_single_group_has_no_collapse_all_control(app: Flask) -> None:
+def test_dashboards_list_marks_what_a_panel_is_showing(app: Flask, monkeypatch) -> None:
+    """A dashboard on glass gets the solid dot and "On the panel"; a lineup
+    member the hollow dot and its lineup's name."""
+    import app.deck_routes as deck_routes
+
     client = app.test_client()
     _sign_in(client)
+    client.post(
+        "/settings/devices/add", data={"id": "lounge", "kind": "esp32_client", "name": "Lounge"}
+    )
     from app.state.page_store import Page
 
+    store = app.config["PAGE_STORE"]
+    store.save(Page(id="shown", name="Shown", device_ids=["lounge"]))
+    store.save(Page(id="queued", name="Queued", device_ids=["lounge"]))
+    _add_lineup(app, "hall", "Hall lineup", ["queued"])
+    monkeypatch.setattr(deck_routes, "_live_map", lambda: {"lounge": (None, "shown")})
+    body = client.get("/pages").get_data(as_text=True)
+    shown = body[body.index('id="dash-shown"') : body.index('id="dashq-shown"')]
+    assert "dx-dash-dot is-live" in shown and "On the panel" in shown
+    queued = body[body.index('id="dash-queued"') : body.index('id="dashq-queued"')]
+    assert "dx-dash-dot is-lineup" in queued and "in Hall lineup" in queued
+    assert "2 dashboards · 1 on a panel" in body
+
+
+def test_create_form_sits_behind_new_dashboard(app: Flask) -> None:
+    """The create form keeps its fields; it opens from New dashboard, on its
+    own while the list is empty, and with ?create=1."""
+    from app.state.page_store import Page
+
+    client = app.test_client()
+    _sign_in(client)
+    empty = client.get("/pages").get_data(as_text=True)
+    assert 'id="dash-create" data-create-panel>' in empty
     app.config["PAGE_STORE"].save(Page(id="loose", name="Loose"))
     body = client.get("/pages").get_data(as_text=True)
-    assert body.count('<details class="dx-dashboard-group" open') == 1
-    assert 'class="dx-btn-ghost-sm dx-dash-groups-toggle" data-dash-groups-toggle' not in body
+    assert 'id="dash-create" data-create-panel hidden' in body
+    assert "data-create-toggle" in body and "New dashboard" in body
+    assert 'name="name"' in body and "data-new-dashboard-btn" in body
+    assert 'id="dash-create" data-create-panel>' in client.get("/pages?create=1").get_data(
+        as_text=True
+    )

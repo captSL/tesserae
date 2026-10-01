@@ -1,122 +1,378 @@
 /* ============================================================
- *  /pages — v0.60 Dashboards list
+ *  /pages: the Dashboards list
  *
- *  Single fused section card: inline create row at the top, then
- *  one group per device with a small heading + alphabetical row
- *  list. The form sits inside the same section card so there is
- *  no sibling gap between "New" and "Saved" — the surfaces fuse.
+ *  One table on a sheet, built like Settings › Devices (the shared
+ *  .dx-devtable / .dx-devtb / .dx-devquick / .dx-qtile pieces): a toolbar
+ *  row, a head row, then one grid row per dashboard that opens in place
+ *  onto a preview, four figures and the row's controls.
  *
- *  v0.63.6 extracted from settings.css. No rules changed.
+ *  The columns answer to the sheet's own width (a container query), not
+ *  the window's, so the table fits beside the Paper sidebar and in the
+ *  classic layout alike. Low-priority columns drop in order: Wake, then
+ *  Updates, then Size, then Last pushed; below 600px each row becomes
+ *  two lines. Nothing scrolls sideways.
  * ============================================================ */
 
+/* ---- Page head: title on the left, Send now / New dashboard right -- */
+.dx-dash-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+.dx-dash-head-text { flex: 1 1 320px; min-width: 0; }
+.dx-dash-head-actions {
+  margin-top: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ---- New dashboard (revealed by the head button) ------------------- */
+.dx-dash-create { padding: 16px 20px; }
 .dx-dashboard-create {
   /* Centre the controls: this row has no field labels, so the shorter
      Create button would otherwise inherit .dx-pair-row's flex-end and
      hug the bottom of the taller input/select, reading as sitting low. */
   align-items: center;
-  padding-bottom: 14px;
-  margin-bottom: 10px;
-  border-bottom: 1px solid var(--t-border, #ecebe5);
 }
-.dx-dashboard-group + .dx-dashboard-group { margin-top: 18px; }
-.dx-dashboard-group-head {
-  margin: 0 0 8px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--t-fg-soft, #56564f);
-  text-transform: none;
-}
-.dx-dashboard-group-head .ph { color: var(--t-accent, #15846a); font-size: 14px; }
-.dx-dashboard-group-head .tg { margin-left: 2px; }
+.dx-dash-create-kind { flex: 0 0 auto; }
 
-/* Mobile collapse (≤ 640px). The row is flex with the dashboard
-   main (icon + name + meta strip) on the left and the
-   ``.dx-discovered-actions`` group on the right. At narrow
-   widths the three buttons claim ~200 px on the right, leaving
-   ~80 px for the name + meta — which is what the v0.63.x
-   screenshots showed wrapping one word per line. Flip to a
-   column layout so the actions drop below the row content
-   instead of starving it of width. Mirrors the same pattern
-   ``.dx-discovered-row`` already uses on Devices. */
-@media (max-width: 640px) {
-  .dx-dashboard-row {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-  }
-  .dx-dashboard-main {
-    width: 100%;
-    align-items: flex-start;
-  }
-  .dx-dashboard-row .dx-discovered-actions {
-    width: 100%;
-    justify-content: flex-start;
-    flex-wrap: wrap;
-  }
-  /* The strip is left-aligned and wrapping here, so nothing downstream of an
-     empty slot needs to hold position; reserving the width would just leave a
-     hole mid-strip. */
-  .dx-dashboard-row .dx-action-slot:empty { display: none; }
-}
-
-/* The dashboard name is a single-line truncation by default so a
-   long title doesn't push the meta strip out of the row. The
-   meta strip below it can wrap freely. */
-.dx-dashboard-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Push button widens to fit "Push to N", so its width varies row-to-row
-   and drags the right-aligned action group left with it, breaking the
-   vertical alignment of the Edit button across the list. Pin a
-   min-width big enough for "Push to 99" and centre the label so short
-   variants ("Push", "Push to 2") sit inside the same footprint. Icon-
-   only buttons (Duplicate, Delete) are unaffected because they don't
-   carry this class. */
+/* Push button widens to fit "Push to N"; pin a min-width big enough for
+   "Push to 99" so rows keep the same footprint. */
 .dx-btn-push {
   min-width: 96px;
   justify-content: center;
 }
 
-/* Per-display groups are disclosures: the head doubles as the summary.
-   The caret turns when the group is open; a folded group keeps only its
-   head, and the choice survives across visits (localStorage). */
-.dx-dashboard-group > summary {
-  list-style: none;
-  cursor: pointer;
-  user-select: none;
-  border-radius: 6px;
-}
-.dx-dashboard-group > summary::-webkit-details-marker { display: none; }
-.dx-dashboard-group > summary:hover { color: var(--t-fg, #1d1d1b); }
-.dx-dashboard-group > summary:focus-visible {
-  outline: 2px solid var(--t-accent, #15846a);
-  outline-offset: 2px;
-}
-.dx-dashboard-group-head .dx-dashboard-caret {
-  color: var(--t-muted, #9a9a93);
-  font-size: 13px;
-  transition: transform 140ms ease;
-  transform: rotate(-90deg);
-}
-.dx-dashboard-group[open] > .dx-dashboard-group-head .dx-dashboard-caret { transform: rotate(0deg); }
-.dx-dashboard-group:not([open]) > .dx-dashboard-group-head { margin-bottom: 0; }
-@media (prefers-reduced-motion: reduce) {
-  .dx-dashboard-group-head .dx-dashboard-caret { transition: none; }
+/* ---- The sheet ------------------------------------------------------ */
+.dx-dashtable {
+  container: dashtable / inline-size;
+  min-width: 0;
+  max-width: 100%;
 }
 
-/* Collapse all / Expand all sits at the end of the Active / Archived strip. */
-.dx-dash-groups-toggle {
+/* Toolbar: search, panel filter, Active / Archived, count. */
+.dx-dashtb {
+  margin: 0;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--dx-border-soft);
+}
+.dx-dashtb-search { flex: 1 1 200px; width: auto; max-width: 320px; min-width: 0; }
+.dx-dashtb-filter { flex: 0 1 auto; min-width: 0; max-width: 220px; text-overflow: ellipsis; }
+.dx-dashtb-tabs { display: flex; flex: none; }
+.dx-dashtb-count {
   margin-left: auto;
-  align-self: center;
+  font-family: var(--dx-mono);
+  font-size: 12px;
+  color: var(--dx-faint);
   white-space: nowrap;
 }
-@media (max-width: 640px) {
-  .dx-dash-groups-toggle { margin-left: 0; }
+.dx-dashtable-note {
+  margin: 0;
+  padding: 10px 20px;
+  font-size: 12.5px;
+  color: var(--dx-faint);
+  border-bottom: 1px solid var(--dx-border-soft);
 }
+
+/* Head + rows share one grid. Full set first; the container queries
+   below swap in narrower templates as columns drop. */
+.dx-dashtable-head,
+.dx-dashrow {
+  display: grid;
+  grid-template-columns:
+    20px minmax(0, 2.4fr) minmax(0, 1fr) 88px 100px 100px 116px 128px 32px;
+  align-items: center;
+  column-gap: 12px;
+  padding: 0 20px;
+  box-sizing: border-box;
+  min-width: 0;
+}
+.dx-dashtable-head {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--dx-border-soft);
+  font-family: var(--dx-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dx-faint);
+}
+.dx-dashrow {
+  min-height: 60px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--dx-border-soft);
+  cursor: pointer;
+  transition: background var(--t-trans-fast);
+}
+.dx-dashrow[hidden],
+.dx-dashtable .dx-dashquick[hidden] { display: none; }
+.dx-dashrow:hover { background: var(--dx-inset); }
+.dx-dashrow.is-open { background: var(--dx-teal-soft); border-bottom: 0; }
+
+/* Cells. The meta wrapper is the phone's second line; on wider sheets it
+   is display: contents and each child is a column. */
+.dx-dc-meta { display: contents; }
+.dx-dc {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--dx-ink-soft);
+}
+.dx-dc-sel { display: flex; align-items: center; overflow: visible; }
+.dx-dc-chev { display: flex; justify-content: flex-end; overflow: visible; }
+.dx-dc-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dx-dc-panel { display: flex; align-items: center; gap: 6px; }
+.dx-dash-ellip { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dx-dash-more {
+  flex: none;
+  font-family: var(--dx-mono);
+  font-size: 11px;
+  color: var(--dx-faint);
+}
+.dx-dash-mono { font-family: var(--dx-mono); font-size: 12px; }
+.dx-dash-muted { color: var(--dx-faint); }
+
+/* Status dot: solid when a panel is showing it, hollow when a lineup
+   holds it, pale otherwise. */
+.dx-dash-dot { width: 8px; height: 8px; box-sizing: border-box; background: var(--t-border-strong); }
+.dx-dash-dot.is-live { background: var(--t-accent); }
+.dx-dash-dot.is-lineup { background: transparent; border: 1.5px solid var(--t-accent); }
+.dx-dash-dot.is-archived { background: transparent; border: 1.5px solid var(--t-border-strong); }
+
+/* 64×40 preview thumbnail; the dashboard's icon shows until the cached
+   image arrives. */
+.dx-dash-thumb {
+  position: relative;
+  flex: none;
+  width: 64px;
+  height: 40px;
+  box-sizing: border-box;
+  border: 1px solid var(--t-border);
+  border-radius: 4px;
+  background: var(--t-surface-sunk, #f3f2ee);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  color: var(--dx-faint);
+  font-size: 16px;
+}
+.dx-dash-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #fff;
+}
+.dx-dash-thumb.is-empty img { display: none; }
+.dx-dash-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--t-fg);
+  text-decoration: none;
+}
+.dx-dash-name:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.dx-dash-state.is-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  color: var(--t-accent);
+  font-weight: 600;
+}
+.dx-dash-state.is-live .dx-dot { background: var(--t-accent); }
+.dx-dash-state { display: inline-block; max-width: 100%; }
+
+.dx-dash-chev {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dx-faint);
+  display: inline-grid;
+  place-items: center;
+  font-size: 16px;
+  cursor: pointer;
+  box-shadow: none;
+  min-height: 0;
+}
+.dx-dash-chev:hover { color: var(--t-fg); }
+.dx-dash-chev .ph { transition: transform 0.18s ease; }
+.dx-dashrow.is-open .dx-dash-chev .ph { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) {
+  .dx-dash-chev .ph { transition: none; }
+}
+
+/* ---- Opened row ------------------------------------------------------ */
+.dx-dashtable .dx-dashquick {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 18px 20px 20px 52px;
+  min-width: 0;
+}
+.dx-dashquick-preview {
+  position: relative;
+  flex: none;
+  width: 260px;
+  max-height: 260px;
+  min-height: 120px;
+  box-sizing: border-box;
+  border: 1px solid var(--t-border);
+  border-radius: 8px;
+  background: var(--t-surface-sunk, #f3f2ee);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.dx-dashquick-preview.is-empty { aspect-ratio: 5 / 3; }
+.dx-dashquick-preview img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #fff;
+}
+.dx-dashquick-preview iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 0;
+  transform-origin: top left;
+  pointer-events: none;
+  background: #fff;
+}
+.dx-dashquick-preview.has-img .dx-thumb-empty { visibility: hidden; }
+.dx-dashtable .dx-devquick-body { min-width: 0; }
+.dx-dashquick-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--dx-faint);
+}
+.dx-dashquick-meta > .dx-dash-mono { overflow-wrap: anywhere; }
+.dx-dashtable .dx-dashquick-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.dx-dashquick-ctls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  min-width: 0;
+}
+.dx-dashquick-ctls .dx-updates-ctl { margin-left: 0; flex: 0 1 auto; flex-wrap: wrap; min-width: 0; }
+.dx-dashquick-ctls .dx-updates-ctl select { max-width: 100%; min-width: 0; }
+.dx-dashquick-actions { min-width: 0; }
+.dx-dashquick-actions .dx-devquick-open { margin-left: auto; }
+
+/* ---- Columns drop as the sheet narrows ------------------------------ */
+@container dashtable (max-width: 1060px) {
+  .dx-dashtable-head,
+  .dx-dashrow { grid-template-columns: 20px minmax(0, 2.4fr) minmax(0, 1fr) 88px 100px 116px 128px 32px; }
+  .dx-dc-wake { display: none; }
+}
+@container dashtable (max-width: 940px) {
+  .dx-dashtable-head,
+  .dx-dashrow { grid-template-columns: 20px minmax(0, 2.2fr) minmax(0, 1fr) 88px 116px 124px 32px; }
+  .dx-dc-updates { display: none; }
+  .dx-dashtable .dx-dashquick-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dx-dashquick-preview { width: 220px; max-height: 220px; }
+}
+@container dashtable (max-width: 820px) {
+  .dx-dashtable-head,
+  .dx-dashrow { grid-template-columns: 20px minmax(0, 2fr) minmax(0, 1fr) 116px 120px 32px; }
+  .dx-dc-size { display: none; }
+  .dx-dashtable .dx-dashquick { padding-left: 20px; }
+}
+@container dashtable (max-width: 720px) {
+  .dx-dashtable-head,
+  .dx-dashrow { grid-template-columns: 20px minmax(0, 2fr) minmax(0, 1fr) 116px 32px; }
+  .dx-dc-pushed { display: none; }
+  .dx-dashtable .dx-dashquick { flex-direction: column; gap: 14px; }
+  .dx-dashquick-preview { width: 100%; max-width: 360px; max-height: 240px; }
+}
+
+/* Phone: two lines per row (name, then panel · size · last pushed · state). */
+@container dashtable (max-width: 600px) {
+  .dx-dashtb { padding: 12px 14px; }
+  .dx-dashtb-search { flex: 1 1 100%; max-width: none; }
+  .dx-dashtb-filter { flex: 1 1 0; max-width: none; }
+  .dx-dashtb-count { flex-basis: 100%; margin-left: 0; }
+  .dx-dashtable-note { padding: 10px 14px; }
+
+  .dx-dashtable-head { grid-template-columns: 20px minmax(0, 1fr); padding: 8px 14px; }
+  .dx-dashtable-head > :not(.dx-dc-sel, .dx-dc-name) { display: none; }
+
+  .dx-dashrow {
+    grid-template-columns: 20px minmax(0, 1fr) 32px;
+    grid-template-rows: auto auto;
+    row-gap: 4px;
+    padding: 10px 14px;
+    align-items: center;
+  }
+  .dx-dc-sel { grid-column: 1; grid-row: 1 / span 2; }
+  .dx-dc-name { grid-column: 2; grid-row: 1; gap: 8px; }
+  .dx-dc-chev { grid-column: 3; grid-row: 1 / span 2; }
+  .dx-dash-thumb { width: 48px; height: 30px; font-size: 14px; }
+  .dx-dc-meta {
+    grid-column: 2;
+    grid-row: 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 12px;
+    min-width: 0;
+    padding-left: 18px;
+    font-size: 12px;
+  }
+  .dx-dc-meta > .dx-dc {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    font-size: 12px;
+  }
+  .dx-dc-meta > .dx-dc-updates,
+  .dx-dc-meta > .dx-dc-wake { display: none; }
+  .dx-dc-meta > .dx-dc-size,
+  .dx-dc-meta > .dx-dc-pushed { display: inline-flex; }
+  .dx-dc-meta .tg--sm { height: 20px; padding: 0 6px; font-size: 11px; }
+
+  .dx-dashtable .dx-dashquick { padding: 14px; }
+  .dx-dashquick-preview { max-width: none; }
+  .dx-dashquick-ctls { flex-direction: column; align-items: stretch; gap: 8px; }
+  .dx-dashquick-ctls .dx-updates-ctl > select { flex: 1 1 0; }
+  .dx-dashquick-actions .dx-devquick-open { margin-left: 0; flex: 1 1 100%; justify-content: center; }
+  /* The strip wraps here, so an unused settings slot would only leave a hole. */
+  .dx-dashquick-actions .dx-action-slot:not(:has(*)) { display: none; }
+}
+
+/* ---- Dark mode (classic) -------------------------------------------- */
+:root[data-theme="dark"] .dx-dashtb,
+:root[data-theme="dark"] .dx-dashtable-note,
+:root[data-theme="dark"] .dx-dashtable-head,
+:root[data-theme="dark"] .dx-dashrow { border-bottom-color: var(--t-border); }
+:root[data-theme="dark"] .dx-dashrow:hover { background: var(--t-surface-soft); }
+:root[data-theme="dark"] .dx-dashrow.is-open { background: color-mix(in oklab, var(--t-accent) 14%, var(--t-surface)); }
+:root[data-theme="dark"] .dx-dash-thumb,
+:root[data-theme="dark"] .dx-dashquick-preview { background: var(--t-surface-soft); border-color: var(--t-border); }

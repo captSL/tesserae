@@ -3548,7 +3548,8 @@ select.dx-input:hover {
    ===================================================================== */
 
 .dx-devices-area,
-.dx-devpage {
+.dx-devpage,
+.dx-dashtable {
   --dx-teal: #15846a;
   --dx-teal-hover: #127059;
   --dx-teal-hover-2: #179476;
@@ -3579,7 +3580,8 @@ select.dx-input:hover {
   --dx-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 :root[data-theme="dark"] .dx-devices-area,
-:root[data-theme="dark"] .dx-devpage {
+:root[data-theme="dark"] .dx-devpage,
+:root[data-theme="dark"] .dx-dashtable {
   --dx-teal: var(--t-accent);
   --dx-teal-hover: var(--t-accent-hover);
   --dx-teal-hover-2: var(--t-accent-hover);

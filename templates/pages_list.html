@@ -1,58 +1,54 @@
 {% extends "_base.html" %}
-{% from "_components.html" import section_card %}
 {% block title %}Dashboards, Tesserae{% endblock %}
 {% block main %}
-<header class="page-head">
-  <h1><i class="ph ph-squares-four"></i> Dashboards</h1>
-  <p class="lede">Every saved page you can push to a panel. Click one to open it in the composer, or push it as-is.</p>
+{# Dashboards list: one table, like Settings › Devices. A toolbar (search,
+   panel filter, Active / Archived, count) heads the sheet; each row opens in
+   place onto a larger preview, four figures and the row's controls.
+
+   Archiving parks a dashboard without deleting it: it keeps its layout,
+   bindings, and history, but leaves the pickers and the background refresh
+   passes. Only a dashboard no lineup references can be archived, so the
+   Archive button is disabled on lineup members and names the lineup in its
+   tooltip. #}
+{% set archived_tab = (tab == 'archived') %}
+{% set _opened = request.args.get('opened') %}
+{% set _show_create = (not archived_tab) and (request.args.get('create') == '1' or not pages) %}
+{% set _live_total = rows | selectattr('id', 'in', page_live) | list | length %}
+
+{# Cadence labels shared by the Updates / Wake columns and tiles. #}
+{%- macro updates_text(m) -%}
+{%- if m == 0 -%}when pushed{%- elif m == 1 -%}every minute{%- elif m == 60 -%}hourly{%- elif m == 1440 -%}daily{%- elif m % 60 == 0 -%}every {{ m // 60 }} h{%- else -%}every {{ m }} min{%- endif -%}
+{%- endmacro -%}
+{%- macro wake_text(s) -%}
+{%- if s is none -%}panel's own{%- elif s == 86400 -%}daily{%- elif s % 86400 == 0 -%}every {{ s // 86400 }} days{%- elif s == 3600 -%}hourly{%- elif s % 3600 == 0 -%}every {{ s // 3600 }} h{%- elif s % 60 == 0 -%}every {{ s // 60 }} min{%- else -%}every {{ s }} s{%- endif -%}
+{%- endmacro -%}
+
+<header class="page-head dx-dash-head">
+  <div class="dx-dash-head-text">
+    <h1><i class="ph ph-squares-four"></i> Dashboards</h1>
+    <p class="lede">Every saved page you can push to a panel. Open one to lay it out in the composer, or push it as-is.</p>
+  </div>
+  <div class="page-head-cta dx-dash-head-actions">
+    <a class="dx-btn" href="{{ url_for('send.index') }}">
+      <i class="ph ph-paper-plane-tilt" aria-hidden="true"></i><span>Send now</span>
+    </a>
+    {% if archived_tab %}
+    <a class="dx-btn is-primary" href="{{ url_for('pages.index', create=1) }}">
+      <i class="ph ph-plus" aria-hidden="true"></i><span>New dashboard</span>
+    </a>
+    {% else %}
+    <button type="button" class="dx-btn is-primary" data-create-toggle aria-controls="dash-create"
+            aria-expanded="{{ 'true' if _show_create else 'false' }}">
+      <i class="ph ph-plus" aria-hidden="true"></i><span>New dashboard</span>
+    </button>
+    {% endif %}
+  </div>
 </header>
 
-{# v0.60: single combined card — inline create row sits at the top of
-   the saved list so the page reads as one surface, no gap chasing
-   between sibling section cards. Saved dashboards group under their
-   bound device and sort alphabetically within each group. #}
-{# Active / Archived tabs. Archiving parks a dashboard without deleting
-   it: it keeps its layout, bindings, and history, but leaves the pickers
-   and the background refresh passes. Only a dashboard no lineup references
-   can be archived, so the Archive button is disabled on lineup members
-   and names the lineup in its tooltip. #}
-{% set archived_tab = (tab == 'archived') %}
-<nav class="dx-filter-strip" aria-label="Dashboard list">
-  <span class="seg" role="tablist">
-    <a href="{{ url_for('pages.index') }}" role="tab" aria-selected="{{ 'false' if archived_tab else 'true' }}"
-       class="seg-item{% if not archived_tab %} is-on{% endif %}" title="Dashboards in use">
-      <i class="ph ph-squares-four" aria-hidden="true"></i><span>Active</span>
-      <span class="seg-count">{{ active_count }}</span>
-    </a>
-    <a href="{{ url_for('pages.index', tab='archived') }}" role="tab" aria-selected="{{ 'true' if archived_tab else 'false' }}"
-       class="seg-item{% if archived_tab %} is-on{% endif %}" title="Dashboards you've parked but not deleted">
-      <i class="ph ph-archive" aria-hidden="true"></i><span>Archived</span>
-      <span class="seg-count">{{ archived_count }}</span>
-    </a>
-  </span>
-  {# Every per-display group is a disclosure; with two or more of them a
-     single control folds or unfolds the lot. The label follows the
-     groups' state, so it always names the action it will take. #}
-  {% if page_groups|length >= 2 %}
-  <button type="button" class="dx-btn-ghost-sm dx-dash-groups-toggle" data-dash-groups-toggle
-          title="Fold or unfold every display's group">
-    <i class="ph ph-arrows-in-line-vertical" aria-hidden="true"></i><span>Collapse all</span>
-  </button>
-  {% endif %}
-</nav>
-
-{% if archived_tab %}
-{% set _card_title = 'Archived dashboards' %}
-{% set _card_desc = "Parked dashboards. They keep their layout and device links but don't appear in pickers or refresh in the background. Restore one to bring it back, or duplicate it for a fresh copy." %}
-{% set _card_meta = {'label': 'ARCHIVED', 'value': pages|length} %}
-{% else %}
-{% set _card_title = 'Dashboards' %}
-{% set _card_desc = 'Create a new dashboard, then drop into the composer to lay it out. Saved dashboards group under the device they target.' %}
-{% set _card_meta = {'label': 'TOTAL', 'value': pages|length} %}
-{% endif %}
-{% call section_card(icon='archive' if archived_tab else 'squares-four', title=_card_title,
-                     description=_card_desc, meta=_card_meta) %}
-  {% if not archived_tab %}
+{# NEW DASHBOARD: the create form, revealed by the head button (open on its
+   own while there is nothing to list yet, or with ?create=1). #}
+{% if not archived_tab %}
+<div class="dx-devadd dx-dash-create card" id="dash-create" data-create-panel{% if not _show_create %} hidden{% endif %}>
   <form method="post" action="{{ url_for('pages.create') }}" class="dx-pair-row dx-dashboard-create">
     <div class="dx-pair-input">
       <input type="text" name="name" class="dx-input" placeholder="e.g. Home dashboard"
@@ -60,7 +56,7 @@
     </div>
     {% if composer_enabled %}
     {# Grid = preset-cell layout (default); Freeform = the composer canvas. #}
-    <div class="dx-pair-input" style="flex:0 0 auto">
+    <div class="dx-pair-input dx-dash-create-kind">
       <select name="layout_kind" class="dx-input" aria-label="Layout">
         <option value="grid">Grid layout</option>
         <option value="canvas">Freeform canvas</option>
@@ -73,6 +69,40 @@
       </button>
     </div>
   </form>
+</div>
+{% endif %}
+
+<section class="dx-devtable dx-dashtable card" data-dashtable aria-label="{{ 'Archived dashboards' if archived_tab else 'Dashboards' }}">
+  {# TOOLBAR #}
+  <div class="dx-devtb dx-dashtb" data-devtb>
+    <label class="dx-devtb-search dx-dashtb-search">
+      <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+      <input type="search" placeholder="Search dashboards" aria-label="Search dashboards"
+             autocomplete="off" spellcheck="false" data-dashtable-search>
+    </label>
+    <select class="dx-devtb-select dx-dashtb-filter" aria-label="Filter by panel" data-dashtable-filter>
+      <option value="">All panels</option>
+      {% for did, dname in panel_filters %}<option value="{{ did }}">{{ dname }}</option>{% endfor %}
+      <option value="-">Not on a panel</option>
+    </select>
+    <nav class="dx-dashtb-tabs" aria-label="Dashboard list">
+      <span class="seg" role="tablist">
+        <a href="{{ url_for('pages.index') }}" role="tab" aria-selected="{{ 'false' if archived_tab else 'true' }}"
+           class="seg-item{% if not archived_tab %} is-on{% endif %}" title="Dashboards in use">
+          <span>Active</span>
+          <span class="seg-count">{{ active_count }}</span>
+        </a>
+        <a href="{{ url_for('pages.index', tab='archived') }}" role="tab" aria-selected="{{ 'true' if archived_tab else 'false' }}"
+           class="seg-item{% if archived_tab %} is-on{% endif %}" title="Dashboards you've parked but not deleted">
+          <span>Archived</span>
+          <span class="seg-count">{{ archived_count }}</span>
+        </a>
+      </span>
+    </nav>
+    <span class="dx-dashtb-count" data-dashtable-count aria-live="polite">{{ rows|length }} dashboard{{ '' if rows|length == 1 else 's' }}{% if not archived_tab %} · {{ _live_total }} on a panel{% endif %}</span>
+  </div>
+  {% if archived_tab %}
+  <p class="dx-dashtable-note">Parked dashboards keep their layout and device links but don't appear in pickers or refresh in the background. Restore one to bring it back, or duplicate it for a fresh copy.</p>
   {% endif %}
 
   {% if not pages and archived_tab %}
@@ -88,64 +118,130 @@
     <p class="dx-empty-help">Type a name above and Tesserae will create an empty dashboard for you to lay out.</p>
   </div>
   {% else %}
-  {% for device, group in page_groups %}
-  {# One disclosure per display. Groups open by default; a group the
-     user folded stays folded across visits (localStorage, restored by the
-     inline script right after the list so it does not flash open). #}
-  <details class="dx-dashboard-group" open data-dash-group="{{ device.id if device else 'unbound' }}">
-    <summary class="dx-dashboard-group-head">
-      <i class="ph ph-caret-down dx-dashboard-caret" aria-hidden="true"></i>
-      {% if device %}
-      <i class="ph ph-device-mobile-camera" aria-hidden="true"></i>
-      <span>{{ device.display_name }}</span>
-      <span class="tg tg--sm tg--mono">{{ group|length }}</span>
-      {% else %}
-      <i class="ph ph-link-break" aria-hidden="true"></i>
-      <span>Unbound</span>
-      <span class="tg tg--sm tg--mono">{{ group|length }}</span>
-      {% endif %}
-    </summary>
-    <ul class="dx-discovered-list">
-      {% for page in group %}
-      {% set d = page_dims.get(page.id) %}
-      {# Preview dims must match what /compose renders at: an unbound freeform
-         canvas lays out at its authored size, everything else at the resolved
-         panel. Using the wrong one distorts the scaled iframe. #}
-      {% set _cv = page.canvas if (page.layout_kind == 'canvas' and page.canvas and not page.device_ids) else none %}
-      {% set pv_w = _cv.w if _cv else (d.w if d else 0) %}
-      {% set pv_h = _cv.h if _cv else (d.h if d else 0) %}
-      <li class="dx-inset-row dx-dashboard-row"{% if pv_w and pv_h %} data-preview-src="{{ url_for('composer.compose', page_id=page.id) }}" data-preview-png="{{ url_for('composer.compose_preview', page_id=page.id) }}?v={{ page_preview_tokens.get(page.id, '') }}" data-preview-w="{{ pv_w }}" data-preview-h="{{ pv_h }}"{% endif %}>
-        <input type="checkbox" class="dx-dash-select" value="{{ page.id }}"
-               aria-label="Select {{ page.name }}" title="{{ 'Select for bulk restore / delete' if archived_tab else 'Select for bulk push / archive / delete' }}">
-        <a class="dx-dashboard-main" href="{{ url_for('pages.edit', page_id=page.id) }}">
-          <span class="dx-section-icon dx-dashboard-icon" aria-hidden="true">
-            <i class="ph ph-{{ page.icon or 'cube' }}"></i>
-          </span>
-          <div class="dx-dashboard-text">
-            <div class="dx-dashboard-name">
-              {{ page.name }}
-              {% if page.layout_kind == 'canvas' %}<span class="tg tg--sm">Freeform</span>{% endif %}
-              {% if page.created_by == 'mcp' %}<span class="tg tg--sm" title="Created by an agent over the MCP API"><i class="ph ph-robot" aria-hidden="true"></i>Agent</span>{% endif %}
-              {# A dashboard that declares its own settings says so here, since
-                 the whole point is that whoever inherits it can change the
-                 parts meant to be changed without opening the composer. #}
-              {% if page.layout_kind == 'canvas' and page.canvas and page.canvas.inputs %}<span class="tg tg--sm" title="This dashboard has its own settings page"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i><span class="tg-count">{{ page.canvas.inputs|length }}</span>setting{{ '' if page.canvas.inputs|length == 1 else 's' }}</span>{% endif %}
-              {% set _lineups = page_lineups.get(page.id) or [] %}
-              {% if _lineups %}<span class="tg tg--sm" title="In lineup{{ '' if _lineups|length == 1 else 's' }}: {{ _lineups|join(', ') }}"><i class="ph ph-cards-three" aria-hidden="true"></i><span class="tg-count">{{ _lineups|length }}</span>lineup{{ '' if _lineups|length == 1 else 's' }}</span>{% endif %}
-              {% if archived_tab %}<span class="tg tg--sm" title="Archived: not offered in pickers and not refreshed in the background"><i class="ph ph-archive" aria-hidden="true"></i>Archived</span>{% endif %}
-            </div>
-            <div class="dx-meta-strip">
-              <span><span class="dx-meta-k">Size</span><code>{% if d %}{{ d.w }}×{{ d.h }}{% else %}—{% endif %}</code></span>
-              {% if page.layout_kind == 'canvas' %}
-              <span><span class="dx-meta-k">Elements</span><span class="dx-meta-v">{{ (page.canvas.els|length) if page.canvas else 0 }}</span></span>
-              {% else %}
-              <span><span class="dx-meta-k">Cells</span><span class="dx-meta-v">{{ page.cells|length }}</span></span>
-              {% endif %}
-              <span><span class="dx-meta-k">Last pushed</span><span class="dx-meta-v">{{ page_last_pushed_rel.get(page.id, 'never') }}</span></span>
-            </div>
-          </div>
-        </a>
-        {% if not archived_tab %}
+  <div class="dx-dashtable-head">
+    <span class="dx-dc dx-dc-sel"><input type="checkbox" class="dx-dash-selall" data-dash-selall aria-label="Select every dashboard shown" title="Select every dashboard shown"></span>
+    <span class="dx-dc dx-dc-name" aria-hidden="true">Dashboard</span>
+    <span class="dx-dc dx-dc-panel" aria-hidden="true">Panel</span>
+    <span class="dx-dc dx-dc-size" aria-hidden="true">Size</span>
+    <span class="dx-dc dx-dc-updates" aria-hidden="true">Updates</span>
+    <span class="dx-dc dx-dc-wake" aria-hidden="true">Wake</span>
+    <span class="dx-dc dx-dc-pushed" aria-hidden="true">Last pushed</span>
+    <span class="dx-dc dx-dc-state" aria-hidden="true">State</span>
+    <span class="dx-dc dx-dc-chev"></span>
+  </div>
+
+  {% for page in rows %}
+  {% set d = page_dims.get(page.id) %}
+  {# Preview dims must match what /compose renders at: an unbound freeform
+     canvas lays out at its authored size, everything else at the resolved
+     panel. Using the wrong one distorts the scaled iframe. #}
+  {% set _cv = page.canvas if (page.layout_kind == 'canvas' and page.canvas and not page.device_ids) else none %}
+  {% set pv_w = _cv.w if _cv else (d.w if d else 0) %}
+  {% set pv_h = _cv.h if _cv else (d.h if d else 0) %}
+  {% set _png = url_for('composer.compose_preview', page_id=page.id) ~ '?v=' ~ page_preview_tokens.get(page.id, '') %}
+  {% set _names = page_devices.get(page.id) or [] %}
+  {% set _live = page_live.get(page.id) or [] %}
+  {% set _lineups = page_lineups.get(page.id) or [] %}
+  {% set _open = _opened == page.id %}
+  {% set _state = 'archived' if archived_tab else ('live' if _live else ('lineup' if _lineups else ('nopanel' if not _names else 'idle'))) %}
+  {% set _link_count = _names|length %}
+  <div class="dx-dashrow dx-dashboard-row is-{{ _state }}{% if _open %} is-open{% endif %}"
+       id="dash-{{ page.id }}" data-dashrow data-page-id="{{ page.id }}"
+       data-panels="{{ (page_device_ids.get(page.id) or ['-'])|join(' ') }}"
+       data-live="{{ '1' if _live else '0' }}"
+       data-search="{{ (page.name ~ ' ' ~ _names|join(' ') ~ ' ' ~ page.id)|lower }}"
+       {% if pv_w and pv_h %}data-preview-src="{{ url_for('composer.compose', page_id=page.id) }}" data-preview-png="{{ _png }}" data-preview-w="{{ pv_w }}" data-preview-h="{{ pv_h }}"{% endif %}>
+    <span class="dx-dc dx-dc-sel">
+      <input type="checkbox" class="dx-dash-select" value="{{ page.id }}"
+             aria-label="Select {{ page.name }}" title="{{ 'Select for bulk restore / delete' if archived_tab else 'Select for bulk push / archive / delete' }}">
+    </span>
+    <span class="dx-dc dx-dc-name">
+      <span class="dx-dot dx-dash-dot is-{{ _state }}" aria-hidden="true"></span>
+      <span class="dx-dash-thumb{% if not (pv_w and pv_h) %} is-empty{% endif %}" aria-hidden="true">
+        {% if pv_w and pv_h %}<img src="{{ _png }}" alt="" loading="lazy" decoding="async" data-dash-thumb>{% endif %}
+        <i class="ph ph-{{ page.icon or 'cube' }}"></i>
+      </span>
+      <a class="dx-dash-name" href="{{ url_for('pages.edit', page_id=page.id) }}" title="{{ page.name }}">{{ page.name }}</a>
+    </span>
+    {# Phone: these become the row's second line; on wider screens the
+       wrapper is display: contents and each one is its own column. #}
+    <span class="dx-dc-meta">
+      <span class="dx-dc dx-dc-panel"{% if _names %} title="{{ _names|join(', ') }}"{% endif %}>
+        {% if _names %}<span class="dx-dash-ellip">{{ _names[0] }}</span>{% if _names|length > 1 %}<span class="dx-dash-more">+{{ _names|length - 1 }}</span>{% endif %}
+        {% else %}<span class="dx-dash-muted">not on a panel</span>{% endif %}
+      </span>
+      <span class="dx-dc dx-dc-size dx-dash-mono">{% if d %}{{ d.w }}×{{ d.h }}{% else %}-{% endif %}</span>
+      <span class="dx-dc dx-dc-updates">{{ updates_text(page.refresh_minutes) }}</span>
+      <span class="dx-dc dx-dc-wake">{{ wake_text(page.sleep_interval_s) }}</span>
+      <span class="dx-dc dx-dc-pushed dx-dash-mono dx-dash-muted">{{ page_last_pushed_rel.get(page.id, 'never') }}</span>
+      <span class="dx-dc dx-dc-state">
+        {% if _state == 'archived' %}<span class="tg tg--sm" title="Archived: not offered in pickers and not refreshed in the background"><i class="ph ph-archive" aria-hidden="true"></i>Archived</span>
+        {% elif _state == 'live' %}<span class="dx-dash-state is-live" title="Showing on {{ _live|join(', ') }}"><span class="dx-dot" aria-hidden="true"></span><span class="dx-dash-ellip">On the panel</span></span>
+        {% elif _state == 'lineup' %}<span class="dx-dash-state dx-dash-ellip" title="In lineup{{ '' if _lineups|length == 1 else 's' }}: {{ _lineups|join(', ') }}">in {{ _lineups[0] }}{% if _lineups|length > 1 %} +{{ _lineups|length - 1 }}{% endif %}</span>
+        {% elif _state == 'nopanel' %}<span class="tg tg--sm">No panel</span>
+        {% else %}<span class="dx-dash-muted">idle</span>{% endif %}
+      </span>
+    </span>
+    <span class="dx-dc dx-dc-chev">
+      <button type="button" class="dx-dash-chev" data-dash-toggle aria-controls="dashq-{{ page.id }}"
+              aria-expanded="{{ 'true' if _open else 'false' }}" aria-label="{{ 'Close' if _open else 'Open' }} {{ page.name }}">
+        <i class="ph ph-caret-right" aria-hidden="true"></i>
+      </button>
+    </span>
+  </div>
+
+  {# OPENED ROW: preview, four figures, then the row's controls. #}
+  <div class="dx-devquick dx-dashquick" id="dashq-{{ page.id }}" data-dashquick{% if not _open %} hidden{% endif %}>
+    <div class="dx-dashquick-preview{% if not (pv_w and pv_h) %} is-empty{% endif %}"
+         {% if pv_w and pv_h %}style="aspect-ratio: {{ pv_w }} / {{ pv_h }}"{% endif %} data-dashquick-preview>
+      <span class="dx-thumb-empty"><i class="ph ph-image" aria-hidden="true"></i><span>{{ 'Rendering preview' if pv_w and pv_h else 'No preview' }}</span></span>
+    </div>
+    <div class="dx-devquick-body">
+      <div class="dx-dashquick-meta">
+        <span class="dx-dash-mono">{{ page.id }}</span>
+        {% if page.layout_kind == 'canvas' %}<span class="tg tg--sm">Freeform</span>
+        <span class="dx-dash-meta-item">{{ (page.canvas.els|length) if page.canvas else 0 }} elements</span>
+        {% else %}<span class="dx-dash-meta-item">{{ page.cells|length }} cells</span>{% endif %}
+        {% if page.created_by == 'mcp' %}<span class="tg tg--sm" title="Created by an agent over the MCP API"><i class="ph ph-robot" aria-hidden="true"></i>Agent</span>{% endif %}
+        {# A dashboard that declares its own settings says so here, since
+           the whole point is that whoever inherits it can change the
+           parts meant to be changed without opening the composer. #}
+        {% if page.layout_kind == 'canvas' and page.canvas and page.canvas.inputs %}<span class="tg tg--sm" title="This dashboard has its own settings page"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i><span class="tg-count">{{ page.canvas.inputs|length }}</span>setting{{ '' if page.canvas.inputs|length == 1 else 's' }}</span>{% endif %}
+        {% if _lineups %}<span class="tg tg--sm" title="In lineup{{ '' if _lineups|length == 1 else 's' }}: {{ _lineups|join(', ') }}"><i class="ph ph-cards-three" aria-hidden="true"></i><span class="tg-count">{{ _lineups|length }}</span>lineup{{ '' if _lineups|length == 1 else 's' }}</span>{% endif %}
+      </div>
+      <div class="dx-devquick-tiles dx-dashquick-tiles">
+        <div class="dx-qtile">
+          <span class="dx-qtile-label">On the panel</span>
+          {% if _live %}
+          <span class="dx-qtile-value" title="{{ _live|join(', ') }}">{{ _live[0] }}{% if _live|length > 1 %} +{{ _live|length - 1 }}{% endif %}</span>
+          <span class="dx-qtile-sub">showing now</span>
+          {% elif _names %}
+          <span class="dx-qtile-value is-muted">Not showing</span>
+          <span class="dx-qtile-sub" title="{{ _names|join(', ') }}">linked to {{ _names|join(', ') }}</span>
+          {% else %}
+          <span class="dx-qtile-value is-muted">None</span>
+          <span class="dx-qtile-sub">not on a panel</span>
+          {% endif %}
+        </div>
+        <div class="dx-qtile">
+          <span class="dx-qtile-label">Last pushed</span>
+          {% set _lp = page_last_pushed_rel.get(page.id) %}
+          <span class="dx-qtile-value{% if not _lp %} is-muted{% endif %}">{{ _lp or 'never' }}</span>
+          <span class="dx-qtile-sub">{% if _link_count == 0 %}no linked panel{% elif _link_count == 1 %}1 linked panel{% else %}{{ _link_count }} linked panels{% endif %}</span>
+        </div>
+        <div class="dx-qtile">
+          <span class="dx-qtile-label">Updates</span>
+          <span class="dx-qtile-value">{{ updates_text(page.refresh_minutes) }}</span>
+          <span class="dx-qtile-sub">wake: {{ wake_text(page.sleep_interval_s) }}</span>
+        </div>
+        <div class="dx-qtile">
+          <span class="dx-qtile-label">Lineups</span>
+          <span class="dx-qtile-value{% if not _lineups %} is-muted{% endif %}">{{ _lineups|length }}</span>
+          <span class="dx-qtile-sub"{% if _lineups %} title="{{ _lineups|join(', ') }}"{% endif %}>{{ _lineups|join(' · ') if _lineups else 'in no lineup' }}</span>
+        </div>
+      </div>
+      {% if not archived_tab %}
+      <div class="dx-dashquick-ctls">
         <form method="post" action="{{ url_for('pages.update', page_id=page.id) }}"
               class="dx-updates-ctl" title="How often this page's content re-renders while it's on a panel. Delivery respects quiet hours; battery panels pick changes up at their next wake.">
           <span class="dx-meta-k">Updates</span>
@@ -182,8 +278,8 @@
           <span class="dx-meta-k">Wake</span>
           {# The other half of "Updates": that one is how often the frame is
              re-rendered, this is how often a panel comes to fetch it. They are
-             independent — a page that re-renders hourly and is polled daily
-             shows yesterday's frame for most of the day — and the presets here
+             independent: a page that re-renders hourly and is polled daily
+             shows yesterday's frame for most of the day; and the presets here
              are seconds because that is the unit the device config uses.
              Clamped per device kind on the way out, since only the device
              knows what its firmware accepts. #}
@@ -209,99 +305,72 @@
                   {% if not wake_custom %}hidden{% endif %}>Set</button>
           <noscript><button type="submit" class="ghost">Set</button></noscript>
         </form>
+      </div>
+      {% endif %}
+      <div class="dx-devquick-actions dx-discovered-actions dx-dashquick-actions">
+        {% if archived_tab %}
+        <form method="post" action="{{ url_for('pages.unarchive', page_id=page.id) }}" class="form form--inline">
+          <button type="submit" class="dx-btn-ghost-sm dx-btn-push" title="Restore this dashboard to the Active list">
+            <i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i><span>Restore</span>
+          </button>
+        </form>
+        {% else %}
+        <form method="post" action="{{ url_for('send.send_page') }}" class="form form--inline">
+          <input type="hidden" name="page_id" value="{{ page.id }}">
+          <input type="hidden" name="return_to" value="dashboards">
+          {# The title counts the linked devices so the fan-out is visible
+             before the click (#52), and counts LIVE bindings only: a deleted
+             device leaves its id on any dashboard it shared (#229). #}
+          <button type="submit" class="dx-btn-ghost-sm dx-btn-push"
+                  title="Push this dashboard to {% if _link_count == 0 %}no linked devices (attach a device on the dashboard first){% elif _link_count == 1 %}its 1 linked device{% else %}all {{ _link_count }} linked devices{% endif %}">
+            <i class="ph ph-paper-plane-tilt" aria-hidden="true"></i>
+            <span>Push{% if _link_count > 1 %} to {{ _link_count }}{% endif %}</span>
+          </button>
+        </form>
         {% endif %}
-        <div class="dx-discovered-actions">
-          <a class="dx-btn-primary-sm" href="{{ url_for('pages.edit', page_id=page.id) }}">
-            <i class="ph ph-pencil-simple" aria-hidden="true"></i><span>Edit</span>
+        {# A fixed-width slot rendered on EVERY row, so the buttons after it
+           line up from row to row whether or not this dashboard declares its
+           own settings. #}
+        <span class="dx-action-slot">
+          {% if page.layout_kind == 'canvas' and page.canvas and page.canvas.inputs %}
+          <a class="dx-btn-ghost-sm dx-btn-icon-only" href="{{ url_for('panels.configure', canvas_id=page.id) }}"
+             title="This dashboard's own settings ({{ page.canvas.inputs|length }})" aria-label="Dashboard settings">
+            <i class="ph ph-sliders-horizontal" aria-hidden="true"></i>
           </a>
-          {% if archived_tab %}
-          <form method="post" action="{{ url_for('pages.unarchive', page_id=page.id) }}" class="form form--inline">
-            <button type="submit" class="dx-btn-ghost-sm dx-btn-push" title="Restore this dashboard to the Active list">
-              <i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i><span>Restore</span>
-            </button>
-          </form>
-          {% else %}
-          <form method="post" action="{{ url_for('send.send_page') }}" class="form form--inline">
-            <input type="hidden" name="page_id" value="{{ page.id }}">
-            <input type="hidden" name="return_to" value="dashboards">
-            {# v0.69.17 (issue #52 follow-up): the button title used to
-               read "Push this dashboard to its panel" (singular), which
-               misled users into thinking a Push targeted only the
-               device whose group they were clicking under. It actually
-               pushes to every device the dashboard is linked to. Count
-               the linked devices in the title so the fan-out is
-               visible before the click. #}
-            {# Count LIVE bindings, not raw ids: a deleted device leaves its id
-               on any dashboard it shared, and counting those read "Push to 2"
-               on a row the same page showed as unbound (#229). #}
-            {% set _link_count = (page_devices.get(page.id) or [])|length %}
-            <button type="submit" class="dx-btn-ghost-sm dx-btn-push"
-                    title="Push this dashboard to {% if _link_count == 0 %}no linked devices (attach a device on the dashboard first){% elif _link_count == 1 %}its 1 linked device{% else %}all {{ _link_count }} linked devices{% endif %}">
-              <i class="ph ph-paper-plane-tilt" aria-hidden="true"></i>
-              <span>Push{% if _link_count > 1 %} to {{ _link_count }}{% endif %}</span>
-            </button>
-          </form>
           {% endif %}
-          {# A fixed-width slot rendered on EVERY row, not a button that appears
-             only where it applies. The actions strip is right-anchored (the row's
-             main link takes the free space), so anything conditional in here
-             shifts Edit and Push sideways on the rows that have it, and the two
-             actions every row shares stop lining up down the list. Only some
-             dashboards declare settings, so the slot holds the width and the
-             button moves in when there is one. #}
-          <span class="dx-action-slot">
-            {% if page.layout_kind == 'canvas' and page.canvas and page.canvas.inputs %}
-            <a class="dx-btn-ghost-sm dx-btn-icon-only" href="{{ url_for('panels.configure', canvas_id=page.id) }}"
-               title="This dashboard's own settings ({{ page.canvas.inputs|length }})" aria-label="Dashboard settings">
-              <i class="ph ph-sliders-horizontal" aria-hidden="true"></i>
-            </a>
-            {% endif %}
-          </span>
-          <form method="post" action="{{ url_for('pages.duplicate', page_id=page.id) }}" class="form form--inline">
-            <button type="submit" class="dx-btn-ghost-sm dx-btn-icon-only" title="Duplicate dashboard{% if archived_tab %} (the copy goes to the Active list){% endif %}" aria-label="Duplicate">
-              <i class="ph ph-copy" aria-hidden="true"></i>
-            </button>
-          </form>
-          {% if not archived_tab %}
-          {# Archive is a per-row form like Delete. A lineup member gets the
-             button disabled with the lineup named in the tooltip, rather than
-             a post that only comes back with an error flash. #}
-          <form method="post" action="{{ url_for('pages.archive', page_id=page.id) }}" class="form form--inline">
-            <button type="submit" class="dx-btn-ghost-sm dx-btn-icon-only" aria-label="Archive"
-                    {% if _lineups %}disabled title="In lineup{{ '' if _lineups|length == 1 else 's' }}: {{ _lineups|join(', ') }}. Remove it from the lineup first."{% else %}title="Archive dashboard (keeps it, hides it from pickers)"{% endif %}>
-              <i class="ph ph-archive" aria-hidden="true"></i>
-            </button>
-          </form>
-          {% endif %}
-          <form method="post" action="{{ url_for('pages.delete', page_id=page.id) }}" class="form form--inline"
-                onsubmit="return confirm('Delete this dashboard?');">
-            <button type="submit" class="dx-btn-ghost-sm dx-btn-icon-only" title="Delete dashboard" aria-label="Delete">
-              <i class="ph ph-trash" aria-hidden="true"></i>
-            </button>
-          </form>
-        </div>
-      </li>
-      {% endfor %}
-    </ul>
-  </details>
+        </span>
+        <form method="post" action="{{ url_for('pages.duplicate', page_id=page.id) }}" class="form form--inline">
+          <button type="submit" class="dx-btn-ghost-sm dx-btn-icon-only" title="Duplicate dashboard{% if archived_tab %} (the copy goes to the Active list){% endif %}" aria-label="Duplicate">
+            <i class="ph ph-copy" aria-hidden="true"></i>
+          </button>
+        </form>
+        {% if not archived_tab %}
+        {# A lineup member gets Archive disabled with the lineup named in the
+           tooltip, rather than a post that only comes back with an error. #}
+        <form method="post" action="{{ url_for('pages.archive', page_id=page.id) }}" class="form form--inline">
+          <button type="submit" class="dx-btn-ghost-sm dx-btn-icon-only" aria-label="Archive"
+                  {% if _lineups %}disabled title="In lineup{{ '' if _lineups|length == 1 else 's' }}: {{ _lineups|join(', ') }}. Remove it from the lineup first."{% else %}title="Archive dashboard (keeps it, hides it from pickers)"{% endif %}>
+            <i class="ph ph-archive" aria-hidden="true"></i>
+          </button>
+        </form>
+        {% endif %}
+        <form method="post" action="{{ url_for('pages.delete', page_id=page.id) }}" class="form form--inline"
+              onsubmit="return confirm('Delete this dashboard?');">
+          <button type="submit" class="dx-btn-ghost-sm dx-btn-icon-only" title="Delete dashboard" aria-label="Delete">
+            <i class="ph ph-trash" aria-hidden="true"></i>
+          </button>
+        </form>
+        <a class="dx-btn-primary-sm dx-devquick-open" href="{{ url_for('pages.edit', page_id=page.id) }}">
+          <i class="ph ph-pencil-simple" aria-hidden="true"></i><span>Open in editor</span>
+        </a>
+      </div>
+    </div>
+  </div>
   {% endfor %}
-  <script>
-    // Restore folded groups before the list paints. Runs inline right after
-    // the groups so the DOM it touches exists and nothing has been painted
-    // open first. A missing or unreadable store leaves every group open.
-    (function () {
-      var KEY = 'tesserae-dash-groups';
-      var folded = [];
-      try { folded = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { folded = []; }
-      if (!Array.isArray(folded) || !folded.length) return;
-      var groups = document.querySelectorAll('details[data-dash-group]');
-      for (var i = 0; i < groups.length; i++) {
-        if (folded.indexOf(groups[i].getAttribute('data-dash-group')) !== -1) groups[i].removeAttribute('open');
-      }
-    })();
-  </script>
+
+  <div class="dx-devtable-empty" data-dashtable-empty hidden>No dashboards match.</div>
   {% endif %}
-{% endcall %}
+</section>
 
 {# Bulk action bar: floats in once >=1 dashboard is checked. The push /
    delete forms live here (not nested in the per-row action forms) and are
@@ -343,16 +412,17 @@
   .dx-dash-preview.is-visible { opacity: 1; transform: translateY(0); }
 
   /* Multi-select: per-row checkbox + floating bulk action bar. */
-  .dx-dash-select { flex: 0 0 auto; width: 16px; height: 16px; margin-right: 10px; cursor: pointer; accent-color: var(--t-accent); }
+  .dx-dash-select, .dx-dash-selall { width: 16px; height: 16px; margin: 0; cursor: pointer; accent-color: var(--t-accent); }
   #dx-bulk-bar {
     position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
-    z-index: 500; display: flex; align-items: center; gap: 14px;
+    z-index: 500; display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap;
+    box-sizing: border-box; max-width: calc(100vw - 24px);
     padding: 10px 14px; border: 1px solid var(--t-border); border-radius: 12px;
     background: var(--t-surface); box-shadow: 0 12px 34px rgba(0, 0, 0, .24);
   }
   #dx-bulk-bar[hidden] { display: none; }
   .dx-bulk-count { font-size: 13px; font-weight: 600; color: var(--t-text, inherit); white-space: nowrap; }
-  .dx-bulk-actions { display: flex; align-items: center; gap: 8px; }
+  .dx-bulk-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .dx-bulk-actions .form { margin: 0; }
   .dx-dash-preview iframe { border: 0; transform-origin: top left; pointer-events: none; background: #fff; }
   .dx-dash-preview img { display: block; width: 100%; height: 100%; object-fit: cover; background: #fff; }
@@ -367,6 +437,22 @@
     const sync = () => { btn.disabled = !input.value.trim(); };
     input.addEventListener('input', sync);
     sync();
+  })();
+
+  // New dashboard: the head button reveals the create form and focuses it.
+  (function () {
+    const panel = document.querySelector('[data-create-panel]');
+    const btn = document.querySelector('[data-create-toggle]');
+    if (!panel || !btn) return;
+    btn.addEventListener('click', function () {
+      const open = panel.hidden;
+      panel.hidden = !open;
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) {
+        const input = panel.querySelector('[data-new-dashboard-input]');
+        if (input) input.focus();
+      }
+    });
   })();
 
   // Updates control: a preset submits straight away, "custom" reveals a
@@ -389,11 +475,143 @@
     });
   })();
 
-  // Hover preview. One shared popover holding a cached PNG screenshot of the
-  // dashboard (rendered server-side once per content version, then reused). If
-  // the image can't render, it falls back to a live, scaled /compose iframe.
-  // Lazily loaded after a short hover-intent delay so casual mouse-overs don't
-  // trigger a fetch.
+  // Row thumbnails: the cached preview PNG. A dashboard with no cached image
+  // yet answers 202 (its render is queued), so the thumb shows its icon and
+  // asks once more a little later.
+  (function () {
+    document.querySelectorAll('img[data-dash-thumb]').forEach(function (img) {
+      const box = img.parentNode;
+      let retried = false;
+      img.addEventListener('load', function () { box.classList.remove('is-empty'); });
+      img.addEventListener('error', function () {
+        box.classList.add('is-empty');
+        if (retried) return;
+        retried = true;
+        setTimeout(function () { img.src = img.src.split('&r=')[0] + '&r=1'; }, 8000);
+      });
+    });
+  })();
+
+  // The table: each row opens the panel under it in place (one at a time),
+  // mirrored in ?opened=<id> so a reload lands on the same row. Search and
+  // the Panel filter run client-side, and the count follows them.
+  (function () {
+    const table = document.querySelector('[data-dashtable]');
+    if (!table) return;
+    const rows = Array.prototype.slice.call(table.querySelectorAll('[data-dashrow]'));
+    const search = table.querySelector('[data-dashtable-search]');
+    const filter = table.querySelector('[data-dashtable-filter]');
+    const empty = table.querySelector('[data-dashtable-empty]');
+    const count = table.querySelector('[data-dashtable-count]');
+    const showLive = count && count.textContent.indexOf('on a panel') !== -1;
+    function btnFor(row) { return row.querySelector('[data-dash-toggle]'); }
+    function panelFor(row) {
+      const b = btnFor(row);
+      const id = b ? b.getAttribute('aria-controls') : null;
+      return id ? document.getElementById(id) : null;
+    }
+    function fillPreview(row, panel) {
+      const box = panel.querySelector('[data-dashquick-preview]');
+      if (!box || box.getAttribute('data-filled')) return;
+      const png = row.getAttribute('data-preview-png');
+      const src = row.getAttribute('data-preview-src');
+      const w = parseInt(row.getAttribute('data-preview-w') || '0', 10);
+      const h = parseInt(row.getAttribute('data-preview-h') || '0', 10);
+      if (!png || !w || !h) return;
+      box.setAttribute('data-filled', '1');
+      const img = document.createElement('img');
+      img.alt = 'Preview of ' + (row.querySelector('.dx-dash-name') || {}).textContent;
+      img.addEventListener('load', function () { box.classList.add('has-img'); });
+      // No cached image yet: show the live dashboard in a scaled iframe.
+      img.addEventListener('error', function () {
+        img.remove();
+        if (!src) return;
+        const frame = document.createElement('iframe');
+        frame.setAttribute('scrolling', 'no');
+        frame.setAttribute('tabindex', '-1');
+        frame.setAttribute('aria-hidden', 'true');
+        frame.style.width = w + 'px';
+        frame.style.height = h + 'px';
+        const fit = function () {
+          const s = Math.min(box.clientWidth / w, box.clientHeight / h) || 0;
+          frame.style.transform = 'scale(' + s + ')';
+          frame.style.left = Math.max(0, (box.clientWidth - w * s) / 2) + 'px';
+          frame.style.top = Math.max(0, (box.clientHeight - h * s) / 2) + 'px';
+        };
+        frame.src = src;
+        box.appendChild(frame);
+        box.classList.add('has-img');
+        fit();
+        if (window.ResizeObserver) new ResizeObserver(fit).observe(box);
+      });
+      img.src = png;
+      box.appendChild(img);
+    }
+    function setOpen(row, open) {
+      const panel = panelFor(row);
+      const b = btnFor(row);
+      row.classList.toggle('is-open', open);
+      if (b) {
+        b.setAttribute('aria-expanded', open ? 'true' : 'false');
+        const name = (row.querySelector('.dx-dash-name') || {}).textContent || '';
+        b.setAttribute('aria-label', (open ? 'Close ' : 'Open ') + name);
+      }
+      if (panel) {
+        panel.hidden = !open;
+        if (open) fillPreview(row, panel);
+      }
+    }
+    function toggle(row) {
+      const opening = !row.classList.contains('is-open');
+      rows.forEach(function (r) { if (r !== row && r.classList.contains('is-open')) setOpen(r, false); });
+      setOpen(row, opening);
+      const url = new URL(window.location.href);
+      if (opening) url.searchParams.set('opened', row.getAttribute('data-page-id') || '');
+      else url.searchParams.delete('opened');
+      history.replaceState(null, '', url.pathname + url.search + url.hash);
+    }
+    rows.forEach(function (row) {
+      if (row.classList.contains('is-open')) setOpen(row, true);
+      row.addEventListener('click', function (ev) {
+        if (ev.target.closest('[data-dash-toggle]')) { toggle(row); return; }
+        // The name link, the checkbox and anything else interactive keep
+        // their own job; a click anywhere else on the row opens it.
+        if (ev.target.closest('a, button, input, select, label, form')) return;
+        toggle(row);
+      });
+    });
+
+    function applyFilter() {
+      const q = (search ? search.value : '').trim().toLowerCase();
+      const f = filter ? filter.value : '';
+      let shown = 0, live = 0;
+      rows.forEach(function (row) {
+        const hay = row.getAttribute('data-search') || '';
+        const panels = (row.getAttribute('data-panels') || '').split(' ');
+        const show = (!q || hay.indexOf(q) !== -1) && (!f || panels.indexOf(f) !== -1);
+        row.hidden = !show;
+        if (!show && row.classList.contains('is-open')) setOpen(row, false);
+        if (show) {
+          shown += 1;
+          if (row.getAttribute('data-live') === '1') live += 1;
+        }
+      });
+      if (empty) empty.hidden = shown !== 0;
+      if (count) {
+        count.textContent = shown + ' dashboard' + (shown === 1 ? '' : 's') +
+          (showLive ? ' · ' + live + ' on a panel' : '');
+      }
+      document.dispatchEvent(new CustomEvent('dash-filter'));
+    }
+    if (search) search.addEventListener('input', applyFilter);
+    if (filter) filter.addEventListener('change', applyFilter);
+  })();
+
+  // Hover preview on a row's thumbnail. One shared popover holding a cached
+  // PNG screenshot of the dashboard (rendered server-side once per content
+  // version, then reused). If the image can't render, it falls back to a
+  // live, scaled /compose iframe. Lazily loaded after a short hover-intent
+  // delay so casual mouse-overs don't trigger a fetch.
   (function () {
     const rows = document.querySelectorAll('[data-preview-src]');
     if (!rows.length || !window.matchMedia('(hover: hover)').matches) return;
@@ -410,9 +628,6 @@
       img = document.createElement('img');
       img.setAttribute('alt', '');
       img.setAttribute('aria-hidden', 'true');
-      // No cached image yet (202) or a render failure: remember it so a
-      // re-hover doesn't flash a broken image, and fall back to the live
-      // iframe for whichever row is currently hovered.
       img.addEventListener('error', function () {
         if (imgSrc) failed.add(imgSrc);
         img.style.display = 'none';
@@ -441,39 +656,35 @@
       if (frameSrc !== src) { frame.src = src; frameSrc = src; }
     }
 
-    function show(row) {
+    function show(row, anchor) {
       const png = row.getAttribute('data-preview-png');
       const w = parseInt(row.getAttribute('data-preview-w') || '0', 10);
       const h = parseInt(row.getAttribute('data-preview-h') || '0', 10);
       if (!w || !h) return;
       build();
-      const scale = PW / w;
-      const ph = Math.round(h * scale);
+      const ph = Math.round(h * (PW / w));
       pop.style.width = PW + 'px';
       pop.style.height = ph + 'px';
       if (png && !failed.has(png)) {
-        // Primary path: the cached image. The token in the URL means the
-        // browser reuses it until the dashboard changes.
         img.style.display = '';
         frame.style.display = 'none';
         if (imgSrc !== png) { img.src = png; imgSrc = png; }
       } else {
-        // No cached image (or it wasn't ready): live iframe, no server render.
         img.style.display = 'none';
         showIframe(row);
       }
-      position(row, ph);
+      position(anchor, ph);
       pop.classList.add('is-visible');
     }
 
-    function position(row, ph) {
-      const r = row.getBoundingClientRect();
+    function position(anchor, ph) {
+      const r = anchor.getBoundingClientRect();
       const gap = 12;
       const vw = document.documentElement.clientWidth;
       const vh = document.documentElement.clientHeight;
       let left = r.right + gap;
       if (left + PW > vw) left = r.left - PW - gap;         // flip to the left
-      left = Math.max(8, left);
+      left = Math.max(8, Math.min(left, vw - PW - 8));
       let top = r.top;
       if (top + ph > vh - 8) top = Math.max(8, vh - ph - 8); // clamp to viewport
       pop.style.left = (left + window.scrollX) + 'px';
@@ -483,64 +694,45 @@
     function hide() { if (pop) pop.classList.remove('is-visible'); current = null; }
 
     rows.forEach(function (row) {
-      row.addEventListener('mouseenter', function () {
+      const anchor = row.querySelector('.dx-dash-thumb') || row;
+      anchor.addEventListener('mouseenter', function () {
         clearTimeout(timer);
         current = row;
-        timer = setTimeout(function () { if (current === row) show(row); }, DELAY);
+        timer = setTimeout(function () { if (current === row) show(row, anchor); }, DELAY);
       });
-      row.addEventListener('mouseleave', function () { clearTimeout(timer); hide(); });
+      anchor.addEventListener('mouseleave', function () { clearTimeout(timer); hide(); });
     });
     window.addEventListener('scroll', hide, { passive: true });
   })();
 
-  // Per-display groups: remember which ones the user folded, and drive the
-  // Collapse all / Expand all control from the groups' live state.
-  (function () {
-    const KEY = 'tesserae-dash-groups';
-    const groups = Array.prototype.slice.call(document.querySelectorAll('details[data-dash-group]'));
-    if (!groups.length) return;
-    const toggle = document.querySelector('[data-dash-groups-toggle]');
-    function save() {
-      const folded = groups.filter(function (g) { return !g.open; })
-        .map(function (g) { return g.getAttribute('data-dash-group'); });
-      try { localStorage.setItem(KEY, JSON.stringify(folded)); } catch (e) { /* private mode */ }
-    }
-    function syncToggle() {
-      if (!toggle) return;
-      const anyOpen = groups.some(function (g) { return g.open; });
-      toggle.querySelector('span').textContent = anyOpen ? 'Collapse all' : 'Expand all';
-      toggle.querySelector('.ph').className = 'ph ' + (anyOpen ? 'ph-arrows-in-line-vertical' : 'ph-arrows-out-line-vertical');
-      toggle.setAttribute('data-state', anyOpen ? 'open' : 'closed');
-    }
-    groups.forEach(function (g) { g.addEventListener('toggle', function () { save(); syncToggle(); }); });
-    if (toggle) toggle.addEventListener('click', function () {
-      const anyOpen = groups.some(function (g) { return g.open; });
-      groups.forEach(function (g) { g.open = !anyOpen; });
-      save();
-      syncToggle();
-    });
-    syncToggle();
-  })();
-
   // Multi-select: checkboxes drive a floating bulk bar. On push/delete the
   // checked page ids are injected as hidden inputs into that action's form
-  // (kept out of the per-row forms, so no nested-form issues).
+  // (kept out of the per-row forms, so no nested-form issues). The head
+  // checkbox selects every row the search and filter leave showing.
   (function () {
     const boxes = Array.prototype.slice.call(document.querySelectorAll('.dx-dash-select'));
     const bar = document.getElementById('dx-bulk-bar');
     const count = document.getElementById('dx-bulk-count');
     if (!boxes.length || !bar) return;
+    const all = document.querySelector('[data-dash-selall]');
     const pushForm = document.getElementById('dx-bulk-push-form');
     const delForm = document.getElementById('dx-bulk-delete-form');
     const archiveForm = document.getElementById('dx-bulk-archive-form');
     const restoreForm = document.getElementById('dx-bulk-unarchive-form');
     const clearBtn = document.getElementById('dx-bulk-clear');
 
+    function visible() { return boxes.filter(function (b) { return !b.closest('[data-dashrow]').hidden; }); }
     function selected() { return boxes.filter(function (b) { return b.checked; }); }
     function sync() {
       const n = selected().length;
       bar.hidden = n === 0;
       if (n) count.textContent = n + ' selected';
+      if (all) {
+        const shown = visible();
+        const on = shown.filter(function (b) { return b.checked; }).length;
+        all.checked = shown.length > 0 && on === shown.length;
+        all.indeterminate = on > 0 && on < shown.length;
+      }
     }
     function inject(form) {
       form.querySelectorAll('input[name="page_ids"]').forEach(function (n) { n.remove(); });
@@ -551,6 +743,11 @@
       });
     }
     boxes.forEach(function (b) { b.addEventListener('change', sync); });
+    if (all) all.addEventListener('change', function () {
+      visible().forEach(function (b) { b.checked = all.checked; });
+      sync();
+    });
+    document.addEventListener('dash-filter', sync);
     if (pushForm) pushForm.addEventListener('submit', function () { inject(pushForm); });
     if (delForm) delForm.addEventListener('submit', function () { inject(delForm); });
     if (archiveForm) archiveForm.addEventListener('submit', function () { inject(archiveForm); });
