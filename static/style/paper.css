@@ -304,7 +304,6 @@
   /* Everything after the nav (update badge, new devices, batteries,
      opt-in, restart, theme) collects at the sidebar foot. */
   :root[data-ui="paper"] .topbar > .topbar-discovered--topbar,
-  :root[data-ui="paper"] .topbar > .topbar-batteries--topbar,
   :root[data-ui="paper"] .topbar > .topbar-optin,
   :root[data-ui="paper"] .topbar > .topbar-restart-form,
   :root[data-ui="paper"] .topbar > .theme-toggle--topbar { margin: 0; align-self: flex-start; }
@@ -323,11 +322,17 @@
   }
   :root[data-ui="paper"] .topnav .theme-toggle--drawer .theme-toggle-label { display: inline; }
   :root[data-ui="paper"] .topnav .theme-toggle--drawer:hover { background: var(--p-hover); color: var(--t-fg); }
-  :root[data-ui="paper"] .topbar-batteries-popover { left: calc(100% + 8px); top: auto; bottom: 0; right: auto; }
+  /* The batteries leave the sidebar for the top-right corner (below).
+     The drawer copy is a direct <a> of the nav, so the sidebar link
+     rules above would otherwise lay its phone-only list out here. */
+  :root[data-ui="paper"] .topnav > a.topbar-batteries--drawer { display: none; }
+  :root[data-ui="paper"] .topbar > .topbar-batteries--topbar { position: fixed; top: 16px; right: 20px; margin: 0; }
   :root[data-ui="paper"] .topbar-optin { flex-direction: column; align-items: stretch; gap: 4px; width: 100%; }
 
   /* Pages that stick to the top no longer need to clear a top bar. */
   :root[data-ui="paper"] .editor-header { top: 0; }
+  /* ...but its actions run to the right edge, under the batteries pill. */
+  :root[data-ui="paper"] body:has(.topbar > .topbar-batteries--topbar) .editor-header { padding-right: 112px; }
 }
 
 /* ----- Shell: phones and small tablets ------------------------------- */
@@ -357,7 +362,46 @@
   :root[data-ui="paper"] .topnav a.is-active { background: var(--p-selected); color: var(--t-fg); font-weight: 600; }
   :root[data-ui="paper"] .topnav .nav-dropdown-panel { border-left-width: 1px; }
   :root[data-ui="paper"] .nav-scrim { background: rgba(28, 27, 25, 0.45); }
+  /* The batteries pill sits in the bar beside the menu button, so the
+     drawer drops its own copy of the list. */
+  :root[data-ui="paper"] .topbar > .topbar-batteries--topbar { display: block; order: 1; margin-left: auto; }
+  :root[data-ui="paper"] .topbar > .nav-toggle { order: 2; margin-left: 4px; }
+  :root[data-ui="paper"] .topnav .topbar-batteries--drawer { display: none; }
+  :root[data-ui="paper"] .topbar-batteries-popover { right: -48px; max-width: calc(100vw - 32px); }
 }
+
+/* ----- Batteries: a floating pill in the top-right corner ------------ */
+/* The worst charge as an icon and a count (or the one percentage), on
+   a round pill; the popover drops below it, right-aligned. */
+:root[data-ui="paper"] .topbar > .topbar-batteries--topbar { z-index: 600; }
+:root[data-ui="paper"] .topbar-batteries--topbar > summary,
+:root[data-ui="paper"] a.topbar-batteries--topbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px 0 10px;
+  box-sizing: border-box;
+  border: 1px solid var(--t-border);
+  border-radius: 999px;
+  background: var(--t-surface);
+  color: var(--t-fg-soft);
+  font-family: var(--t-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+}
+:root[data-ui="paper"] .topbar-batteries--topbar > summary:hover,
+:root[data-ui="paper"] a.topbar-batteries--topbar:hover { background: var(--p-hover); color: var(--t-fg); }
+:root[data-ui="paper"] .topbar-batteries--topbar .ph-bold { font-size: 18px; }
+:root[data-ui="paper"] .topbar-batteries--topbar .tg-count { background: transparent; padding: 0; color: inherit; }
+:root[data-ui="paper"] .topbar-batteries--topbar.is-tone-critical > summary,
+:root[data-ui="paper"] a.topbar-batteries--topbar.is-tone-critical { color: var(--t-danger); }
+:root[data-ui="paper"] .topbar-batteries--topbar.is-tone-low > summary,
+:root[data-ui="paper"] a.topbar-batteries--topbar.is-tone-low { color: var(--t-warn); }
+:root[data-ui="paper"] .topbar-batteries-popover { top: calc(100% + 8px); bottom: auto; left: auto; right: 0; }
+:root[data-ui="paper"] .topbar-batteries-popover .topbar-batteries-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ----- The design switch --------------------------------------------- */
 
