@@ -435,9 +435,12 @@ def build_payload(app: Flask) -> dict[str, Any]:
         transport = "none"
 
     ha = False
+    ui = "classic"
     try:
         app_section = settings.get_section("app") if settings is not None else {}
         ha = bool(app_section.get("ha_discovery_enabled"))
+        # Which admin design is on (Paper is opt-in): one of two values.
+        ui = "paper" if app_section.get("ui_design") == "paper" else "classic"
     except Exception:
         ha = False
 
@@ -481,6 +484,7 @@ def build_payload(app: Flask) -> dict[str, Any]:
         "lineups": _lineups_bucket(app),
         "features": _features(app, settings, instances),
         "ota": _ota_snapshot(app, instances, status_cache),
+        "ui": ui,
     }
 
 

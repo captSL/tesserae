@@ -6,6 +6,20 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ## [Unreleased]
 
+### Added
+
+- **Paper, an opt-in redesign of the web UI.** A switch in the header
+  ("Try the new design"; in the phone menu as "New design") turns it on for
+  the install, and the same switch turns it off again. Paper moves the
+  navigation into a left sidebar on desktop (a left drawer on phones),
+  swaps the teal for warm paper, ink and a red accent, uses Archivo and
+  Martian Mono (already bundled), flattens shadows and gradients to 1px
+  hairlines, recolours the Tesserae mark, and adds a light page-enter
+  animation that switches off under reduced motion. Dark mode follows. The
+  classic design is unchanged and stays the default. With online features
+  on, the daily heartbeat now says which of the two designs the install
+  runs (`ui`), so adoption can be counted; see docs/privacy.md.
+
 ## [0.436.1], 2026-10-01
 
 ### Added

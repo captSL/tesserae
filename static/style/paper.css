@@ -1,0 +1,498 @@
+/*
+ * Paper: the opt-in redesign (Settings key app.ui_design = "paper").
+ *
+ * Loaded after every other admin sheet on every page. Everything except the
+ * design switch itself is scoped to :root[data-ui="paper"], which _base.html
+ * sets on <html> only when the design is on, so the classic look is
+ * untouched for everyone else (the fonts below only download when used).
+ *
+ * The approach is tokens first: the admin already reads its colours, type,
+ * radii and shadows from the --t-* variables in base.css, so most of the
+ * look changes by redefining them. The rest of this file turns the top bar
+ * into a left sidebar on desktop (a left drawer on phones), flattens the
+ * few places that draw thick borders or inset rings, and adds the motion.
+ *
+ * Rules: 1px hairlines at most, no shadows, no teal, monochrome navigation,
+ * no serif. Panel previews keep their own colours.
+ */
+
+/* ----- Fonts (bundled with fonts_core, OFL) -------------------------- */
+
+@font-face { font-family: "Archivo"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url("../../plugins/fonts_core/static/archivo/400.woff2") format("woff2"); }
+@font-face { font-family: "Archivo"; font-style: normal; font-weight: 500; font-display: swap;
+  src: url("../../plugins/fonts_core/static/archivo/400.woff2") format("woff2"); }
+@font-face { font-family: "Archivo"; font-style: normal; font-weight: 600; font-display: swap;
+  src: url("../../plugins/fonts_core/static/archivo/700.woff2") format("woff2"); }
+@font-face { font-family: "Archivo"; font-style: normal; font-weight: 700; font-display: swap;
+  src: url("../../plugins/fonts_core/static/archivo/700.woff2") format("woff2"); }
+@font-face { font-family: "Archivo"; font-style: normal; font-weight: 800; font-display: swap;
+  src: url("../../plugins/fonts_core/static/archivo/800.woff2") format("woff2"); }
+@font-face { font-family: "Martian Mono"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url("../../plugins/fonts_core/static/martian_mono/400.woff2") format("woff2"); }
+@font-face { font-family: "Martian Mono"; font-style: normal; font-weight: 700; font-display: swap;
+  src: url("../../plugins/fonts_core/static/martian_mono/700.woff2") format("woff2"); }
+
+/* ----- Tokens -------------------------------------------------------- */
+
+:root[data-ui="paper"] {
+  --p-sidebar-w: 248px;
+  --p-hover: #F7F3EA;
+  --p-selected: #F1ECE1;
+  --p-focus: #2B4E9B;
+  --p-logo-tile: #FFFDF8;
+  --p-logo-edge: #1C1B19;
+  --p-logo-a: #B8352A;
+  --p-logo-b: #1C1B19;
+  --p-ease: cubic-bezier(.2, .7, .2, 1);
+
+  --t-accent: #B8352A;
+  --t-accent-hover: #9E2C22;
+  --t-accent-soft: #F3DCD6;
+  --t-accent-fg: #FFFDF8;
+  --t-accent-ink: #7E231B;
+  --t-accent-tint: #F3DCD6;
+
+  --t-bg: #F4F1E9;
+  --t-surface: #FFFDF8;
+  --t-surface-soft: #FAF7F0;
+  --t-surface-sunk: #F1ECE1;
+  --t-surface-raised: #FFFDF8;
+  --t-fg: #1C1B19;
+  --t-fg-soft: #55524B;
+  --t-muted: #7A766C;
+  --t-border: #E0DACD;
+  --t-border-strong: #CFC8B8;
+  --t-inset: #FAF7F0;
+  --t-inset-border: #E0DACD;
+
+  --t-chart-1: #2B4E9B;
+  --t-chart-2: #B8352A;
+  --t-chart-3: #C9971C;
+  --t-chart-other: #8F8A7E;
+
+  --t-danger: #B8352A;
+  --t-danger-bg: #F3DCD6;
+  --t-warn: #9A6F0C;
+  --t-warn-bg: #F2E7CC;
+  --t-ok: #3D7A3A;
+  --t-ok-bg: #E3EBDD;
+  --t-pill-ok-bg: #E3EBDD;
+  --t-pill-ok-fg: #3D7A3A;
+  --t-pill-ok-border: #E3EBDD;
+  --t-pill-warn-bg: #F2E7CC;
+  --t-pill-warn-fg: #7A570A;
+  --t-pill-warn-border: #F2E7CC;
+  --t-pill-danger-bg: #F3DCD6;
+  --t-pill-danger-fg: #9E2C22;
+  --t-pill-danger-border: #F3DCD6;
+  --t-pill-neutral-bg: #F1ECE1;
+  --t-pill-neutral-fg: #55524B;
+  --t-code-bg: #F1ECE1;
+  --t-code-border: #E0DACD;
+  --t-code-key: #2B4E9B;
+
+  --t-font: "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --t-font-mono: "Martian Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --t-font-features: normal;
+
+  --t-radius-sm: 4px;
+  --t-radius: 4px;
+  --t-radius-md: 4px;
+  --t-radius-lg: 6px;
+  --t-radius-xl: 8px;
+
+  --t-shadow-xs: none;
+  --t-shadow-sm: none;
+  --t-shadow: none;
+  --t-shadow-md: none;
+  --t-shadow-lg: none;
+  --t-shadow-xl: none;
+  --t-shadow-inset: none;
+  --t-ring: 0 0 0 2px color-mix(in oklab, var(--p-focus) 45%, transparent);
+  --t-ring-soft: 0 0 0 2px color-mix(in oklab, var(--p-focus) 25%, transparent);
+}
+
+:root[data-ui="paper"][data-theme="dark"] {
+  --p-hover: #262421;
+  --p-selected: #2D2B27;
+  --p-focus: #7C9BE0;
+  --p-logo-tile: #22211E;
+  --p-logo-edge: #EDE9DF;
+  --p-logo-a: #D0493C;
+  --p-logo-b: #EDE9DF;
+
+  --t-accent: #D0493C;
+  --t-accent-hover: #E05A4C;
+  --t-accent-soft: #3B211D;
+  --t-accent-fg: #FFFFFF;
+  --t-accent-ink: #F0A497;
+  --t-accent-tint: #3B211D;
+
+  --t-bg: #191816;
+  --t-surface: #22211E;
+  --t-surface-soft: #262421;
+  --t-surface-sunk: #1E1D1B;
+  --t-surface-raised: #22211E;
+  --t-fg: #EDE9DF;
+  --t-fg-soft: #A8A397;
+  --t-muted: #8A857A;
+  --t-border: #35332E;
+  --t-border-strong: #45423C;
+  --t-inset: #1E1D1B;
+  --t-inset-border: #35332E;
+
+  --t-chart-1: #7C9BE0;
+  --t-chart-2: #E06A5C;
+  --t-chart-3: #D9B45A;
+
+  --t-danger: #E58474;
+  --t-danger-bg: #3B211D;
+  --t-warn: #D9B45A;
+  --t-warn-bg: #3A311B;
+  --t-ok: #8DBF7F;
+  --t-ok-bg: #24301F;
+  --t-pill-ok-bg: #24301F;
+  --t-pill-ok-fg: #8DBF7F;
+  --t-pill-ok-border: #24301F;
+  --t-pill-warn-bg: #3A311B;
+  --t-pill-warn-fg: #D9B45A;
+  --t-pill-warn-border: #3A311B;
+  --t-pill-danger-bg: #3B211D;
+  --t-pill-danger-fg: #E58474;
+  --t-pill-danger-border: #3B211D;
+  --t-pill-neutral-bg: #2D2B27;
+  --t-pill-neutral-fg: #A8A397;
+  --t-code-bg: #1E1D1B;
+  --t-code-border: #35332E;
+}
+
+/* Settings cards carry their own palette in --dx-* variables, scoped to
+   the card selectors. Point them at the tokens so they follow Paper (and
+   its dark mode) instead of the classic teal-and-grey set. */
+:root[data-ui="paper"] body * {
+  --dx-teal: var(--t-accent);
+  --dx-teal-hover: var(--t-accent-hover);
+  --dx-ink: var(--t-fg);
+  --dx-ink-soft: var(--t-fg-soft);
+  --dx-faint: var(--t-muted);
+  --dx-faint-2: var(--t-muted);
+  --dx-border: var(--t-border);
+  --dx-border-faint: var(--t-border);
+  --dx-input-border: var(--t-border-strong);
+  --dx-inset: var(--t-inset);
+}
+
+:root[data-ui="paper"] body { font-feature-settings: normal; }
+/* Plain paper: no dotted grid behind the pages. */
+:root[data-ui="paper"] body.admin { background-image: none; }
+
+/* Navigation is monochrome in both layouts: no accent fill or underline
+   on the active item (the sidebar/drawer rules below shade it instead). */
+:root[data-ui="paper"] .topnav a.is-active::after,
+:root[data-ui="paper"] .topnav .nav-dropdown.is-active summary::after { content: none; }
+:root[data-ui="paper"] .topnav a.is-active,
+:root[data-ui="paper"] .topnav .nav-dropdown.is-active summary,
+:root[data-ui="paper"] .topnav .nav-dropdown[open] summary { color: var(--t-fg); background: var(--p-selected); }
+:root[data-ui="paper"] :focus-visible { outline: 2px solid var(--p-focus); outline-offset: 2px; }
+
+/* ----- Brand mark: the Tesserae tile, recoloured ---------------------- */
+
+:root[data-ui="paper"] .brand { color: var(--t-fg); font-weight: 700; letter-spacing: -0.015em; }
+:root[data-ui="paper"] .brand:hover { color: var(--t-fg); }
+:root[data-ui="paper"] .brand-mark {
+  width: 28px; height: 28px; border-radius: 0; background: none; box-shadow: none;
+  transition: transform 220ms var(--p-ease);
+}
+:root[data-ui="paper"] .brand-mark::before { content: none; }
+:root[data-ui="paper"] .brand-mark svg { width: 28px; height: 28px; display: block; }
+:root[data-ui="paper"] .brand:hover .brand-mark { transform: rotate(-6deg); }
+.brand-label { display: none; }
+
+/* ----- Shell: left sidebar on desktop -------------------------------- */
+
+@media (min-width: 901px) {
+  :root[data-ui="paper"] body.admin { padding-left: var(--p-sidebar-w); }
+  :root[data-ui="paper"] .topbar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: var(--p-sidebar-w);
+    box-sizing: border-box;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--t-space-1);
+    padding: var(--t-space-5) var(--t-space-3) var(--t-space-4);
+    background: var(--t-surface);
+    border-bottom: 0;
+    border-right: 1px solid var(--t-border);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  :root[data-ui="paper"] .topbar::before { content: none; }
+  :root[data-ui="paper"] .brand { padding: 0 var(--t-space-2) var(--t-space-5); gap: 10px; }
+  :root[data-ui="paper"] .brand-label {
+    display: block;
+    font-family: var(--t-font-mono);
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--t-fg-soft);
+    margin-top: 2px;
+  }
+  :root[data-ui="paper"] .brand-name { display: flex; flex-direction: column; line-height: 1.1; font-size: 17px; }
+
+  :root[data-ui="paper"] .topnav {
+    flex: 1 0 auto;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 2px;
+    margin: 0;
+  }
+  :root[data-ui="paper"] .topnav > a,
+  :root[data-ui="paper"] .topnav .nav-dropdown > summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 40px;
+    padding: 0 var(--t-space-3);
+    border-radius: var(--t-radius);
+    color: var(--t-fg);
+    font-size: 14px;
+    font-weight: 500;
+    background: transparent;
+    transition: background-color 180ms ease-out;
+  }
+  :root[data-ui="paper"] .topnav > a .ph,
+  :root[data-ui="paper"] .topnav .nav-dropdown > summary .ph { font-size: 19px; color: var(--t-fg-soft); }
+  :root[data-ui="paper"] .topnav > a:hover,
+  :root[data-ui="paper"] .topnav .nav-dropdown > summary:hover { background: var(--p-hover); color: var(--t-fg); }
+  :root[data-ui="paper"] .topnav > a.is-active,
+  :root[data-ui="paper"] .topnav .nav-dropdown.is-active > summary {
+    background: var(--p-selected);
+    color: var(--t-fg);
+    font-weight: 600;
+  }
+  :root[data-ui="paper"] .topnav > a.is-active .ph,
+  :root[data-ui="paper"] .topnav .nav-dropdown.is-active > summary .ph { color: var(--t-fg); }
+  :root[data-ui="paper"] .topnav > a::after,
+  :root[data-ui="paper"] .topnav .nav-dropdown.is-active summary::after { content: none; }
+  :root[data-ui="paper"] .topnav .nav-dropdown .caret-soft { margin-left: auto; font-size: 13px; }
+  /* Dropdowns open inline in the sidebar instead of floating. */
+  :root[data-ui="paper"] .topnav .nav-dropdown-panel {
+    position: static;
+    min-width: 0;
+    border: 0;
+    border-left: 1px solid var(--t-border);
+    border-radius: 0;
+    background: transparent;
+    margin: 2px 0 4px 21px;
+    padding: 2px 0 2px 8px;
+  }
+  :root[data-ui="paper"] .topnav .nav-dropdown-link { padding: 8px 10px; font-size: 13px; color: var(--t-fg); }
+  :root[data-ui="paper"] .topnav .nav-dropdown-link:hover { background: var(--p-hover); color: var(--t-fg); }
+
+  /* Everything after the nav (update badge, new devices, batteries,
+     opt-in, restart, theme) collects at the sidebar foot. */
+  :root[data-ui="paper"] .topbar > .topbar-discovered--topbar,
+  :root[data-ui="paper"] .topbar > .topbar-batteries--topbar,
+  :root[data-ui="paper"] .topbar > .topbar-optin,
+  :root[data-ui="paper"] .topbar > .topbar-restart-form,
+  :root[data-ui="paper"] .topbar > .theme-toggle--topbar { margin: 0; align-self: flex-start; }
+  :root[data-ui="paper"] .topbar > .theme-toggle--topbar { display: none; }
+  :root[data-ui="paper"] .topnav .theme-toggle--drawer {
+    display: inline-flex;
+    width: 100%;
+    height: 40px;
+    gap: 12px;
+    justify-content: flex-start;
+    padding: 0 var(--t-space-3);
+    margin-top: auto;
+    border: 0;
+    color: var(--t-fg-soft);
+    font-size: 13px;
+  }
+  :root[data-ui="paper"] .topnav .theme-toggle--drawer .theme-toggle-label { display: inline; }
+  :root[data-ui="paper"] .topnav .theme-toggle--drawer:hover { background: var(--p-hover); color: var(--t-fg); }
+  :root[data-ui="paper"] .topbar-batteries-popover { left: calc(100% + 8px); top: auto; bottom: 0; right: auto; }
+  :root[data-ui="paper"] .topbar-optin { flex-direction: column; align-items: stretch; gap: 4px; width: 100%; }
+
+  /* Pages that stick to the top no longer need to clear a top bar. */
+  :root[data-ui="paper"] .editor-header { top: 0; }
+}
+
+/* ----- Shell: phones and small tablets ------------------------------- */
+
+@media (max-width: 900px) {
+  :root[data-ui="paper"] .topbar {
+    background: var(--t-surface);
+    border-bottom: 1px solid var(--t-border);
+    padding-block: 8px;
+    min-height: 56px;
+    box-sizing: border-box;
+  }
+  :root[data-ui="paper"] .topbar::before { content: none; }
+  :root[data-ui="paper"] .nav-toggle { border: 0; width: 44px; height: 44px; }
+  /* The drawer comes in from the left, like the sidebar it stands in for. */
+  :root[data-ui="paper"] .topnav {
+    left: 0;
+    right: auto;
+    border-left: 0;
+    border-right: 1px solid var(--t-border);
+    transform: translateX(-100%);
+    transition: transform 240ms var(--p-ease);
+  }
+  :root[data-ui="paper"] body.nav-open .topnav { transform: translateX(0); }
+  :root[data-ui="paper"] .topnav a,
+  :root[data-ui="paper"] .topnav .nav-dropdown summary { min-height: 44px; border-radius: var(--t-radius); }
+  :root[data-ui="paper"] .topnav a.is-active { background: var(--p-selected); color: var(--t-fg); font-weight: 600; }
+  :root[data-ui="paper"] .topnav .nav-dropdown-panel { border-left-width: 1px; }
+  :root[data-ui="paper"] .nav-scrim { background: rgba(28, 27, 25, 0.45); }
+}
+
+/* ----- The design switch --------------------------------------------- */
+
+.ui-switch-form { display: contents; }
+.ui-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t-fg-soft);
+  background: transparent;
+  border: 1px solid var(--t-border);
+  border-radius: var(--t-radius-pill);
+  padding: 6px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ui-switch:hover { color: var(--t-fg); background: var(--t-surface-sunk); }
+.ui-switch .ph { font-size: 15px; }
+.ui-switch-track {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--t-border-strong);
+  flex-shrink: 0;
+  transition: background-color 180ms ease-out;
+}
+.ui-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  background: var(--t-surface);
+  transition: transform 180ms var(--t-ease-snappy);
+}
+.ui-switch[aria-checked="true"] .ui-switch-track { background: var(--t-accent); }
+.ui-switch[aria-checked="true"] .ui-switch-track::after { transform: translateX(14px); }
+/* Drawer / sidebar variant is a full-width row; the classic desktop top
+   bar gets the compact pill. */
+.ui-switch--nav { display: none; }
+.topnav .ui-switch--nav {
+  width: 100%;
+  justify-content: space-between;
+  border: 0;
+  border-radius: var(--t-radius);
+  padding: 0 var(--t-space-3);
+  min-height: 40px;
+}
+@media (max-width: 900px) {
+  .ui-switch--topbar { display: none; }
+  .topnav .ui-switch--nav { display: inline-flex; min-height: 44px; }
+}
+@media (min-width: 901px) {
+  :root[data-ui="paper"] .ui-switch--topbar { display: none; }
+  :root[data-ui="paper"] .topnav .ui-switch--nav { display: inline-flex; }
+}
+/* Classic top bar: the pill takes over the right-alignment the theme
+   toggle had, unless an earlier right-hand item already claimed it. */
+.ui-switch--topbar { margin-left: auto; }
+.topbar-discovered--topbar ~ .ui-switch-form .ui-switch--topbar,
+.topbar-batteries--topbar ~ .ui-switch-form .ui-switch--topbar,
+.topbar-optin ~ .ui-switch-form .ui-switch--topbar,
+.topbar-restart-form ~ .ui-switch-form .ui-switch--topbar { margin-left: 4px; }
+.ui-switch-form + .theme-toggle--topbar { margin-left: 4px; }
+
+/* ----- Components ---------------------------------------------------- */
+
+:root[data-ui="paper"] .page-head h1,
+:root[data-ui="paper"] .card-head h1 { font-weight: 800; letter-spacing: -0.03em; }
+:root[data-ui="paper"] .page-head h1 .ph { color: var(--t-fg); }
+:root[data-ui="paper"] h2, :root[data-ui="paper"] h3 { letter-spacing: -0.015em; }
+
+:root[data-ui="paper"] .btn { font-weight: 600; border-color: var(--t-border-strong); }
+:root[data-ui="paper"] .btn:hover { background: var(--p-hover); }
+:root[data-ui="paper"] .btn:active { transform: none; }
+/* Primary buttons were a gradient with a gloss highlight; Paper paints
+   them flat red, with no lift on hover. */
+:root[data-ui="paper"] button.primary,
+:root[data-ui="paper"] .btn-primary {
+  background: var(--t-accent);
+  border-color: var(--t-accent);
+  color: var(--t-accent-fg);
+  box-shadow: none;
+}
+:root[data-ui="paper"] button.primary:hover,
+:root[data-ui="paper"] .btn-primary:hover {
+  background: var(--t-accent-hover);
+  border-color: var(--t-accent-hover);
+  box-shadow: none;
+  transform: none;
+}
+:root[data-ui="paper"] button.primary:focus-visible,
+:root[data-ui="paper"] .btn-primary:focus-visible { box-shadow: none; }
+:root[data-ui="paper"] .dow-chip:has(input:checked) { box-shadow: none; }
+:root[data-ui="paper"] .rotation-countdown-fill { background: var(--t-accent); }
+
+/* Icon boxes and section icons go monochrome: colour lives in panel
+   previews and status, not in decoration. */
+:root[data-ui="paper"] .icon-box,
+:root[data-ui="paper"] .dx-section-icon,
+:root[data-ui="paper"] .dx-section-card .dx-section-icon { background: var(--t-surface-sunk); color: var(--t-fg); }
+:root[data-ui="paper"] .tg--teal { background: var(--t-surface-sunk); color: var(--t-fg); }
+
+/* Selected states drew 2px inset rings; Paper keeps hairlines. */
+:root[data-ui="paper"] .tile.is-on,
+:root[data-ui="paper"] .tile:has(input:checked) {
+  background: var(--t-accent-soft);
+  color: var(--t-accent-ink);
+  box-shadow: inset 0 0 0 1px var(--t-accent);
+}
+:root[data-ui="paper"] .multiselect-opt.is-dragging { box-shadow: inset 0 0 0 1px var(--t-accent); }
+:root[data-ui="paper"] .dxe-pcard.is-selected::after,
+:root[data-ui="paper"] .dk-screen.is-live .dk-screen-frame,
+:root[data-ui="paper"] .dx-thumb { border-width: 1px; }
+:root[data-ui="paper"] .dx-sponsor-card,
+:root[data-ui="paper"] .rooms-notice--dep { border-left-width: 1px; }
+:root[data-ui="paper"] .topnav .nav-dropdown-panel,
+:root[data-ui="paper"] .topbar-batteries-drawer-list li { border-left-width: 1px; }
+:root[data-ui="paper"] .tab { border-bottom-width: 1px; }
+
+/* Flashes read as ink notes rather than coloured cards. */
+:root[data-ui="paper"] .flash { border-radius: var(--t-radius); }
+
+/* ----- Motion -------------------------------------------------------- */
+
+@keyframes paper-enter {
+  from { opacity: 0; transform: translateX(14px); }
+  to   { opacity: 1; transform: none; }
+}
+:root[data-ui="paper"] main.page { animation: paper-enter 360ms var(--p-ease) backwards; }
+:root[data-ui="paper"] .card,
+:root[data-ui="paper"] .dx-dashboard-card { transition: transform 220ms var(--p-ease), border-color 180ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui="paper"] main.page { animation: none; }
+  :root[data-ui="paper"] .topnav,
+  :root[data-ui="paper"] .brand-mark,
+  .ui-switch-track,
+  .ui-switch-track::after { transition: none; }
+}

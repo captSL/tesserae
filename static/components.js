@@ -819,9 +819,12 @@
     const bar = document.querySelector(".topbar");
     if (!bar) return;
     const publish = () => {
+      // In the Paper design the bar is a fixed left sidebar on desktop:
+      // nothing sits under it at the top, so there is no height to clear.
+      const sidebar = getComputedStyle(bar).position === "fixed";
       document.documentElement.style.setProperty(
         "--t-topbar-h",
-        Math.round(bar.getBoundingClientRect().height) + "px",
+        sidebar ? "0px" : Math.round(bar.getBoundingClientRect().height) + "px",
       );
     };
     publish();

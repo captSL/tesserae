@@ -34,8 +34,11 @@ def _app(
     ha: bool = False,
     status: dict[str, Any] | None = None,
     companion: int | None = None,
+    ui_design: str | None = None,
 ) -> tuple[_FakeApp, list[dict[str, Any]]]:
     app_section: dict[str, Any] = {"ha_discovery_enabled": ha, "online_features": online_on}
+    if ui_design is not None:
+        app_section["ui_design"] = ui_design
     settings = SimpleNamespace(get_section=lambda name, _s=app_section: _s if name == "app" else {})
     registry = SimpleNamespace(all=lambda _d=list(devices or []): _d)
     records: list[dict[str, Any]] = []
@@ -78,6 +81,20 @@ def test_build_payload_shape(tmp_path: Path, test_install_uuid: Any) -> None:
     assert p["os"] in ("linux", "macos", "windows", "other")
     assert p["arch"] in ("x86_64", "arm64", "arm", "other")
     assert p["deploy"] in ("ha_addon", "docker", "lxc", "source", "pip")
+    assert p["ui"] == "classic"  # Paper is opt-in
+
+
+@pytest.mark.parametrize(
+    ("stored", "sent"),
+    [("paper", "paper"), ("classic", "classic"), ("something-else", "classic"), (None, "classic")],
+)
+def test_build_payload_ui_design(
+    tmp_path: Path, test_install_uuid: Any, stored: str | None, sent: str
+) -> None:
+    """Adoption of the opt-in Paper design rides the heartbeat as one of two
+    values; anything unexpected in settings reads as classic."""
+    app, _ = _app(tmp_path, install=test_install_uuid(), ui_design=stored)
+    assert heartbeat.build_payload(app)["ui"] == sent  # type: ignore[arg-type]
 
 
 def test_build_payload_no_devices(tmp_path: Path, test_install_uuid: Any) -> None:

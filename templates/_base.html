@@ -1,5 +1,9 @@
 <!doctype html>
-<html lang="en">
+{# Paper is the opt-in redesign (app.ui_design = "paper"); data-ui scopes
+   static/style/paper.css. The switch lives in the header (below). #}
+{% from "_ui_switch.html" import ui_switch with context %}
+{% set _paper = app_settings is defined and app_settings.get('ui_design') == 'paper' %}
+<html lang="en"{% if _paper %} data-ui="paper"{% endif %}>
 <head>
   <meta charset="utf-8">
   {# Viewport meta. With the mobile-zoom lock on (default), pin
@@ -30,8 +34,13 @@
      canvas in dark mode. iOS Safari paints this around the notch /
      status bar when the page is added to the home screen; Android
      Chrome uses it for the toolbar tint. #}
+  {% if _paper %}
+  <meta name="theme-color" content="#F4F1E9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#191816" media="(prefers-color-scheme: dark)">
+  {% else %}
   <meta name="theme-color" content="#0d8c7e" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0e1015" media="(prefers-color-scheme: dark)">
+  {% endif %}
   {# iOS / iPadOS / macOS Safari Add-to-Home-Screen behaviour. -capable
      drops the URL bar in standalone mode; -title is the label that
      appears under the icon (short enough to fit one line);
@@ -49,6 +58,8 @@
   <style>
     html { background: #f1f0ec; color-scheme: light; }
     html[data-theme="dark"] { background: #0e1015; color-scheme: dark; }
+    html[data-ui="paper"] { background: #F4F1E9; }
+    html[data-ui="paper"][data-theme="dark"] { background: #191816; }
   </style>
   <script>
     // Apply the theme before paint to avoid a light-mode flash. A saved
@@ -137,12 +148,20 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style/agent.css') }}">
   {% endif %}
   {% block head_extra %}{% endblock %}
+  {# Last, so the opt-in Paper design wins over page sheets. Inert unless
+     <html data-ui="paper">, apart from the design switch's own styles. #}
+  <link rel="stylesheet" href="{{ url_for('static', filename='style/paper.css') }}">
 </head>
 <body class="admin{% if config.DEV_MODE %} dev-mode{% endif %}">
   <header class="topbar">
     <a class="brand" href="{{ url_for('index') }}">
+      {% if _paper %}
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 256 256" focusable="false"><rect width="256" height="256" rx="72" style="fill: var(--p-logo-tile)"/><rect x="3" y="3" width="250" height="250" rx="69" fill="none" stroke-width="6" style="stroke: var(--p-logo-edge); stroke-opacity: 0.22"/><path d="M128 55H174A27 27 0 0 1 201 82V128H128Z" style="fill: var(--p-logo-a)"/><path d="M55 128H128V201H82A27 27 0 0 1 55 174Z" style="fill: var(--p-logo-b)"/></svg></span>
+      <span class="brand-name">Tesserae<span class="brand-label">Self-hosted</span></span>
+      {% else %}
       <span class="brand-mark" aria-hidden="true"></span>
       <span class="brand-name">Tesserae</span>
+      {% endif %}
     </a>
     {# Locked shell (sign-in / first-run setup without a session): no nav,
        no battery popover, no update badge, no opt-in prompt. See
@@ -301,6 +320,7 @@
         <i class="ph ph-moon is-mode-dark" aria-hidden="true"></i>
         <span class="theme-toggle-label" data-theme-label>Theme: follows the device</span>
       </button>
+      {{ ui_switch("nav") }}
     </nav>
     {% endblock %}
     {% if nav_discovered %}
@@ -391,6 +411,7 @@
       </button>
     </form>
     {% endif %}
+    {{ ui_switch("topbar") }}
     <button type="button" class="theme-toggle theme-toggle--topbar" data-theme-toggle aria-label="Theme: follows the device. Click to change." title="Theme: follows the device">
       <i class="ph ph-circle-half is-mode-system" aria-hidden="true"></i>
       <i class="ph ph-sun is-mode-light" aria-hidden="true"></i>
