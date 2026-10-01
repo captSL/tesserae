@@ -499,10 +499,11 @@ def test_themes_live_under_settings_not_the_top_nav(app: Flask) -> None:
     body = client.get("/themes").get_data(as_text=True)
     assert "<span>Settings</span>" in body
     assert 'class="tab is-active"' in body
-    nav = body.split('<nav class="tabs"')[0]
-    assert '/themes"' not in nav.split("topnav")[-1] or "ph-palette" not in nav
-    tabs = body.split('<nav class="tabs"', 1)[1].split("</nav>", 1)[0]
+    nav = body.split('<nav class="tabs')[0]
+    # A link, not any mention: the design switch's return field carries the path.
+    assert 'href="/themes"' not in nav.split("topnav")[-1] or "ph-palette" not in nav
+    tabs = body.split('<nav class="tabs', 1)[1].split("</nav>", 1)[0]
     assert "Themes" in tabs and 'href="/themes"' in tabs
     # The composer points at it from the theme picker.
     other = client.get("/settings/server").get_data(as_text=True)
-    assert "<span>Themes</span>" not in other.split('<nav class="tabs"')[0]
+    assert "<span>Themes</span>" not in other.split('<nav class="tabs')[0]

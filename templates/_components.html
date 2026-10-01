@@ -510,7 +510,9 @@ macro here instead.
   ('about',     'About',     'info',              url_for('auth.settings_area', area='about')),
   ('events',    'Events',    'pulse',             url_for('events.index')),
 ] -%}
-<nav class="tabs" role="tablist">
+{#- settings-nav: in the Paper design this strip becomes a second sidebar
+   (static/style/paper.css); the classic design keeps the tab strip. -#}
+<nav class="tabs settings-nav" role="tablist" aria-label="Settings">
   {%- for slug, label, ic, href in tabs %}
   <a href="{{ href }}"
      class="tab {% if active == slug %}is-active{% endif %}"
