@@ -664,6 +664,65 @@
 :root[data-ui="paper"] .tg-count,
 :root[data-ui="paper"] [class*="pill"]:not([class*="switch"]) { border-radius: 2px; }
 
+/* ----- Control heights --------------------------------------------- */
+/* Paper sets display on controls below; the hidden attribute must still win. */
+:root[data-ui="paper"] [hidden] { display: none !important; }
+/* One height for every form control so fields line up: 40px standard
+   (44px on touch-width screens), 32px for the compact controls that sit
+   inside list rows. The classic sheets size these piecemeal (22-47px). */
+:root[data-ui="paper"] :is(
+  input:is([type="text"], [type="password"], [type="number"], [type="email"], [type="url"],
+           [type="search"], [type="tel"], [type="time"], [type="date"], [type="datetime-local"], :not([type])),
+  select,
+  button.primary, button.ghost, button.button, .btn, .dx-btn, .dx-btn-primary,
+  .icon-picker-trigger, .dx-devtb-search, input[type="color"]
+):not(.dx-devtb-search input):not([type="hidden"]):not(:is(.dx-inset-row, .dx-updates-ctl) :is(select, button)) {
+  box-sizing: border-box;
+  height: 40px;
+  min-height: 40px;
+  padding-block: 0;
+  font-size: 14px;
+}
+:root[data-ui="paper"] :is(button.primary, button.ghost, button.button, .btn, .dx-btn, .dx-btn-primary, .icon-picker-trigger) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+/* The devices search is a bordered label holding a bare input. */
+:root[data-ui="paper"] .dx-devtb-search { display: inline-flex; align-items: center; }
+:root[data-ui="paper"] .dx-devtb-search input { height: 100%; min-height: 0; border: 0; background: transparent; }
+/* Segmented controls: a 40px track holding the segments. */
+:root[data-ui="paper"] :is(.seg, .preview-modes) {
+  box-sizing: border-box;
+  height: 40px;
+  padding: 3px;
+  align-items: stretch;
+}
+:root[data-ui="paper"] :is(.seg-item, .preview-mode) { height: auto; display: inline-flex; align-items: center; }
+/* Compact: controls inside list rows. */
+:root[data-ui="paper"] :is(.dx-inset-row, .dx-updates-ctl) :is(select, button),
+:root[data-ui="paper"] :is(.dx-btn-ghost-sm, .dx-btn-icon-only) {
+  box-sizing: border-box;
+  height: 32px;
+  min-height: 32px;
+  padding-block: 0;
+  font-size: 13px;
+}
+:root[data-ui="paper"] .dx-btn-icon-only { width: 32px; padding-inline: 0; }
+:root[data-ui="paper"] :is(.dx-btn-ghost-sm, .dx-btn-icon-only) { display: inline-flex; align-items: center; justify-content: center; }
+@media (max-width: 900px) {
+  :root[data-ui="paper"] :is(
+    input:is([type="text"], [type="password"], [type="number"], [type="email"], [type="url"],
+             [type="search"], [type="tel"], [type="time"], [type="date"], [type="datetime-local"], :not([type])),
+    select,
+    button.primary, button.ghost, button.button, .btn, .dx-btn, .dx-btn-primary,
+    .icon-picker-trigger, .dx-devtb-search, .seg, .preview-modes
+  ):not(.dx-devtb-search input):not([type="hidden"]):not(:is(.dx-inset-row, .dx-updates-ctl) :is(select, button)) {
+    height: 44px;
+    min-height: 44px;
+  }
+}
+
 /* ----- Motion -------------------------------------------------------- */
 
 @keyframes paper-enter {
