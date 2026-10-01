@@ -327,6 +327,9 @@
      rules above would otherwise lay its phone-only list out here. */
   :root[data-ui="paper"] .topnav > a.topbar-batteries--drawer { display: none; }
   :root[data-ui="paper"] .topbar > .topbar-batteries--topbar { position: fixed; top: 16px; right: 20px; margin: 0; }
+  /* The pill gets a row of its own: pages start below it, so a page's
+     title and its buttons never sit under it at rest. */
+  :root[data-ui="paper"] body:has(.topbar > .topbar-batteries--topbar) main.page { padding-top: 68px; }
   :root[data-ui="paper"] .topbar-optin { flex-direction: column; align-items: stretch; gap: 4px; width: 100%; }
 
   /* Pages that stick to the top no longer need to clear a top bar. */
