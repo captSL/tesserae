@@ -10,11 +10,12 @@ widgets/devices, create + edit canvas dashboards, render a preview, push to a pa
 Everything here reuses the panels editor's own helpers (:mod:`app.panels_routes`)
 so the agent path and the UI path stay identical; nothing is reimplemented.
 
-Auth (checked in :func:`_gate`): the surface is reachable from loopback without a
-token (a co-located agent needs zero config), OR with the stored MCP token
-presented as ``Authorization: Bearer <token>`` (a remote agent). The whole
-blueprint is gated behind the ``mcp`` experiment flag (opt-in), so it 404s until
-switched on in Settings.
+Auth (checked in :func:`_gate`): the surface is reachable from a direct loopback
+connection without a token (a co-located agent needs zero config), OR with the
+stored MCP token presented as ``Authorization: Bearer <token>`` (a remote agent).
+A request relayed by a proxy (any forwarding header) always needs the token. The
+whole blueprint is gated behind the ``mcp`` feature switch, on by default and
+switchable off in Settings → System, in which case it 404s.
 """
 
 from __future__ import annotations
@@ -72,12 +73,12 @@ def rotate_token(settings: SettingsStore) -> str:
     return token
 
 
-# -- auth + experiment gate ---------------------------------------------
+# -- auth + feature gate ---------------------------------------------
 
 
 @bp.before_request
 def _gate() -> Response | None:
-    """404 when the experiment is off; otherwise allow loopback or a valid token.
+    """404 when the feature is off; otherwise allow direct loopback or a valid token.
 
     An authorised call also records which client made it (:mod:`app.mcp_bridge`),
     so Settings can show the connected bridge and flag an out-of-date one. Only
@@ -170,10 +171,29 @@ def _narrate(response: Response) -> Response:
     return response
 
 
+# Headers a reverse proxy adds when it relays a request. Their presence means
+# the real caller is somewhere else, whatever address the request arrives from.
+_FORWARDING_HEADERS = ("X-Forwarded-For", "Forwarded", "X-Real-IP")
+
+
+def _direct_loopback() -> bool:
+    """A loopback caller that connected directly, not through a proxy.
+
+    ``ProxyFix`` (one hop by default, see app_factory) rewrites
+    ``remote_addr`` from ``X-Forwarded-For``, so a LAN client sending
+    ``X-Forwarded-For: 127.0.0.1`` would otherwise pass for loopback, and a
+    proxy on the same host would make every caller look local. A co-located
+    agent talks to Tesserae directly and sends none of these headers.
+    """
+    if any(request.headers.get(h) for h in _FORWARDING_HEADERS):
+        return False
+    return _is_loopback()
+
+
 def _authorised() -> bool:
-    """Loopback is trusted (a co-located agent needs zero config); anything else
-    presents the stored MCP token as a bearer token."""
-    if _is_loopback():
+    """A direct loopback caller is trusted (a co-located agent needs zero
+    config); anything else presents the stored MCP token as a bearer token."""
+    if _direct_loopback():
         return True
     stored = mcp_token(_settings())
     presented = _presented_token(request)

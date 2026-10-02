@@ -98,7 +98,7 @@ are clamped rather than rejected. Bad hex codes fall through to
 
 ## What v0.67.2 (phase 3) adds
 
-Experimental edge handling, wired for `esp32_bin` / `pi_bin` /
+Edge handling, wired for `esp32_bin` / `pi_bin` /
 `pico_bin`:
 
 - **`smoothing_radius` (0-3 px)** — Gaussian blur applied to the

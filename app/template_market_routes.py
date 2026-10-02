@@ -1,6 +1,6 @@
 """Browse + install community templates (server-side proxy of api.tesserae.ink).
 
-Routes under ``/plugins/templates``, gated on the ``templates`` experiment AND
+Routes under ``/plugins/templates``, gated on the ``templates`` feature switch AND
 the master online-features switch. The browser never talks to
 api.tesserae.ink directly: the catalog is proxied (consistent with how widget
 install counts are fetched) and installs re-fetch the doc server-side.

@@ -226,16 +226,7 @@ def _experiment_enabled(settings: Any, name: str) -> bool:
     settings section, then the built-in default."""
     from app import experiments
 
-    env = experiments._env_flag(name)
-    if env is not None:
-        return env
-    try:
-        section = settings.get_section("experiments") if settings is not None else {}
-        if isinstance(section, dict) and name in section:
-            return bool(section[name])
-    except Exception:
-        pass
-    return bool(experiments._DEFAULTS.get(name, False))
+    return experiments.resolve(settings, name)
 
 
 def _features(app: Flask, settings: Any, instances: list[Any]) -> dict[str, bool]:
@@ -258,9 +249,15 @@ def _features(app: Flask, settings: Any, instances: list[Any]) -> dict[str, bool
         qh = manifest.get("quiet_hours")
         if isinstance(qh, dict) and qh:
             quiet = True
+    # MCP is on by default, so "enabled" alone says nothing; it counts as in
+    # use once an agent has actually called the API (the same record the
+    # Settings card keys off).
     mcp = False
     with contextlib.suppress(Exception):
-        mcp = _experiment_enabled(settings, "mcp")
+        if _experiment_enabled(settings, "mcp") and settings is not None:
+            from app import mcp_bridge
+
+            mcp = bool(mcp_bridge.status(settings)["seen"])
     return {"relay": relay, "touch": touch, "mcp": mcp, "quiet_hours": quiet}
 
 

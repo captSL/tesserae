@@ -1085,7 +1085,7 @@ def create_app(
     from app import marketplace_routes
 
     marketplace_routes.register(app)
-    # Template marketplace (experiment-gated inside the blueprints): the Share
+    # Template marketplace (switch-gated inside the blueprints): the Share
     # flow on canvas pages and the hosted-catalog browse/install proxy.
     from app import template_market_routes, template_share_routes
 
@@ -1238,7 +1238,7 @@ def create_app(
     def _mcp_bridge_update(store: SettingsStore | None) -> dict[str, Any] | None:
         """The bridge status for the topbar badge, or None when nothing is owed.
 
-        Cheap: one settings read, no network. Gated on the MCP experiment so a
+        Cheap: one settings read, no network. Gated on the MCP switch so a
         stale record left behind by a since-disabled MCP surface can't keep
         nagging, and on ``update_available`` so a current, unknown, or ahead
         bridge renders nothing at all."""
@@ -1336,10 +1336,10 @@ def create_app(
             # Settings; None (no badge) whenever there is nothing to do.
             "mcp_bridge_update": _mcp_bridge_update(store),
             # Whether the admin shell should watch for agent activity (the
-            # follow toast). Gated on the same experiment as the MCP surface,
-            # checked here so the base template never wires a poll against a
-            # route that would 404.
-            "agent_watch_enabled": experiments.is_enabled("mcp"),
+            # follow toast). Needs the MCP surface on (so the poll never hits
+            # a route that would 404) and an agent to have connected at least
+            # once, so an install with no agent never polls.
+            "agent_watch_enabled": agent_activity.watch_wanted(),
             # Whether the toast may offer to open the canvas editor. The MCP
             # surface and the editor are separately gated, so with the editor
             # off the toast narrates but doesn't link anywhere.

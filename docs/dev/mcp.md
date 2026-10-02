@@ -1,11 +1,12 @@
 # Build dashboards with AI (MCP)
 
-Tesserae ships an optional [MCP](https://modelcontextprotocol.io) integration so
+Tesserae ships an [MCP](https://modelcontextprotocol.io) integration so
 an AI agent (Claude Desktop, Claude Code, or any MCP client) can build **freeform
 (canvas) dashboards** for you: it lists your widgets and devices, lays out a
 canvas, **renders a preview to check its own work**, and pushes to a panel.
 
-It's experimental and off by default.
+The API is on by default; you only need to install the bridge on your agent's
+machine (and copy a token if that machine isn't the one Tesserae runs on).
 
 ## How it works
 
@@ -21,7 +22,7 @@ There are two pieces, and they can run on **different machines**:
 
 - **The API** (`/api/mcp/*`) is built into Tesserae. It ships with the app, so
   there's nothing to install on the Tesserae side (Docker, Home Assistant, or
-  source). You just enable it.
+  source), and it's on out of the box.
 - **The bridge** (`tesserae-mcp`) is a small stdio program your agent launches.
   It's a separate package, [dmellok/tesserae-mcp](https://github.com/dmellok/tesserae-mcp),
   installed on **the machine where your agent runs** (your laptop/desktop). It
@@ -32,16 +33,16 @@ bridge only on your agent's machine.
 
 ---
 
-## Step 1 — Enable the API in Tesserae
+## Step 1 — Get a token (remote agents only)
 
-1. Open Tesserae → **Settings → System → MCP**.
-2. Click **Enable MCP API**.
-3. **Token:** if your agent runs on the **same machine** as Tesserae, you can
-   skip this (loopback is trusted). If it runs on a **different machine**, click
-   **Regenerate token** and copy it — you'll need it in Step 3.
+The API is on by default. If your agent runs on the **same machine** as
+Tesserae, skip this step: a direct loopback connection is trusted. If it runs on
+a **different machine** (or reaches Tesserae through a reverse proxy), open
+**Settings → System → MCP**, click **Regenerate token** and copy it; you'll need
+it in Step 3.
 
-While the experiment is off, `/api/mcp` returns 404, so the API is invisible
-until you switch it on here.
+Don't want agent access at all? Click **Disable MCP API** on the same card (or
+set `TESSERAE_EXPERIMENT_MCP=0`), and `/api/mcp` returns 404.
 
 ---
 
@@ -332,9 +333,12 @@ has to be readable to maintain, a URL being the usual case.
 
 ## Guardrails
 
-- The API **404s** entirely while the `mcp` experiment is off.
-- Remote callers need the token; loopback is trusted so a co-located agent works
-  with zero config.
+- The API **404s** entirely while MCP is switched off (Settings → System → MCP,
+  or `TESSERAE_EXPERIMENT_MCP=0`).
+- Remote callers need the token; a direct loopback connection is trusted so a
+  co-located agent works with zero config. A request that arrives through a
+  reverse proxy (any `X-Forwarded-For`, `Forwarded` or `X-Real-IP` header)
+  always needs the token.
 - Writes only touch **canvas** dashboards, never grid ones.
 - Pages an agent creates are flagged **Agent** in the Dashboards list.
 - Pushing is **always explicit** — the agent must name the device(s); nothing is
@@ -352,10 +356,11 @@ LAN; an ingress-only setup can't be reached by an external agent.
 **HTTP 401 / unauthorized** — the agent is calling from a non-loopback address
 without a valid token. Generate one in Settings → System → MCP and set
 `TESSERAE_MCP_TOKEN`. (Same machine as Tesserae? You shouldn't hit this — check
-`TESSERAE_URL` really is `127.0.0.1`.)
+`TESSERAE_URL` really is `127.0.0.1` and not a reverse-proxied address; a
+proxied request always needs the token.)
 
-**HTTP 404 on every call** — the `mcp` experiment is off. Enable it in Settings →
-System → MCP.
+**HTTP 404 on every call** — MCP has been switched off. Enable it in Settings →
+System → MCP (and check `TESSERAE_EXPERIMENT_MCP` isn't set to `0`).
 
 **`tesserae-mcp: command not found`** — after `pipx install`, run
 `pipx ensurepath` and open a new terminal. For Claude Desktop, use the absolute

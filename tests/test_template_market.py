@@ -74,7 +74,8 @@ def _doc_payload(requires: list[str] | None = None) -> dict[str, Any]:
 # -- gating ---------------------------------------------------------------
 
 
-def test_share_routes_404_when_experiment_off(app: Flask) -> None:
+def test_share_routes_404_when_switched_off(app: Flask) -> None:
+    app.config["SETTINGS_STORE"].patch_section("experiments", {"templates": False})
     assert app.test_client().post("/panels/c/cv1/share/prepare").status_code == 404
     assert app.test_client().get("/plugins/templates/index.json").status_code == 404
 
@@ -285,7 +286,8 @@ def test_data_endpoints_stay_strict_when_offline(
     assert '"templates_online": false' in body
 
 
-def test_templates_page_404_when_experiment_off(app: Flask) -> None:
+def test_templates_page_404_when_switched_off(app: Flask) -> None:
+    app.config["SETTINGS_STORE"].patch_section("experiments", {"templates": False})
     assert app.test_client().get("/plugins/templates/").status_code == 404
 
 
@@ -336,6 +338,7 @@ def test_report_requires_slug_and_surfaces_failure(
 
 
 def test_report_gated_like_the_rest(app: Flask) -> None:
+    app.config["SETTINGS_STORE"].patch_section("experiments", {"templates": False})
     assert (
         app.test_client().post("/plugins/templates/report", json={"slug": "s"}).status_code == 404
     )
@@ -525,10 +528,10 @@ def test_install_accepts_the_rendered_form(app: Flask, monkeypatch: pytest.Monke
 # -- Templates as a catalog type + Settings hint (#224) --------------------
 
 
-def test_templates_type_absent_when_experiment_off(app: Flask) -> None:
-    """No opt-in, no Templates row in the rail, and no fetch of the hosted
-    catalog. Unchanged behaviour, expressed through the payload flag the
-    client reads."""
+def test_templates_type_absent_when_switched_off(app: Flask) -> None:
+    """Switched off: no Templates row in the rail, and no fetch of the hosted
+    catalog, expressed through the payload flag the client reads."""
+    app.config["SETTINGS_STORE"].patch_section("experiments", {"templates": False})
     body = app.test_client().get("/plugins/browse").get_data(as_text=True)
     assert '"templates_enabled": false' in body
 

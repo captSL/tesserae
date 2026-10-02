@@ -7,7 +7,7 @@
 // glance answers "what is it doing" rather than "what did it do".
 //
 // Owns two pieces of the editor chrome, both created here so the editor's
-// template carries none of it when the MCP experiment is off:
+// template carries none of it when the MCP feature is off:
 //   * the rail card, docked at the top of the right sidebar
 //   * a throbber pill in the toolbar, live while the agent is working
 //

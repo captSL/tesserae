@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Panels, Tesserae (experimental)</title>
+  <title>Canvas editor, Tesserae</title>
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='brand/icon.svg') }}">
   {# Follow the admin shell's persisted light/dark choice. This standalone
      page doesn't extend _base.html, so it carries its own copy of the
@@ -59,31 +59,11 @@
      choices actually render on the canvas. #}
   <style>{{ font_face_css|safe }}</style>
   {# Editor chrome that lives outside the ported panels stylesheets: the
-     small-screen block-out, the first-open experimental disclaimer, and the
-     save/back affordances. Kept here so they travel with this page only. #}
+     small-screen block-out and the save/back affordances. Kept here so they
+     travel with this page only. #}
   <style>
     #panels-back { text-decoration: none; }
     .ed-mobile-block { display: none; }
-    .ed-modal[hidden] { display: none; }
-    .ed-modal {
-      position: fixed; inset: 0; z-index: 210;
-      display: flex; align-items: center; justify-content: center; padding: 24px;
-    }
-    .ed-modal-scrim { position: absolute; inset: 0; background: rgba(20,18,14,.42); }
-    .ed-modal-card {
-      position: relative; max-width: 430px;
-      background: var(--t-surface); border: 1px solid var(--t-border);
-      border-radius: 16px; padding: 26px 26px 22px;
-      box-shadow: var(--t-shadow-lg, 0 20px 50px rgba(0,0,0,.25));
-    }
-    .ed-modal-icon {
-      width: 44px; height: 44px; display: grid; place-items: center;
-      border-radius: 12px; background: var(--t-accent-soft);
-      color: var(--t-accent); font-size: 22px;
-    }
-    .ed-modal-card h2 { margin: 14px 0 8px; font-size: 19px; }
-    .ed-modal-card p { margin: 0 0 20px; font-size: 13.5px; color: var(--t-fg-soft); line-height: 1.55; }
-    .ed-modal-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
     .ed-mobile-card {
       max-width: 340px; text-align: center;
       background: var(--t-surface); border: 1px solid var(--t-border);
@@ -95,7 +75,6 @@
     .ed-mobile-card p { margin: 0 0 18px; font-size: 13.5px; color: var(--t-fg-soft); line-height: 1.5; }
     @media (max-width: 820px) {
       .ed { display: none !important; }
-      .ed-modal { display: none !important; }
       .ed-mobile-block {
         display: flex; position: fixed; inset: 0; z-index: 200;
         align-items: center; justify-content: center; padding: 24px;
@@ -110,10 +89,9 @@
   <script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
 </head>
 <body>
-  {# Experimental Panels editor (issue #60). Layout + chrome follow the
-     design handoff; editor.js drives the interactive canvas (create / move /
-     resize / bind / undo / autosave). Still to come: marquee + groups,
-     alignment guides, simulate mode, and the server-side compose render. #}
+  {# Canvas (freeform) dashboard editor (issue #60). Layout + chrome follow
+     the design handoff; editor.js drives the interactive canvas (create /
+     move / resize / bind / undo / autosave). #}
   <div class="ed appfill" style="display:grid;grid-template-columns:252px 1fr 300px;grid-template-rows:56px 1fr" tabindex="0"
        data-canvas-id="{{ canvas_id }}"
        data-doc-url="{{ url_for('panels.doc', canvas_id=canvas_id) }}"
@@ -141,7 +119,7 @@
       <span class="bmark"></span>
       <div style="display:flex;flex-direction:column;line-height:1.15;margin-right:2px">
         <span style="font-weight:700;font-size:14px;cursor:text" id="panels-title" title="Rename this dashboard">Untitled Panel</span>
-        <span style="font-size:11px;color:var(--t-muted)" id="panels-status">experimental</span>
+        <span style="font-size:11px;color:var(--t-muted)" id="panels-status">Freeform canvas</span>
       </div>
       <div class="tbtn" id="panels-canvas-menu" title="Switch canvas"><i class="ph-bold ph-caret-down"></i></div>
       <div class="tdiv"></div>
@@ -249,43 +227,6 @@
       <a class="pbtn accent" href="{{ url_for('pages.index') }}"><i class="ph-bold ph-arrow-left"></i>Back to Tesserae</a>
     </div>
   </div>
-
-  {# First-open experimental disclaimer. Shown once per browser (localStorage),
-     sets expectations and points people at bug reports. #}
-  <div class="ed-modal" id="panels-disclaimer" hidden>
-    <div class="ed-modal-scrim" id="panels-disclaimer-scrim"></div>
-    <div class="ed-modal-card">
-      <div class="ed-modal-icon"><i class="ph-bold ph-flask"></i></div>
-      <h2>This editor is experimental</h2>
-      <p>The freeform canvas is still a work in progress. Things may shift,
-         break, or change between releases, so save often. If something
-         misbehaves, a quick bug report genuinely helps decide what gets fixed
-         first.</p>
-      <div class="ed-modal-actions">
-        <a class="pbtn" href="https://github.com/dmellok/tesserae/issues/new" target="_blank" rel="noopener"><i class="ph-bold ph-bug"></i>Report a bug</a>
-        <button class="pbtn accent" id="panels-disclaimer-ok" type="button">Got it, let me in</button>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    // Show the experimental disclaimer once per browser.
-    (function () {
-      var KEY = "tesserae.panels.disclaimerSeen";
-      var modal = document.getElementById("panels-disclaimer");
-      if (!modal) return;
-      try { if (localStorage.getItem(KEY)) return; } catch (e) { /* private mode */ }
-      modal.hidden = false;
-      function dismiss() {
-        modal.hidden = true;
-        try { localStorage.setItem(KEY, "1"); } catch (e) { /* ignore */ }
-      }
-      var ok = document.getElementById("panels-disclaimer-ok");
-      var scrim = document.getElementById("panels-disclaimer-scrim");
-      if (ok) ok.addEventListener("click", dismiss);
-      if (scrim) scrim.addEventListener("click", dismiss);
-    })();
-  </script>
 
   {# Rich code editor for `code` elements: a wide side drawer with CodeMirror
      panes for HTML / CSS / JS, opened from the element inspector. #}

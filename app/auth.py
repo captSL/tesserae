@@ -57,7 +57,7 @@ _OPEN_PATHS: Final[tuple[str, ...]] = (
     # otherwise bounce every external caller to /login.
     "/api/v1/",
     # MCP API (agentic canvas dashboards). Carries its own token-or-loopback
-    # auth in app.mcp_api._gate, and 404s unless the ``mcp`` experiment is on,
+    # auth in app.mcp_api._gate, and 404s while the ``mcp`` switch is off,
     # so the session gate must not bounce it to /login first.
     "/api/mcp/",
     # TRMNL BYOS protocol endpoints, each request carries an

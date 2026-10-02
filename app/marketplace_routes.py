@@ -434,8 +434,8 @@ def browse() -> str:
 
 def _templates_enabled() -> bool:
     """Whether the community-templates section shows on Browse at all: the
-    experiment flag alone. An install that never opted into the experiment
-    sees nothing, same as before."""
+    ``templates`` switch alone (on by default). With online features off the
+    section still shows and explains what it needs; switched off, it's gone."""
     from app import experiments
 
     return experiments.is_enabled("templates")

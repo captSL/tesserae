@@ -152,7 +152,7 @@ MAX_NATIVE_TOLERANCE = 48
 
 @dataclass(frozen=True)
 class EdgeSettings:
-    """Edge-handling knobs (experimental, phase 3). Stored on every
+    """Edge-handling knobs (phase 3). Stored on every
     profile so the schema stays stable but the renderer ignores them
     until the phase 3 wiring lands."""
 

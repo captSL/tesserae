@@ -311,19 +311,21 @@ def system_webhook_set() -> Response:
     return system_redirect()
 
 
-# -- experiments --------------------------------------------------------
+# -- features -----------------------------------------------------------
 
 
 @bp.post("/settings/system/experiments/toggle")
 def system_experiments_toggle() -> Response:
-    """Flip one experiment flag from the Settings → System → Experiments card.
-    Only names in the experiments catalog are accepted; an env-var-forced flag
-    is refused (the UI disables those rows, this is the backstop)."""
+    """Flip one feature switch from the Settings → System → Features card.
+    Only names in the catalog are accepted; an env-var-forced switch is
+    refused (the UI disables those rows, this is the backstop). The URL and
+    the ``experiments`` settings section keep their original names so saved
+    choices carry over."""
     from app import experiments as _experiments
 
     name = (request.form.get("name") or "").strip()
     if not any(entry["name"] == name for entry in _experiments.CATALOG):
-        flash(f"Unknown experiment: {name}", "error")
+        flash(f"Unknown feature: {name}", "error")
         return system_redirect()
     if _experiments.env_override(name) is not None:
         flash(
@@ -334,7 +336,8 @@ def system_experiments_toggle() -> Response:
         return system_redirect()
     enable = request.form.get("enable") == "1"
     settings_store().patch_section("experiments", {name: enable})
-    flash(f"Experiment '{name}' {'enabled' if enable else 'disabled'}.", "ok")
+    label = next(e["label"] for e in _experiments.CATALOG if e["name"] == name)
+    flash(f"{label} {'switched on' if enable else 'switched off'}.", "ok")
     return system_redirect()
 
 
@@ -343,8 +346,8 @@ def system_experiments_toggle() -> Response:
 
 @bp.post("/settings/system/mcp/toggle")
 def system_mcp_toggle() -> Response:
-    """Enable or disable the ``mcp`` experiment (the agent-facing canvas API).
-    Off by default; while off, ``/api/mcp/*`` 404s entirely."""
+    """Enable or disable the ``mcp`` feature (the agent-facing canvas API).
+    On by default; while off, ``/api/mcp/*`` 404s entirely."""
     # ``== "1"`` not ``bool(...)``: the disable button posts enable="0", and
     # bool("0") is True, which used to re-enable instead of disabling.
     enable = request.form.get("enable") == "1"
@@ -366,7 +369,7 @@ def system_mcp_regenerate() -> Response:
 @bp.post("/settings/system/mcp/clear")
 def system_mcp_clear() -> Response:
     """Clear the MCP token. Remote agents can no longer authenticate; loopback
-    callers still work while the experiment is on."""
+    callers still work while the feature is on."""
     settings_store().update_section("app", {"mcp_token_secret": ""})
     flash("MCP token cleared. Remote agents can no longer authenticate.", "ok")
     return system_redirect()

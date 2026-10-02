@@ -163,7 +163,7 @@ These are the things AI most often gets wrong on e-ink. Call them out explicitly
 
 ## Make it composable (`fragments`)
 
-The **Panels** canvas editor (experimental, under `/experiments/composer/`)
+The canvas editor (Dashboards → New dashboard → *Freeform canvas*)
 lets a user drop widgets onto a freeform canvas and place them anywhere. By
 default a widget places whole. If you want its parts to be individually
 placeable, say the temperature or the sun-times of a weather card on their own,

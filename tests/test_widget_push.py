@@ -239,8 +239,9 @@ def test_unauthenticated_remote_401(app: Flask) -> None:
     assert resp.status_code == 401
 
 
-def test_surface_404_when_experiment_off(app: Flask) -> None:
-    # mcp experiment off (default) -> the whole surface 404s, push included.
+def test_surface_404_when_switched_off(app: Flask) -> None:
+    # MCP switched off -> the whole surface 404s, push included.
+    app.config["SETTINGS_STORE"].patch_section("experiments", {"mcp": False})
     assert app.test_client().post("/api/mcp/widgets/install", data=b"x").status_code == 404
 
 

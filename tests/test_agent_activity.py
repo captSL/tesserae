@@ -358,7 +358,8 @@ def test_stream_snapshot_carries_the_servers_idle_time(app: Flask) -> None:
     assert doc["steps"][0]["label"] == "Create dashboard"
 
 
-def test_read_surfaces_404_without_the_experiment(app: Flask) -> None:
+def test_read_surfaces_404_with_mcp_switched_off(app: Flask) -> None:
+    app.config["SETTINGS_STORE"].patch_section("experiments", {"mcp": False})
     client = app.test_client()
     _sign_in(client)
     assert client.get("/agent/activity.json").status_code == 404
@@ -400,14 +401,33 @@ def test_editor_only_gets_a_stream_url_when_mcp_is_on(app: Flask) -> None:
     assert "panels/agent-rail.js" in html
 
 
-def test_admin_shell_wires_the_follow_toast_only_when_mcp_is_on(app: Flask) -> None:
+def test_admin_shell_wires_the_follow_toast_only_once_an_agent_has_connected(
+    app: Flask,
+) -> None:
+    """MCP is on by default, so the poll waits for a recorded agent call: an
+    install that never set up an agent never polls. Switching MCP off drops it
+    again even after an agent has connected."""
     client = app.test_client()
     _sign_in(client)
-    assert 'id="agent-follow"' not in client.get("/send").get_data(as_text=True)
     _enable(app)
+    assert 'id="agent-follow"' not in client.get("/send").get_data(as_text=True)
+    _create_page(client)  # an agent call, recorded by the bridge tracker
     html = client.get("/send").get_data(as_text=True)
     assert 'id="agent-follow"' in html
     assert 'data-editor-url="/pages/canvas/c/__ID__"' in html
+    app.config["SETTINGS_STORE"].patch_section("experiments", {"mcp": False})
+    assert 'id="agent-follow"' not in client.get("/send").get_data(as_text=True)
+
+
+def test_editor_opens_no_stream_before_an_agent_has_connected(app: Flask) -> None:
+    """A canvas made in the UI on an install with no agent: no stream, no rail."""
+    client = app.test_client()
+    _sign_in(client)
+    resp = client.post("/pages/new", data={"name": "Mine", "layout_kind": "canvas"})
+    page_id = resp.headers["Location"].rstrip("/").rsplit("/", 1)[-1]
+    html = client.get(f"/pages/canvas/c/{page_id}").get_data(as_text=True)
+    assert 'data-agent-stream-url=""' in html
+    assert "panels/agent-rail.js" not in html
 
 
 # -- operator notes (the rail's reply box) --------------------------------

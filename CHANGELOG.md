@@ -22,6 +22,21 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Changed
 
+- **The canvas editor, the MCP API and the template marketplace are now
+  regular features, on by default.** Settings › System › Experiments becomes
+  a Features card with the same three switches, so any of them can still be
+  turned off, and a feature someone already switched off stays off.
+  `TESSERAE_EXPERIMENT_<NAME>=0` still turns one off for a whole deployment.
+  The canvas editor drops its "experimental" label and first-open notice; it
+  is reached from Dashboards by creating a *Freeform canvas* dashboard or
+  opening one. The template marketplace still needs Online features. The MCP
+  API still needs its token from any other machine, and a request relayed
+  through a reverse proxy (or carrying a forwarding header) now needs the
+  token too, since a forwarded `127.0.0.1` could otherwise pass for a local
+  caller. The admin pages only watch for agent activity once an agent has
+  connected, and the heartbeat's `mcp` flag now means an agent has connected
+  rather than that the API is enabled. The calibration page's "Experimental:
+  edge handling" section is now just "Edge handling".
 - **The Dashboards list is a table.** It works like Settings › Devices: a
   toolbar with search (name, panel or id), a Panel filter (each display, or
   "Not on a panel"), the Active / Archived switch and a count; one row per

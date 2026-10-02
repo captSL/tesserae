@@ -1,5 +1,5 @@
-"""Panels canvas editor routes (issue #60), behind the ``composer``
-experiment flag.
+"""Canvas (freeform) dashboard editor routes (issue #60), behind the
+``composer`` feature switch (on by default).
 
 A WYSIWYG editor where widgets are data sources and users bind individual
 fields to freely-placed visual elements. This module serves the editor page,
@@ -10,7 +10,7 @@ later phase.
 
 Everything here is gated by :func:`app.experiments.is_enabled("composer")`,
 checked per request so toggling the flag needs no restart. When the flag is
-off the routes 404, so the feature stays invisible until switched on. Admin
+off the routes 404, so the feature is invisible while switched off. Admin
 auth still applies via the global before-request gate (these paths are not
 loopback-exempt).
 
@@ -59,7 +59,7 @@ _EXPERIMENT = "composer"
 
 
 def _guard() -> None:
-    """404 the whole blueprint unless the ``composer`` experiment is on."""
+    """404 the whole blueprint unless the ``composer`` feature is on."""
     if not experiments.is_enabled(_EXPERIMENT):
         abort(404)
 
@@ -213,8 +213,10 @@ def editor(canvas_id: str) -> str:
     _guard()
     if _get_canvas(canvas_id) is None:
         abort(404)
+    from app.agent_activity import watch_wanted
     from app.composer import _all_font_face_css, _cached_code_fonts
 
+    _watch = watch_wanted()
     return render_template(
         "panels_editor.html",
         canvas_id=canvas_id,
@@ -225,17 +227,14 @@ def editor(canvas_id: str) -> str:
         + _cached_code_fonts(),
         templates_enabled=experiments.is_enabled("templates"),
         # The agent pipeline rail. Only handed a stream URL when the MCP
-        # surface is on, so with no agent to watch the editor doesn't open a
-        # connection (each one pins a worker thread, see app/main.py).
-        agent_stream_url=(
-            url_for("agent_activity.stream") if experiments.is_enabled("mcp") else ""
-        ),
+        # surface is on and an agent has connected at least once, so with no
+        # agent to watch the editor doesn't open a connection (each one pins a
+        # worker thread, see app/main.py).
+        agent_stream_url=(url_for("agent_activity.stream") if _watch else ""),
         # Where the rail posts an operator note. Same gate as the stream: with
-        # no agent surface there is nobody to send one to, and the rail hides
-        # the control rather than offering a dead button.
-        agent_note_url=(
-            url_for("agent_activity.post_note") if experiments.is_enabled("mcp") else ""
-        ),
+        # no agent there is nobody to send one to, and the rail hides the
+        # control rather than offering a dead button.
+        agent_note_url=(url_for("agent_activity.post_note") if _watch else ""),
     )
 
 

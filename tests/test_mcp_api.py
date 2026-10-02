@@ -52,8 +52,9 @@ def _create_page(client: Any, name: str = "Agent board") -> str:
 # -- gate + auth --------------------------------------------------------
 
 
-def test_404_when_experiment_off(app: Flask) -> None:
-    # Default: mcp experiment off → the whole surface 404s.
+def test_404_when_switched_off(app: Flask) -> None:
+    # Switched off in Settings → the whole surface 404s.
+    app.config["SETTINGS_STORE"].patch_section("experiments", {"mcp": False})
     assert app.test_client().get("/api/mcp/catalog").status_code == 404
 
 
@@ -106,8 +107,9 @@ def test_instructions_served_with_schema_and_text(app: Flask) -> None:
     assert body["doc_shape"] == mcp_docs.DOC_SHAPE
 
 
-def test_instructions_gated_by_experiment(app: Flask) -> None:
+def test_instructions_gated_by_the_switch(app: Flask) -> None:
     # Same gate as the rest of the surface: off → 404.
+    app.config["SETTINGS_STORE"].patch_section("experiments", {"mcp": False})
     assert app.test_client().get("/api/mcp/instructions").status_code == 404
 
 

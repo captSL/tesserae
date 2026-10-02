@@ -239,7 +239,7 @@
     if (!following() || !EDITOR_URL || !pageId) return;
     if (userTyped || onEditorFor(pageId)) return;
     // A modal / drawer open on this page means the operator is mid-task.
-    if (document.querySelector("dialog[open], .drawer.open, .ed-modal:not([hidden])")) return;
+    if (document.querySelector("dialog[open], .drawer.open")) return;
     countdown = COUNTDOWN_S;
     render();
   }
@@ -304,7 +304,7 @@
         schedule(data.idle_s == null ? 999 : data.idle_s);
       })
       .catch(function () {
-        // 404 (experiment switched off) or a blip: back off, don't spin.
+        // 404 (MCP switched off) or a blip: back off, don't spin.
         schedule(999);
       });
   }

@@ -135,7 +135,7 @@ def settings_area(area: str) -> str | Response:
     system_webhook_reveal_token = (
         session.pop("_webhook_token_reveal", "") if area == "system" else ""
     )
-    # MCP API card: whether the experiment is on, whether a token is set, and a
+    # MCP API card: whether the feature is on, whether a token is set, and a
     # one-shot token reveal (same pattern as the webhook token above).
     from app import experiments as _experiments
 
@@ -148,7 +148,7 @@ def settings_area(area: str) -> str | Response:
     from app import mcp_bridge as _mcp_bridge
 
     system_mcp_bridge = _mcp_bridge.status(settings_store())
-    # Experiments card: one row per catalogued flag, with the resolved state
+    # Features card: one row per catalogued switch, with the resolved state
     # and whether an env var pins it (row renders read-only then).
     # ``needs_online`` marks a row whose feature is hosted on api.tesserae.ink
     # and is therefore inert while the master online switch is off. Enabling

@@ -133,8 +133,8 @@ a **bucketed** wake cadence (`<5m`, `5-15m`, `15-60m`, `1-6h`, `6h+`,
 
 It also carries a **bucketed** count of paired companion apps (same buckets,
 never a client name, install id, or app version), a **bucketed** count of
-lineups, four feature booleans (cloud relay linked, touch in use, MCP on,
-quiet hours set: whether the feature is used at all, never how), which
+lineups, four feature booleans (cloud relay linked, touch in use, an MCP
+agent connected, quiet hours set: whether the feature is used at all, never how), which
 admin design the install has switched on (`classic`, or `paper` for the
 opt-in redesign), and a
 **bucketed** OTA rollout snapshot (devices offered a firmware release,

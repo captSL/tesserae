@@ -43,7 +43,7 @@
   // POST and parse JSON, keeping a transport failure distinct from a reply
   // that isn't JSON at all: a login redirect after the session expired, a
   // proxy error page, or the plain-text 404 the share routes return when the
-  // templates experiment is off. Rejects with a message worth showing.
+  // templates feature is switched off. Rejects with a message worth showing.
   function postJson(path, payload) {
     var init = { method: "POST" };
     if (payload !== undefined) {

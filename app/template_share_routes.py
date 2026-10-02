@@ -1,6 +1,6 @@
 """Share a canvas dashboard to the template marketplace (api.tesserae.ink).
 
-Two endpoints behind the ``templates`` experiment flag, both canvas-only:
+Two endpoints behind the ``templates`` feature switch, both canvas-only:
 
   POST /panels/c/<id>/share/prepare   run the export sanitizer + lint + render
                                       quality gate; returns everything the

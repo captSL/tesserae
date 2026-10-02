@@ -89,7 +89,7 @@ def _devices() -> Any:
 # data the canvas editor uses (all dashboards for "go to page", HA
 # services + entities). The canvas editor's equivalents live on the
 # composer-gated panels blueprint; these twins are ungated so the grid
-# editor works without the composer experiment.
+# editor works with the canvas editor switched off.
 
 
 @bp.get("/dashboards.json")
@@ -986,8 +986,8 @@ def create() -> Response:
     page_id = _random_page_id(taken)
 
     # Freeform (canvas) dashboards skip the grid layout entirely and drop the
-    # user into the composer. Gated by the composer experiment so the option
-    # only reaches installs that have it enabled.
+    # user into the canvas editor. Gated by the composer switch so an install
+    # that turned the canvas editor off can't create one.
     from app import experiments
 
     if (form.get("layout_kind") or "grid").strip() == "canvas" and experiments.is_enabled(

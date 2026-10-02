@@ -23,8 +23,9 @@ Lets an agent build freeform canvas dashboards for your panels: list widgets and
 lay out a canvas, render a preview to check its work, and push to a device. Full capability
 reference: [Build dashboards with AI (MCP)](mcp.md).
 
-**1. Enable the API in Tesserae.** Settings → System → MCP → **Enable MCP API**. If the
-agent runs on a *different* machine from Tesserae, also **Regenerate token** and copy it.
+**1. Get a token (remote agents only).** The API is on by default. If the agent runs on a
+*different* machine from Tesserae, open Settings → System → MCP, **Regenerate token** and
+copy it.
 
 **2. Install the bridge** on the machine where your *agent* runs:
 
@@ -238,5 +239,5 @@ Tesserae and re-render; widget *updates* (already registered) never hit this.
   with the app. A **remote / Home Assistant** target needs the bearer token
   (`TESSERAE_MCP_TOKEN`, or `STUDIO_TESSERAE_MCP_TOKEN` for Studio's own reach into a remote
   Tesserae), and the app's port must be reachable (ingress-only HA setups won't work).
-- The `tesserae-mcp` surface is gated behind the **MCP experiment** and 404s until you
-  enable it in Settings → System → MCP.
+- The `tesserae-mcp` surface is on by default. If it 404s, it has been switched off in
+  Settings → System → MCP (or by `TESSERAE_EXPERIMENT_MCP=0`).

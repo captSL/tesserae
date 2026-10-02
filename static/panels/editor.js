@@ -2776,7 +2776,7 @@
 
   // ---- agent pipeline rail ---------------------------------------------
   // The rail (static/panels/agent-rail.js) narrates the MCP agent's calls. It
-  // only exists when the MCP experiment is on, so everything here is optional.
+  // only exists when the MCP feature is on, so everything here is optional.
   function initAgentRail() {
     if (!window.PanelsAgentRail || !S.cfg.agentStreamUrl) return;
     PanelsAgentRail.init(

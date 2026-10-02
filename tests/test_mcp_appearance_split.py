@@ -78,7 +78,8 @@ def test_the_split_actually_shrinks_the_catalog(app: Flask) -> None:
 
 
 def test_the_endpoint_is_behind_the_same_gate(app: Flask) -> None:
-    """A new route must not become a way around the experiment gate."""
+    """A new route must not become a way around the MCP switch."""
+    app.config["SETTINGS_STORE"].patch_section("experiments", {"mcp": False})
     assert app.test_client().get("/api/mcp/appearance").status_code == 404
 
 

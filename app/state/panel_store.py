@@ -2,7 +2,7 @@
 
 A canvas ``Panel`` (distinct from a device's physical panel) is a fixed-size
 artboard holding absolutely-positioned visual ``Element`` s, each optionally
-bound to a widget data field. This is the storage layer for the experimental
+bound to a widget data field. This is the storage layer for the
 canvas editor; it mirrors :class:`app.state.page_store.PageStore` (whole-file
 JSON, atomic rename, thread-locked) since these documents are small and
 human-inspectable.
@@ -383,7 +383,7 @@ class CanvasPage(BaseModel):
     """A canvas document: a fixed artboard plus its freely-placed elements.
 
     Legacy standalone store (``PANEL_STORE``); canvases are migrating to
-    ``Page(layout_kind="canvas")``. Kept for reading old data + the experimental
+    ``Page(layout_kind="canvas")``. Kept for reading old data + the canvas
     editor until the migration lands.
     """
 

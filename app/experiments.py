@@ -1,20 +1,21 @@
-"""Experimental feature flags.
+"""Feature switches for optional features, all on by default.
 
-Resolution order for a flag: the ``TESSERAE_EXPERIMENT_<NAME>`` env var wins
+These began life as experiment flags and have since graduated; the module keeps
+its name (and the ``experiments`` settings section and env var prefix) so a
+saved choice and an operator's environment carry over unchanged.
+
+Resolution order for a switch: the ``TESSERAE_EXPERIMENT_<NAME>`` env var wins
 (so a deployment can force it on/off without editing settings.json, and tests
 can flip one per-process); otherwise an explicit value in the ``experiments``
-settings section; otherwise the flag's built-in default in ``_DEFAULTS``.
+settings section (written only when someone flips the switch in Settings, so an
+install that never touched it has no value and gets the default); otherwise the
+switch's built-in default in ``_DEFAULTS``, which is ON for every switch.
 
-Most flags default off. ``composer`` (the Panels canvas editor, issue #60)
-defaults ON but is deliberately UNLINKED, no nav entry points at it, so it's
-reachable only by an admin who knows ``/experiments/composer/``. That's a
-soft-launch posture: dogfoodable without a switch, still hideable by setting
-``experiments.composer`` false (or the env var to 0). Route guards call
-:func:`is_enabled` per request, so a settings change takes effect with no
-restart.
+Route guards call :func:`is_enabled` per request, so a settings change takes
+effect with no restart.
 
 Env var convention: ``TESSERAE_EXPERIMENT_<NAME_UPPER>`` (e.g.
-``TESSERAE_EXPERIMENT_COMPOSER`` for :func:`is_enabled("composer")`).
+``TESSERAE_EXPERIMENT_MCP=0`` turns the MCP API off for the deployment).
 
 mypy --strict applies to this module, see pyproject.toml.
 """
@@ -22,44 +23,47 @@ mypy --strict applies to this module, see pyproject.toml.
 from __future__ import annotations
 
 import os
+from typing import Any
 
 from flask import current_app
 
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 
-# Built-in defaults for flags with no explicit env/settings value. Absent
-# names default off.
+# Built-in defaults for switches with no explicit env/settings value. Every
+# catalogued feature is on; absent names default off.
 _DEFAULTS: dict[str, bool] = {
+    # The canvas (freeform) dashboard editor, reached from Dashboards by
+    # creating a "Freeform canvas" dashboard or opening one.
     "composer": True,
-    # MCP API (app.mcp_api): lets an agent build canvas dashboards over a
-    # token-authed surface. Off by default since it opens a new (auth-gated)
-    # API; opt in from Settings → System → MCP.
-    "mcp": False,
+    # MCP API (app.mcp_api): lets an agent build canvas dashboards. Remote
+    # callers need the token from Settings → System → MCP; only a direct
+    # loopback caller is trusted without one.
+    "mcp": True,
     # Template marketplace (share + browse community dashboard templates via
-    # api.tesserae.ink). Off by default while the hosted review pipeline is
-    # settling in; gates the Share dialog, the share routes, and the Browse
-    # Templates tab in one switch.
-    "templates": False,
+    # api.tesserae.ink). Gates the Share dialog, the share routes, and the
+    # Browse Templates tab in one switch, and stays inert until the master
+    # online-features opt-in is on (see REQUIRES_ONLINE).
+    "templates": True,
 }
 
 
-# Settings → System → Experiments card: one row per flag. Kept here beside
-# _DEFAULTS so adding a flag and describing it happen in the same file.
+# Settings → System → Features card: one row per switch. Kept here beside
+# _DEFAULTS so adding a switch and describing it happen in the same file.
 CATALOG: tuple[dict[str, str], ...] = (
     {
         "name": "composer",
-        "label": "Panels canvas editor",
+        "label": "Canvas editor",
         "description": (
-            "The freeform WYSIWYG dashboard editor at /experiments/composer/. "
-            "On by default but unlinked from the nav."
+            "Freeform dashboards you lay out by dragging widgets, text and shapes "
+            "anywhere on the panel. Pick Freeform canvas when creating a dashboard."
         ),
     },
     {
         "name": "mcp",
         "label": "MCP API (agent access)",
         "description": (
-            "The token-authed /api/mcp surface AI agents use to build canvas "
-            "dashboards. Managed in detail by the MCP card below."
+            "Lets an AI agent build canvas dashboards through /api/mcp. Remote "
+            "agents need the token from the MCP card below."
         ),
     },
     {
@@ -73,7 +77,7 @@ CATALOG: tuple[dict[str, str], ...] = (
 )
 
 
-# Flags whose feature is hosted on api.tesserae.ink, so switching them on does
+# Switches whose feature is hosted on api.tesserae.ink, so being on does
 # nothing until the master online-features opt-in is also on. The Settings row
 # says so rather than leaving the toggle a silent no-op (#224).
 REQUIRES_ONLINE: frozenset[str] = frozenset({"templates"})
@@ -93,15 +97,25 @@ def env_override(name: str) -> bool | None:
     return _env_flag(name)
 
 
-def is_enabled(name: str) -> bool:
-    """True when experiment ``name`` is switched on. Env var wins, then an
-    explicit ``experiments`` settings value, then the built-in default."""
+def resolve(settings: Any, name: str) -> bool:
+    """Whether ``name`` is on, given a settings store (or None). The shared
+    resolution behind :func:`is_enabled`, usable without an app context (the
+    heartbeat builds its payload off-request): env var, then an explicit
+    ``experiments`` settings value, then the built-in default."""
     env = _env_flag(name)
     if env is not None:
         return env
-    store = current_app.config.get("SETTINGS_STORE")
-    if store is not None:
-        section = store.get_section("experiments") or {}
-        if name in section:
+    if settings is not None:
+        try:
+            section = settings.get_section("experiments") or {}
+        except Exception:
+            section = {}
+        if isinstance(section, dict) and name in section:
             return bool(section[name])
     return _DEFAULTS.get(name, False)
+
+
+def is_enabled(name: str) -> bool:
+    """True when feature ``name`` is switched on. Env var wins, then an
+    explicit ``experiments`` settings value, then the built-in default."""
+    return resolve(current_app.config.get("SETTINGS_STORE"), name)

@@ -995,8 +995,8 @@ docker compose up -d</code></pre>
 </script>
 {% endif %}
 
-  <section class="dx-section-card">
-    {{ card_head('Experiments', icon_name='flask', blurb='Feature flags for functionality that is still settling in. Flipping one takes effect immediately, no restart. Off means the feature is invisible everywhere.') }}
+  <section class="dx-section-card" id="features">
+    {{ card_head('Features', icon_name='toggle-right', blurb='Optional features, all on by default. Switching one off hides it everywhere, immediately, no restart.') }}
     {% for exp in system_experiments %}
     <div class="field-row" style="display:flex;align-items:center;gap:12px;justify-content:space-between;padding:10px 0;{% if not loop.last %}border-bottom:1px solid var(--t-border, rgba(0,0,0,.08));{% endif %}">
       <div style="min-width:0">
@@ -1019,13 +1019,13 @@ docker compose up -d</code></pre>
         <input type="hidden" name="name" value="{{ exp.name }}">
         <input type="hidden" name="enable" value="{{ 0 if exp.enabled else 1 }}">
         {% if exp.env_forced %}
-        <button type="submit" class="ghost" disabled title="Pinned by TESSERAE_EXPERIMENT_{{ exp.name|upper }}; unset the env var to control it here.">
+        <button type="submit" class="ghost" disabled title="Pinned by TESSERAE_EXPERIMENT_{{ exp.name|upper }}; unset the environment variable to control it here.">
           <i class="ph ph-lock" aria-hidden="true"></i><span>Env</span>
         </button>
         {% elif exp.enabled %}
-        {{ button('Disable', icon='power', variant='ghost') }}
+        {{ button('Turn off', icon='power', variant='ghost') }}
         {% else %}
-        {{ button('Enable', icon='power') }}
+        {{ button('Turn on', icon='power') }}
         {% endif %}
       </form>
     </div>
@@ -1033,7 +1033,7 @@ docker compose up -d</code></pre>
   </section>
 
   <section class="dx-section-card" id="mcp">
-    {{ card_head('MCP (agent access)', icon_name='robot', blurb='Let an AI agent build freeform (canvas) dashboards for you: it lists your widgets, lays out a canvas, renders a preview to check its work, and pushes to a panel. Experimental.') }}
+    {{ card_head('MCP (agent access)', icon_name='robot', blurb='Let an AI agent build freeform (canvas) dashboards for you: it lists your widgets, lays out a canvas, renders a preview to check its work, and pushes to a panel.') }}
 
     <p>
       Status:
@@ -1045,7 +1045,7 @@ docker compose up -d</code></pre>
 
     <form method="post" action="{{ url_for('auth.system_mcp_toggle') }}" class="form">
       <input type="hidden" name="enable" value="{{ 0 if system_mcp_enabled else 1 }}">
-      <p class="field-help">Enables the token-authed <code>/api/mcp</code> surface the MCP server bridges to. Off by default.</p>
+      <p class="field-help">The <code>/api/mcp</code> surface the MCP bridge talks to. On by default; remote agents need the token below, and only a direct connection from this machine is trusted without one.</p>
       <div class="actions">
         {% if system_mcp_enabled %}
         {{ button('Disable MCP API', icon='power', variant='ghost') }}

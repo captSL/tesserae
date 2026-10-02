@@ -210,30 +210,33 @@ def test_backup_restore_runs_under_docker(
     assert f"Restored from {backup_id}" in body
 
 
-# -- experiments card ---------------------------------------------------
+# -- features card ------------------------------------------------------
 
 
-def test_experiments_card_renders_and_toggles(app: Flask) -> None:
+def test_features_card_renders_and_toggles(app: Flask) -> None:
     client = app.test_client()
     _sign_in(client)
     body = client.get("/settings/system").get_data(as_text=True)
-    assert "Experiments" in body and "Template marketplace" in body
+    assert "Features" in body and "Template marketplace" in body and "Canvas editor" in body
+    # Nothing on the card is billed as experimental any more.
+    card = body.split('id="features"', 1)[1].split("</section>", 1)[0]
+    assert "xperimental" not in card and "feature flag" not in card.lower()
 
-    # Enable the templates experiment via the card's form.
+    # Switch the template marketplace off via the card's form (on by default).
     resp = client.post(
         "/settings/system/experiments/toggle",
-        data={"name": "templates", "enable": "1"},
+        data={"name": "templates", "enable": "0"},
         follow_redirects=False,
     )
     assert resp.status_code == 302
-    assert app.config["SETTINGS_STORE"].get_section("experiments").get("templates") is True
+    assert app.config["SETTINGS_STORE"].get_section("experiments").get("templates") is False
 
-    # Disable round-trips too (enable="0" must NOT parse truthy).
+    # And back on (enable="0" above must NOT have parsed truthy).
     client.post(
         "/settings/system/experiments/toggle",
-        data={"name": "templates", "enable": "0"},
+        data={"name": "templates", "enable": "1"},
     )
-    assert app.config["SETTINGS_STORE"].get_section("experiments").get("templates") is False
+    assert app.config["SETTINGS_STORE"].get_section("experiments").get("templates") is True
 
 
 def test_experiments_toggle_rejects_unknown_and_env_forced(

@@ -4,7 +4,7 @@ Tesserae is configured in three layers, from most to least common:
 
 1. **The Settings UI** (persisted to `settings.json`). Everything
    day-to-day lives here: MQTT broker, devices, schedules, auth,
-   experiments, online features. If a knob has a Settings page, that
+   optional features, online features. If a knob has a Settings page, that
    page is the supported way to turn it.
 2. **Environment variables.** Deployment-level concerns that have to
    exist before the app boots or that belong to the host rather than
@@ -57,7 +57,7 @@ tesserae [--dev] [--host HOST] [--port PORT] [--log-level LEVEL] [--reset-passwo
 | `TESSERAE_LOG_LEVEL` | `info` | Root log level. `--log-level` wins; the HA App's own Log level option wins there. |
 | `TESSERAE_IN_DOCKER` | unset | Set to `1` by the Docker image. Hides the in-app self-update card and shows a `docker compose pull` hint instead. |
 | `TESSERAE_CHROMIUM_PATH` | bundled | Path to a Chromium executable for the renderer, when the Playwright-bundled one can't be used. |
-| `TESSERAE_EXPERIMENT_<NAME>` | unset | Force an experiment flag on (`1`/`true`) or off (`0`/`false`) at deployment level, e.g. `TESSERAE_EXPERIMENT_COMPOSER=1`. Overrides and locks the Settings toggle. |
+| `TESSERAE_EXPERIMENT_<NAME>` | unset | Force one of the optional features in Settings → System → Features on (`1`/`true`) or off (`0`/`false`) at deployment level. Names: `COMPOSER` (canvas editor), `MCP` (agent API), `TEMPLATES` (template marketplace). All are on by default, so this is mostly for switching one off, e.g. `TESSERAE_EXPERIMENT_MCP=0`. Overrides and locks the Settings toggle. |
 | `TESSERAE_API_BASE` | `https://api.tesserae.ink` | Base URL for online features (template marketplace, community catalog). Only useful for development or a self-hosted API. |
 | `TESSERAE_FIRMWARE_API` | `https://api.tesserae.ink` | Base URL the firmware-update check queries. Development override. |
 

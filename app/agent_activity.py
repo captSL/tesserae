@@ -489,10 +489,33 @@ def summarise(
 
 
 def _guard() -> None:
-    """404 the whole blueprint unless the ``mcp`` experiment is on: with no
+    """404 the whole blueprint unless the ``mcp`` feature is on: with no
     agent surface there is no agent to watch."""
     if not experiments.is_enabled(_EXPERIMENT):
         abort(404)
+
+
+def watch_wanted() -> bool:
+    """Whether the UI should watch for agent activity at all: the MCP surface
+    is on AND an agent has called it at least once on this install.
+
+    MCP is on by default, so the surface being on says nothing about whether
+    anyone uses it. Gating the admin shell's poll and the editor's stream on a
+    recorded connection keeps an install that never set up an agent from
+    polling every open tab for activity that can't happen. One settings read,
+    no network. A page loaded after the first agent call picks it up.
+    """
+    if not experiments.is_enabled(_EXPERIMENT):
+        return False
+    store = current_app.config.get("SETTINGS_STORE")
+    if store is None:
+        return False
+    from app import mcp_bridge
+
+    try:
+        return bool(mcp_bridge.status(store)["seen"])
+    except Exception:
+        return False
 
 
 def _page_names() -> dict[str, str]:

@@ -1969,7 +1969,7 @@ def compose_canvas(canvas_id: str) -> str:
 
     Lives under ``/compose/`` so it inherits that path's loopback bypass (the
     headless renderer reaches it without the login gate). Gated by the
-    ``composer`` experiment. Each element is a widget instance rendered as one
+    ``composer`` feature switch. Each element is a widget instance rendered as one
     fragment: this fetches its data with the element's resolved options (falling
     back to the dev-gallery sample so an unconfigured or erroring widget still
     paints), then hands the elements to ``panels_compose.html``, which mounts
