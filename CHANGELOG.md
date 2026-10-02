@@ -22,6 +22,26 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Changed
 
+- **The canvas editor is laid out again, and works on a phone.** It now
+  follows the app: the Paper or classic design, and the app's light, dark or
+  system theme (its own dark-mode button is gone). In Paper the app's icon
+  rail sits on the left. The left column is one sheet with Layers, Add and
+  Widgets tabs; the old Appearance card becomes the inspector's Page view,
+  shown while nothing is selected. The inspector folds an element's fields
+  into Content, Position and size, Style, Data and Touch sections that
+  remember whether they are open, and moves Front, Back, Duplicate and Delete
+  into its "…" menu. The agent becomes a one-line strip above the inspector
+  (what it is doing, steps, how long it has been quiet) that opens onto the
+  steps, the nudge box and Follow; the toolbar pill reads "Agent working".
+  The selected element shows its name and size above it, the zoom control
+  gains a Fit button, a tap on an Add tile drops it in the middle of the
+  canvas, and the less-used toolbar buttons fold behind More on narrower
+  screens. On a phone the "Best on a bigger screen" notice is gone: the
+  canvas fits the width, a finger selects and drags elements, pans, and
+  pinches to zoom, and a bottom sheet with Add, Layers, Element and Agent
+  tabs opens half way or folds down to its tabs, with the agent floating
+  under the canvas while it works. The code editor opens full screen there.
+
 - **The canvas editor, the MCP API and the template marketplace are now
   regular features, on by default.** Settings › System › Experiments becomes
   a Features card with the same three switches, so any of them can still be

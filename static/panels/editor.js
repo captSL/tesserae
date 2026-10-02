@@ -34,11 +34,13 @@
     { kind: "ellipse", label: "Circle", icon: "ph-circle", w: 100, h: 100 },
     { kind: "line", label: "Line", icon: "ph-minus", w: 180, h: 16 },
     { kind: "icon", label: "Icon", icon: "ph-star", w: 72, h: 72 },
-    { kind: "data", label: "Data value", icon: "ph-chart-line", w: 160, h: 80 },
-    { kind: "html", label: "Custom HTML", icon: "ph-code", w: 200, h: 120 },
-    { kind: "code", label: "Code (data)", icon: "ph-brackets-curly", w: 220, h: 140 },
+    // ``short`` is the Add tile's label where the full one doesn't fit a
+    // half-width tile; the full label is the tooltip and the drag ghost.
+    { kind: "data", label: "Data value", short: "Data", icon: "ph-chart-line", w: 160, h: 80 },
+    { kind: "html", label: "Custom HTML", short: "HTML", icon: "ph-code", w: 200, h: 120 },
+    { kind: "code", label: "Code (data)", short: "Code", icon: "ph-brackets-curly", w: 220, h: 140 },
     { kind: "svg", label: "SVG", icon: "ph-bezier-curve", w: 120, h: 120 },
-    { kind: "hotspot", label: "Touch region", icon: "ph-hand-tap", w: 160, h: 120 },
+    { kind: "hotspot", label: "Touch region", short: "Touch area", icon: "ph-hand-tap", w: 160, h: 120 },
     // Touch-v3 primitives: the firmware draws the control on-device; the editor
     // reserves + previews it, matching primitives.json geometry.
     { kind: "button", label: "Button", icon: "ph-hand-tap", w: 180, h: 80 },
@@ -146,6 +148,17 @@
       base += " · " + (f ? f.label : e.fragment);
     }
     return base;
+  }
+
+  // The icon a layer row (and the inspector) shows for an element: the
+  // palette icon for a shape or primitive, the widget's own icon otherwise.
+  function elIcon(e) {
+    if (!isWidget(e)) {
+      var d = DECOS.filter(function (x) { return x.kind === e.kind; })[0];
+      return d ? d.icon : "ph-shapes";
+    }
+    var w = e.widget ? widgetFor(e.widget) : null;
+    return (w && w.icon) || "ph-cards-three";
   }
 
   // ---- selection --------------------------------------------------------
@@ -842,6 +855,12 @@
 
     if (isSel(e.id)) {
       node.appendChild(el("div", "ring" + (selCount() > 1 ? " multi" : "")));
+      if (selCount() === 1) {
+        // "Name  W×H" tag above the selection, counter-scaled by the zoom.
+        var tag = el("div", "sel-label");
+        tag.textContent = elLabel(e) + "  " + Math.round(fpBox.w) + "×" + Math.round(fpBox.h);
+        node.appendChild(tag);
+      }
       if (!e.locked && selCount() === 1) {
         HANDLES.forEach(function (h) {
           var hd = el("div", "hd " + h);
@@ -878,6 +897,8 @@
     S.badge = el("div", "ov-badge");
     [S.gV, S.gH, S.badge].forEach(function (o) { o.style.display = "none"; artboard.appendChild(o); });
     if (S.touchOn) artboard.appendChild(touchOverlayNode());
+    var dims = $("panels-dims");
+    if (dims) dims.innerHTML = '<span class="ed-kind">canvas · </span>' + S.doc.w + "×" + S.doc.h;
     fitZoom();
     renderLayers();
     renderProps();
@@ -891,20 +912,38 @@
     if (S.zoom) {
       z = S.zoom;
     } else {
-      z = Math.min((vp.clientWidth - 56) / S.doc.w, (vp.clientHeight - 56) / S.doc.h, 1);
-      z = Math.max(z, 0.3);
+      // The scroll area's padding is the margin round a fitted canvas (CSS
+      // sets it: wider on desktop, wider still under a floating agent strip).
+      var cs = window.getComputedStyle(vp);
+      var aw = vp.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      var ah = vp.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      z = Math.min(aw / S.doc.w, ah / S.doc.h, 1);
+      z = Math.max(z, isPhone() ? 0.15 : 0.3);
       S.panX = 0; S.panY = 0; // auto-fit recentres
     }
     applyTransform(z);
     scaler.dataset.zoom = z;
     var lab = $("panels-zoom-label");
-    if (lab) lab.textContent = S.zoom ? Math.round(z * 100) + "%" : "Fit";
-    var zr = $("panels-zoom-range");
-    if (zr && document.activeElement !== zr) zr.value = Math.round(z * 100);
+    if (lab) lab.textContent = Math.round(z * 100) + "%";
+    var fitb = $("panels-zoom-fit");
+    if (fitb) {
+      fitb.classList.toggle("on", !S.zoom);
+      if (fitb.parentNode) fitb.parentNode.classList.toggle("is-zoomed", !!S.zoom);
+    }
   }
+  // The scaler's layout box is the canvas at this zoom (so the scroll area
+  // centres and scrolls on its real on-screen size); the artboard inside is
+  // scaled from its top-left corner, and a pan translates the scaler.
   function applyTransform(z) {
-    scaler.style.transformOrigin = "center center";
-    scaler.style.transform = "translate(" + (S.panX || 0) + "px," + (S.panY || 0) + "px) scale(" + z + ")";
+    if (S.doc) {
+      scaler.style.width = (S.doc.w * z) + "px";
+      scaler.style.height = (S.doc.h * z) + "px";
+    }
+    scaler.style.transform = (S.panX || S.panY) ? "translate(" + (S.panX || 0) + "px," + (S.panY || 0) + "px)" : "";
+    artboard.style.transform = "scale(" + z + ")";
+    // Selection chrome (outline, handles, label) divides by this so it keeps
+    // its on-screen size at any zoom.
+    scaler.style.setProperty("--z", String(z));
   }
   function setZoom(z) { S.zoom = z ? clamp(z, 0.2, 4) : null; fitZoom(); }
   function currentZoom() { return Number(scaler.dataset.zoom || 1); }
@@ -1045,10 +1084,14 @@
     });
     var clicked = artboard.querySelector('[data-id="' + id + '"]');
     if (!clicked) return;
+    if (!wasSel && isPhone() && phoneTab() === "add") setPhoneTab("element");
     var z = currentZoom(), sx = ev.clientX, sy = ev.clientY, ox = e.x, oy = e.y;
-    var before = snapshot(), moved = false;
+    var before = snapshot(), moved = false, dead = false;
     clicked.setPointerCapture(ev.pointerId);
     function move(m) {
+      // A second finger turned this into a pinch: leave the element be.
+      if (S.pinching) dead = true;
+      if (dead) return;
       var dx = (m.clientX - sx) / z, dy = (m.clientY - sy) / z;
       if (!moved && Math.abs(dx) + Math.abs(dy) < 2) return;
       moved = true;
@@ -1086,6 +1129,7 @@
     var before = snapshot(), changed = false;
     ev.currentTarget.setPointerCapture(ev.pointerId);
     function move(m) {
+      if (S.pinching) return;
       var dx = (m.clientX - sx) / z, dy = (m.clientY - sy) / z;
       // Rotate the drag delta into the element's local axes so a handle drag
       // resizes along the rotated edges rather than the screen axes.
@@ -1136,6 +1180,7 @@
   function onArtboardDown(ev) {
     if (S.spaceDown) return; // space-drag pans instead of marquee-selecting
     if (ev.target !== artboard) return;
+    if (ev.pointerType === "touch") return; // a finger pans (initTouchCanvas)
     var r = artboard.getBoundingClientRect(), z = currentZoom();
     var sx = (ev.clientX - r.left) / z, sy = (ev.clientY - r.top) / z;
     var additive = ev.shiftKey;
@@ -1178,6 +1223,27 @@
     artboard.addEventListener("pointerup", up);
   }
 
+  // ---- Add pane: shapes, text, data, code and touch primitives ----------
+  // A tile drags onto the canvas like a widget does; a tap (no drag) drops it
+  // in the middle of the canvas, which is the way in on a phone.
+  function renderElements(mount) {
+    mount.textContent = "";
+    DECOS.forEach(function (d) {
+      var tile = el("div", "pi ed-addtile");
+      tile.title = d.label;
+      tile.setAttribute("role", "button");
+      tile.tabIndex = 0;
+      tile.innerHTML = '<span class="ico"><i class="ph-bold ' + d.icon + '"></i></span><span class="lab"></span>';
+      tile.querySelector(".lab").textContent = d.short || d.label;
+      var item = { kind: d.kind, w: d.w, h: d.h, label: d.label };
+      tile.addEventListener("pointerdown", function (ev) { onPaletteDown(ev, item); });
+      tile.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); addAtCentre(item); }
+      });
+      mount.appendChild(tile);
+    });
+  }
+
   // ---- palette (widgets -> fragments) ----------------------------------
   function renderPalette(mount) {
     mount.textContent = "";
@@ -1188,30 +1254,6 @@
     }
     var q = S.pq || "";
     var shown = 0;
-
-    // Shapes / lines / icons at the top of the palette.
-    var decos = DECOS.filter(function (d) {
-      return !q || d.label.toLowerCase().indexOf(q) >= 0 || d.kind.indexOf(q) >= 0;
-    });
-    if (decos.length) {
-      shown++;
-      var dg = el("div", "pwg");
-      var dh = el("div", "pwgh");
-      dh.innerHTML = '<i class="ph-bold ph-shapes"></i>';
-      dh.appendChild(document.createTextNode("Shapes & elements"));
-      dg.appendChild(dh);
-      decos.forEach(function (d) {
-        var tile = el("div", "pi");
-        tile.title = d.label;
-        tile.innerHTML = '<span class="ico"><i class="ph-bold ' + d.icon + '"></i></span><span class="lab"></span>';
-        tile.querySelector(".lab").textContent = d.label;
-        tile.addEventListener("pointerdown", function (ev) {
-          onPaletteDown(ev, { kind: d.kind, w: d.w, h: d.h, label: d.label });
-        });
-        dg.appendChild(tile);
-      });
-      mount.appendChild(dg);
-    }
 
     S.catalog.forEach(function (w) {
       var wname = (w.name || w.key).toLowerCase();
@@ -1227,10 +1269,14 @@
       // tint its header so composable widgets stand out in the palette.
       var hasParts = (w.fragments || []).length > 1;
       var group = el("div", "pwg");
-      var head = el("div", "pwgh" + (hasParts ? " frag" : ""));
-      head.innerHTML = '<i class="ph-bold ' + (w.icon || "ph-puzzle-piece") + '"></i>';
-      head.appendChild(document.createTextNode(w.name || w.key));
-      group.appendChild(head);
+      // A widget with parts gets a heading over its tiles; a single-part
+      // widget is just its tile.
+      if (hasParts) {
+        var head = el("div", "pwgh frag");
+        head.innerHTML = '<i class="ph-bold ' + (w.icon || "ph-puzzle-piece") + '"></i>';
+        head.appendChild(document.createTextNode(w.name || w.key));
+        group.appendChild(head);
+      }
       frags.forEach(function (f) {
         var tile = el("div", "pi");
         tile.title = (w.name || w.key) + " · " + (f.label || f.id);
@@ -1251,21 +1297,48 @@
     }
   }
 
-  function onPaletteDown(ev, item) {
-    ev.preventDefault();
-    // Label pill following the cursor.
-    var ghost = el("div", "ghost", item.label);
-    ghost.style.cssText = "position:fixed;pointer-events:none;z-index:9999;left:0;top:0;padding:6px 10px;" +
-      "background:var(--t-surface);border:1px solid var(--t-border-strong);border-radius:8px;" +
-      "font-size:12px;font-weight:600;box-shadow:0 4px 12px rgba(16,12,8,.14)";
-    document.body.appendChild(ghost);
-    // Drop-footprint preview drawn on the artboard so you see exactly where and
-    // how big the element will land.
-    var preview = el("div", "drop-preview");
-    preview.style.display = "none";
-    artboard.appendChild(preview);
-    document.body.classList.add("dragging-palette");
+  // Place a palette item in the middle of the canvas (a tap, or Enter on a
+  // focused tile), select it, and on a phone show its inspector.
+  function addAtCentre(item) {
+    var x = clampX(snap((S.doc.w - item.w) / 2), item.w);
+    var y = clampY(snap((S.doc.h - item.h) / 2), item.h);
+    placeNew(item, x, y);
+    if (isPhone()) setPhoneTab("element");
+  }
+  function placeNew(item, x, y) {
+    pushHistory();
+    var e = item.kind
+      ? makeDecoration(item.kind, x, y, item.w, item.h)
+      : makeElement(item.key, item.fragment, x, y, item.w, item.h);
+    S.doc.els.push(e);
+    S.sel = new Set([e.id]);
+    scheduleSave(); paint();
+  }
 
+  // Drag a palette tile onto the canvas. The ghost and drop footprint only
+  // appear once the pointer has moved, so a plain click or tap adds the item
+  // in the middle instead. Touch never drags: the palette scrolls under a
+  // finger, and a tap is the touch way in.
+  function onPaletteDown(ev, item) {
+    if (ev.button) return;
+    var touch = ev.pointerType === "touch";
+    if (!touch) ev.preventDefault();
+    var sx = ev.clientX, sy = ev.clientY, dragging = false;
+    var ghost = null, preview = null;
+
+    function startDrag() {
+      dragging = true;
+      // Label pill following the cursor.
+      ghost = el("div", "ghost", "");
+      ghost.textContent = item.label;
+      document.body.appendChild(ghost);
+      // Drop-footprint preview drawn on the artboard so you see exactly where
+      // and how big the element will land.
+      preview = el("div", "drop-preview");
+      preview.style.display = "none";
+      artboard.appendChild(preview);
+      document.body.classList.add("dragging-palette");
+    }
     // The snapped drop box for a given pointer position, or null when the
     // cursor is off the artboard.
     function dropBox(m) {
@@ -1278,6 +1351,10 @@
       };
     }
     function move(m) {
+      if (!dragging) {
+        if (touch || Math.abs(m.clientX - sx) + Math.abs(m.clientY - sy) < 5) return;
+        startDrag();
+      }
       ghost.style.transform = "translate(" + (m.clientX + 8) + "px," + (m.clientY + 8) + "px)";
       var box = dropBox(m);
       if (box) {
@@ -1292,26 +1369,27 @@
         artboard.classList.remove("drop-active");
       }
     }
-    function up(m) {
+    function cleanup() {
       document.removeEventListener("pointermove", move);
       document.removeEventListener("pointerup", up);
-      ghost.remove();
-      preview.remove();
+      document.removeEventListener("pointercancel", cleanup);
+      if (ghost) ghost.remove();
+      if (preview) preview.remove();
       document.body.classList.remove("dragging-palette");
       artboard.classList.remove("drop-active");
+    }
+    function up(m) {
+      cleanup();
+      if (!dragging) {
+        if (Math.abs(m.clientX - sx) + Math.abs(m.clientY - sy) < 10) addAtCentre(item);
+        return;
+      }
       var box = dropBox(m);
-      if (!box) return;
-      pushHistory();
-      var e = item.kind
-        ? makeDecoration(item.kind, box.x, box.y, item.w, item.h)
-        : makeElement(item.key, item.fragment, box.x, box.y, item.w, item.h);
-      S.doc.els.push(e);
-      S.sel = new Set([e.id]);
-      scheduleSave(); paint();
+      if (box) placeNew(item, box.x, box.y);
     }
     document.addEventListener("pointermove", move);
     document.addEventListener("pointerup", up);
-    move(ev);
+    document.addEventListener("pointercancel", cleanup);
   }
 
   // ---- appearance (theme / style / font / background) ------------------
@@ -1358,9 +1436,13 @@
   }
   function renderAppearance() {
     var mount = $("panels-appearance");
-    if (!mount || !S.doc) return;
+    if (!S.doc) return;
+    // The page fields live in the inspector while nothing is selected; a
+    // handler that wants them redrawn gets the whole inspector redrawn.
+    if (!mount) { if (!selCount()) renderProps(); return; }
     mount.textContent = "";
     var ap = S.appearance || {};
+    mount.appendChild(el("div", "psec", "Page theme"));
     mount.appendChild(apRow("Theme", apSelect("theme", ap.themes || [], "value", "label",
       function (v) { S.doc.theme = v; appearanceChanged(true); })));
     mount.appendChild(apRow("Style", apSelect("style", ap.styles || [], "id", "label",
@@ -1369,8 +1451,15 @@
     mount.appendChild(apRow("Font", apSelect("font", fontOpts, "id", "name",
       function (v) { S.doc.font = v; appearanceChanged(true); })));
 
+    // Canvas size (setPanelSize handles history + clamping elements inside).
+    mount.appendChild(el("div", "psec", "Page size"));
+    mount.appendChild(geomRow("W · H",
+      numField(S.doc.w, 1, function (v) { setPanelSize(Math.max(1, v), S.doc.h); }),
+      numField(S.doc.h, 1, function (v) { setPanelSize(S.doc.w, Math.max(1, v)); })));
+
+    mount.appendChild(el("div", "psec", "Page background"));
     var br = el("div", "prow");
-    br.innerHTML = '<span class="plab">Background</span>';
+    br.innerHTML = '<span class="plab">Colour</span>';
     var wrap = el("span"); wrap.style.cssText = "display:flex;gap:6px;align-items:center";
     var color = el("input"); color.type = "color";
     color.value = /^#[0-9a-fA-F]{6}$/.test(S.doc.bg || "") ? S.doc.bg : "#f7f5f0";
@@ -1382,15 +1471,9 @@
     wrap.appendChild(color); wrap.appendChild(clr);
     br.appendChild(wrap); mount.appendChild(br);
 
-    // Canvas size (setPanelSize handles history + clamping elements inside).
-    mount.appendChild(geomRow("Canvas",
-      numField(S.doc.w, 1, function (v) { setPanelSize(Math.max(1, v), S.doc.h); }),
-      numField(S.doc.h, 1, function (v) { setPanelSize(S.doc.w, Math.max(1, v)); })));
-
     // Background image (URL) + fit mode.
-    var bir = el("div", "prow"); bir.innerHTML = '<span class="plab">Bg image</span>';
-    var bi = el("input", "dinput"); bi.value = S.doc.bg_image || ""; bi.placeholder = "Image URL";
-    bi.style.cssText = "width:100%;text-align:left";
+    var bir = el("div", "prow"); bir.innerHTML = '<span class="plab">Image</span>';
+    var bi = el("input", "dinput ed-wide"); bi.value = S.doc.bg_image || ""; bi.placeholder = "Image URL";
     bi.addEventListener("change", function () { pushHistory(); S.doc.bg_image = bi.value.trim(); scheduleSave(); paint(); renderAppearance(); });
     bi.addEventListener("pointerdown", function (ev) { ev.stopPropagation(); });
     bir.appendChild(bi); mount.appendChild(bir);
@@ -1477,21 +1560,23 @@
     var mount = $("panels-layers");
     if (!mount) return;
     mount.textContent = "";
+    var count = $("panels-layer-count");
+    if (count) count.textContent = S.doc.els.length ? String(S.doc.els.length) : "";
     if (!S.doc.els.length) {
       var empty = el("div", "note"); empty.style.padding = "14px";
       empty.textContent = "Drag a widget from the palette onto the canvas.";
       mount.appendChild(empty); return;
     }
     S.doc.els.slice().reverse().forEach(function (e) {
-      var row = el("div", "lrow" + (isSel(e.id) ? " psel" : "") + (e.visible ? "" : " hidden"));
+      var row = el("div", "lrow" + (isSel(e.id) ? " psel" : "") + (e.visible === false ? " hidden" : ""));
       row.dataset.id = e.id;
       row.innerHTML =
         '<i class="ph-bold ph-dots-six-vertical grip" title="Drag to reorder"></i>' +
-        '<i class="ph-bold ' + (e.group ? "ph-link" : "ph-cards-three") + ' ic"></i>' +
+        '<i class="ph-bold ' + (e.group ? "ph-link" : elIcon(e)) + ' ic"></i>' +
         '<span class="nm"></span>' +
         (hasInteraction(e) ? '<i class="ph-bold ph-hand-tap lt" title="Has touch actions"></i>' : "") +
         '<span class="act">' +
-          '<i class="ph-bold ' + (e.visible ? "ph-eye" : "ph-eye-slash") + ' li" data-act="vis" title="Show / hide"></i>' +
+          '<i class="ph-bold ' + (e.visible !== false ? "ph-eye" : "ph-eye-slash") + ' li" data-act="vis" title="Show / hide"></i>' +
           '<i class="ph-bold ' + (e.locked ? "ph-lock-simple" : "ph-lock-simple-open") + ' li" data-act="lock" title="Lock"></i>' +
         "</span>";
       row.querySelector(".nm").textContent = elLabel(e);
@@ -1501,7 +1586,7 @@
       })(e);
       row.addEventListener("pointerdown", function (ev) {
         var act = ev.target && ev.target.dataset ? ev.target.dataset.act : null;
-        if (act === "vis") { ev.stopPropagation(); pushHistory(); e.visible = !e.visible; scheduleSave(); paint(); return; }
+        if (act === "vis") { ev.stopPropagation(); pushHistory(); e.visible = e.visible === false; scheduleSave(); paint(); return; }
         if (act === "lock") { ev.stopPropagation(); pushHistory(); e.locked = !e.locked; scheduleSave(); paint(); return; }
         if (ev.shiftKey) toggleSel(e.id); else select(e.id);
       });
@@ -1711,14 +1796,13 @@
   function cropRow(e) {
     var row = el("div", "prow"); row.style.display = "block";
     row.innerHTML = '<span class="plab">Crop %</span>';
-    var wrap = el("span"); wrap.style.cssText = "display:flex;gap:6px;align-items:center;margin-top:4px";
+    var wrap = el("span", "ed-crop-row");
     ["top", "right", "bottom", "left"].forEach(function (side) {
-      var g = el("span"); g.style.cssText = "display:flex;align-items:center;gap:2px";
+      var g = el("span");
       var lb = el("span"); lb.textContent = side.charAt(0).toUpperCase();
-      lb.style.cssText = "font:600 10px var(--t-font-mono);color:var(--t-muted)";
-      var inp = el("input", "dinput"); inp.type = "number"; inp.min = 0; inp.max = 90; inp.title = "Crop " + side;
+      var inp = el("input", "dinput ed-crop"); inp.type = "number"; inp.min = 0; inp.max = 90; inp.title = "Crop " + side;
+      inp.setAttribute("aria-label", "Crop " + side);
       inp.value = (e.crop && e.crop[side]) || 0;
-      inp.style.cssText = "width:40px;text-align:center";
       var opened = false; // one history entry per field interaction
       inp.addEventListener("pointerdown", function (ev) { ev.stopPropagation(); });
       inp.addEventListener("input", function () {
@@ -1808,7 +1892,7 @@
   function numField(value, min, cb) {
     var inp = el("input", "dinput");
     inp.type = "number"; if (min != null) inp.min = min;
-    inp.value = value; inp.style.cssText = "width:58px;text-align:left";
+    inp.value = value; inp.className = "dinput ed-num";
     inp.addEventListener("change", function () {
       var v = Math.round(Number(inp.value));
       if (isFinite(v)) cb(v);
@@ -1833,22 +1917,27 @@
   }
   function arrangeGeom(mount, e) {
     mount.appendChild(el("div", "psec", '<i class="ph-bold ph-ruler"></i>Arrange'));
-    mount.appendChild(geomRow("Position",
+    mount.appendChild(geomRow("X · Y",
       numField(e.x, 0, function (v) { commitGeom(e, { x: v }); }),
       numField(e.y, 0, function (v) { commitGeom(e, { y: v }); })));
-    mount.appendChild(geomRow("Size",
+    mount.appendChild(geomRow("W · H",
       numField(e.w, MIN, function (v) { commitGeom(e, { w: v }); }),
       numField(e.h, MIN, function (v) { commitGeom(e, { h: v }); })));
-    mount.appendChild(scaleRow(e));
     // Crop only applies to a widget's rendered output (the ``.w`` shadow root).
     if (!e.kind || e.kind === "widget") mount.appendChild(cropRow(e));
     mount.appendChild(rotationRow(e));
+    // Content scale and opacity are how it looks, not where it sits: the
+    // inspector files them (and a widget's Dither, which follows) under Style.
+    mount.appendChild(el("div", "psec", '<i class="ph-bold ph-paint-brush"></i>Render'));
+    mount.appendChild(scaleRow(e));
     mount.appendChild(opacityRow(e));
   }
 
   // ---- properties -------------------------------------------------------
+  // Front / Back / Duplicate / Delete. Rendered as rows like everything else;
+  // the inspector moves them into its "…" menu (sectionize).
   function propRowBtns(mount, e) {
-    var zr = el("div", "prow");
+    var zr = el("div", "prow ed-act-row");
     zr.style.cssText = "display:flex;gap:6px;flex-wrap:wrap";
     var front = el("button", "minibtn", '<i class="ph-bold ph-arrow-line-up"></i> Front');
     var back = el("button", "minibtn", '<i class="ph-bold ph-arrow-line-down"></i> Back');
@@ -1858,15 +1947,14 @@
     dup.addEventListener("click", duplicate);
     zr.appendChild(front); zr.appendChild(back); zr.appendChild(dup);
     mount.appendChild(zr);
-    var del = el("div", "prow");
-    var btn = el("button", "minibtn", '<i class="ph-bold ph-trash"></i> Delete');
+    var del = el("div", "prow ed-act-row");
+    var btn = el("button", "minibtn ed-danger", '<i class="ph-bold ph-trash"></i> Delete');
     btn.addEventListener("click", e ? function () { deleteEl(e.id); } : deleteSel);
     del.appendChild(btn); mount.appendChild(del);
   }
 
   function renderGroupProps(mount) {
     mount.textContent = "";
-    mount.appendChild(el("div", "psec", '<i class="ph-bold ph-selection-all"></i>' + selCount() + " selected"));
     mount.appendChild(el("div", "psec", '<i class="ph-bold ph-align-center-horizontal"></i>Align in selection'));
     mount.appendChild(alignButtons("selection"));
     mount.appendChild(el("div", "psec", '<i class="ph-bold ph-frame-corners"></i>Align to canvas'));
@@ -2240,7 +2328,7 @@
 
     if (e.kind === "text") {
       var trow = el("div", "prow"); trow.innerHTML = '<span class="plab">Text</span>';
-      var tin = el("input", "dinput"); tin.value = e.text || ""; tin.style.cssText = "width:100%;text-align:left";
+      var tin = el("input", "dinput ed-wide"); tin.value = e.text || "";
       tin.addEventListener("input", function () { previewDeco(e, { text: tin.value }); });
       tin.addEventListener("change", function () { pushHistory(); e.text = tin.value; scheduleSave(); });
       tin.addEventListener("pointerdown", function (ev) { ev.stopPropagation(); });
@@ -2260,6 +2348,14 @@
       twrow.appendChild(twsel); mount.appendChild(twrow);
     }
 
+    if (e.kind === "icon") {
+      var irow = el("div", "prow");
+      irow.innerHTML = '<span class="plab">Icon</span>';
+      var ibtn = el("button", "minibtn", '<i class="ph-bold ph-' + (e.icon || "star") + '"></i> ' + esc(e.icon || "star"));
+      ibtn.addEventListener("click", function () { openIconPicker(e); });
+      irow.appendChild(ibtn); mount.appendChild(irow);
+    }
+
     mount.appendChild(el("div", "psec", '<i class="ph-bold ph-palette"></i>Colour'));
     mount.appendChild(colorControl(e));
 
@@ -2275,12 +2371,6 @@
     } else if (e.kind === "line") {
       mount.appendChild(decoSlider(e, "Thickness", "stroke", 1, 40));
     } else if (e.kind === "icon") {
-      var irow = el("div", "prow");
-      irow.innerHTML = '<span class="plab">Icon</span>';
-      var ibtn = el("button", "minibtn", '<i class="ph-bold ph-' + (e.icon || "star") + '"></i> ' + esc(e.icon || "star"));
-      ibtn.addEventListener("click", function () { openIconPicker(e); });
-      irow.appendChild(ibtn); mount.appendChild(irow);
-
       var wrow = el("div", "prow");
       wrow.innerHTML = '<span class="plab">Weight</span>';
       var wsel = el("select", "psel");
@@ -2464,26 +2554,174 @@
     });
   }
 
+  // Nothing selected: the inspector shows the page itself (theme, size,
+  // background), which used to be the left sidebar's Appearance card.
   function renderEmptyProps(mount) {
     mount.textContent = "";
-    var note = el("div", "note");
-    note.style.cssText = "padding:16px 4px;line-height:1.5";
-    note.textContent = "Drag a widget or a shape from the palette onto the canvas, then select it here to configure it.";
+    var note = el("div", "note ed-insp-hint");
+    note.textContent = isPhone()
+      ? "Tap something on the canvas to edit it, or set up the page here."
+      : "Select something on the canvas to edit it, or set up the page here.";
     mount.appendChild(note);
+    var ap = el("div"); ap.id = "panels-appearance";
+    mount.appendChild(ap);
+    renderAppearance();
+    // Lift the appearance rows (and their section headers) up a level so the
+    // sectionizer sees one flat list.
+    while (ap.firstChild) mount.insertBefore(ap.firstChild, ap);
+    ap.remove();
+  }
+
+  // ---- inspector: grouped, folding sections ----------------------------
+  // The per-kind renderers below write one flat list of rows with .psec
+  // sub-headings. sectionize() then files those rows into folding sections
+  // (Content / Position and size / Style / Data / Touch, or for the page
+  // Theme / Size / Background) by heading, and moves the Front / Back /
+  // Duplicate / Delete rows into the "…" menu. The renderers stay as they
+  // were, so every field keeps its handler.
+  var SECTIONS = {
+    el: [["content", "Content"], ["position", "Position and size"], ["style", "Style"],
+      ["data", "Data"], ["touch", "Touch"]],
+    page: [["page-theme", "Theme"], ["page-size", "Size"], ["page-bg", "Background"]],
+  };
+  var SEC_OPEN_DEFAULT = {
+    content: true, position: true, style: false, data: false, touch: false,
+    "page-theme": true, "page-size": true, "page-bg": false,
+  };
+  // Heading text -> [section, keep the heading as a sub-label?]
+  var SEC_OF = {
+    "Widget": ["content", 0], "Display": ["content", 1], "Code": ["content", 1],
+    "Custom HTML": ["content", 0], "SVG": ["content", 0], "Text": ["content", 0],
+    "Rectangle": ["content", 0], "Circle": ["content", 0], "Line": ["content", 0],
+    "Icon": ["content", 0], "Shape": ["content", 0], "Button": ["content", 0],
+    "Switch": ["content", 0], "Slider": ["content", 0], "Stepper": ["content", 0],
+    "Control": ["content", 0], "Group": ["content", 1],
+    "Arrange": ["position", 0], "Align to canvas": ["position", 1],
+    "Align in selection": ["position", 1], "Distribute & size": ["position", 1],
+    "Render": ["style", 0], "Colour": ["style", 1], "Zoom parts": ["style", 1],
+    "Data source": ["data", 0], "Data sources": ["data", 0], "Updates": ["data", 1],
+    "Interaction": ["touch", 0], "Actions": ["touch", 1],
+    "Page theme": ["page-theme", 0], "Page size": ["page-size", 0], "Page background": ["page-bg", 0],
+  };
+  function secOpenMap() {
+    if (!S.secOpen) {
+      try { S.secOpen = JSON.parse(localStorage.getItem("tesserae.panels.sections")) || {}; } catch { S.secOpen = {}; }
+    }
+    return S.secOpen;
+  }
+  function secIsOpen(key) {
+    var m = secOpenMap();
+    return key in m ? !!m[key] : !!SEC_OPEN_DEFAULT[key];
+  }
+  function setSecOpen(key, on) {
+    secOpenMap()[key] = !!on;
+    try { localStorage.setItem("tesserae.panels.sections", JSON.stringify(S.secOpen)); } catch { /* private mode */ }
+  }
+  function sectionize(mount, set) {
+    var order = SECTIONS[set];
+    var buckets = {}, actions = [], cur = order[0][0];
+    order.forEach(function (o) { buckets[o[0]] = []; });
+    var lead = [];
+    Array.prototype.slice.call(mount.childNodes).forEach(function (n) {
+      if (n.nodeType !== 1) return;
+      if (n.classList.contains("ed-act-row")) { actions.push(n); return; }
+      if (n.classList.contains("ed-insp-hint")) { lead.push(n); return; }
+      if (n.classList.contains("psec")) {
+        var hit = SEC_OF[(n.textContent || "").trim()];
+        if (hit && buckets[hit[0]]) {
+          cur = hit[0];
+          if (!hit[1]) return; // the section title says it already
+        }
+        n.classList.add("psub");
+      }
+      buckets[cur].push(n);
+    });
+    mount.textContent = "";
+    lead.forEach(function (n) { mount.appendChild(n); });
+    order.forEach(function (o) {
+      var rows = buckets[o[0]];
+      if (!rows.length) return;
+      var open = secIsOpen(o[0]);
+      var sec = el("div", "isec" + (open ? " is-open" : ""));
+      sec.dataset.sec = o[0];
+      var h = el("button", "isec-h");
+      h.type = "button";
+      h.setAttribute("aria-expanded", open ? "true" : "false");
+      h.innerHTML = '<i class="ph-bold ph-caret-right isec-car" aria-hidden="true"></i><span></span>';
+      h.querySelector("span").textContent = o[1];
+      var body = el("div", "isec-b");
+      body.hidden = !open;
+      rows.forEach(function (n) { body.appendChild(n); });
+      h.addEventListener("click", function () {
+        var on = body.hidden;
+        body.hidden = !on;
+        sec.classList.toggle("is-open", on);
+        h.setAttribute("aria-expanded", on ? "true" : "false");
+        setSecOpen(o[0], on);
+      });
+      sec.appendChild(h); sec.appendChild(body);
+      mount.appendChild(sec);
+    });
+    inspectorMenu(actions);
+  }
+  // The inspector head's "…" menu: the element's action rows, flattened to
+  // one button per line.
+  function inspectorMenu(rows) {
+    var btn = $("panels-insp-more"), menu = $("panels-insp-menu");
+    if (!btn || !menu) return;
+    menu.textContent = "";
+    menu.hidden = true;
+    btn.setAttribute("aria-expanded", "false");
+    var items = [];
+    rows.forEach(function (r) {
+      r.querySelectorAll("button").forEach(function (b) { items.push(b); });
+    });
+    btn.hidden = !items.length;
+    items.forEach(function (b) {
+      b.className = "ed-menu-i" + (b.classList.contains("ed-danger") ? " ed-danger" : "");
+      b.setAttribute("role", "menuitem");
+      b.addEventListener("click", function () { closeInspectorMenu(); });
+      menu.appendChild(b);
+    });
+  }
+  function closeInspectorMenu() {
+    var btn = $("panels-insp-more"), menu = $("panels-insp-menu");
+    if (menu) menu.hidden = true;
+    if (btn) btn.setAttribute("aria-expanded", "false");
+  }
+  // Title + size readout in the inspector head.
+  function inspectorHead() {
+    var t = $("panels-insp-title"), m = $("panels-insp-meta");
+    if (!t) return;
+    var n = selCount();
+    var e = n === 1 ? byId(selArr()[0]) : null;
+    if (n > 1) { t.textContent = n + " selected"; if (m) m.textContent = ""; }
+    else if (e) {
+      t.textContent = elLabel(e);
+      if (m) m.textContent = Math.round(e.w) + "×" + Math.round(e.h);
+    } else {
+      t.textContent = "Page";
+      if (m) m.textContent = S.doc.w + "×" + S.doc.h;
+    }
   }
 
   function renderProps() {
     var mount = $("panels-data");
     if (!mount) return;
-    if (selCount() > 1) { renderGroupProps(mount); return; }
-    var e = selCount() ? byId(selArr()[0]) : null;
-    if (!e) { renderEmptyProps(mount); return; }
-    if (!isWidget(e)) { renderDecoProps(mount, e); return; }
+    inspectorHead();
+    var e = selCount() === 1 ? byId(selArr()[0]) : null;
+    if (selCount() > 1) renderGroupProps(mount);
+    else if (!e) renderEmptyProps(mount);
+    else if (!isWidget(e)) renderDecoProps(mount, e);
+    else renderWidgetProps(mount, e);
+    sectionize(mount, !e && selCount() <= 1 ? "page" : "el");
+  }
 
+  function renderWidgetProps(mount, e) {
     mount.textContent = "";
     // Widget picker.
     mount.appendChild(el("div", "psec", '<i class="ph-bold ph-puzzle-piece"></i>Widget'));
-    var wrow = el("div", "prow"); wrow.innerHTML = '<span class="plab">Source</span>';
+    var wrow = el("div", "prow"); wrow.innerHTML = '<span class="plab">Widget</span>';
     var wsel = el("select", "psel");
     var wopts = ['<option value="">— choose widget —</option>'];
     S.catalog.forEach(function (w) { wopts.push('<option value="' + esc(w.key) + '">' + esc(w.name || w.key) + "</option>"); });
@@ -2504,7 +2742,7 @@
     // Fragment picker (only when the widget declares more than the full one).
     var frags = fragmentsOf(e.widget);
     if (frags.length > 1) {
-      var frow = el("div", "prow"); frow.innerHTML = '<span class="plab">Part</span>';
+      var frow = el("div", "prow"); frow.innerHTML = '<span class="plab">Shows</span>';
       var fsel = el("select", "psel");
       fsel.innerHTML = frags.map(function (f) { return '<option value="' + esc(f.id) + '">' + esc(f.label || f.id) + "</option>"; }).join("");
       fsel.value = e.fragment || "full";
@@ -2650,6 +2888,7 @@
     save();
   }
   function save() {
+    S.saving = true;
     fetch(S.cfg.saveUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2661,7 +2900,15 @@
         if (resp && resp.rev) S.rev = resp.rev; // so live-sync recognises our own write
         var s = $("panels-status"); if (s) s.textContent = "saved";
       })
-      .catch(function () { var s = $("panels-status"); if (s) s.textContent = "save failed"; });
+      .catch(function () { var s = $("panels-status"); if (s) s.textContent = "save failed"; })
+      .then(function () {
+        S.saving = false;
+        // A change event that arrived while this write was in flight may be
+        // this write's own echo; now that S.rev is known, look again.
+        var held = S.heldExt;
+        S.heldExt = null;
+        if (held) onExternalChange(held);
+      });
   }
 
   // ---- live sync: reflect external edits (e.g. the MCP agent) -----------
@@ -2744,6 +2991,8 @@
     applyAppearance();
     var title = $("panels-title");
     if (title) title.textContent = S.doc.name || "Untitled Panel";
+    var st = $("panels-status");
+    if (st && st.textContent === "loading…") st.textContent = "saved";
     syncDeviceSelection();
     paint();
   }
@@ -2760,6 +3009,7 @@
   // case offer a non-destructive reload so the agent can't clobber the user.
   function onExternalChange(rev) {
     if (rev && rev === S.rev) return;
+    if (S.saving) { S.heldExt = rev || "?"; return; }
     if (S.dirty) { showExternalBanner(); return; }
     fetch(S.cfg.docUrl)
       .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
@@ -2872,26 +3122,6 @@
   function hideExternalBanner() {
     var b = $("panels-extbanner");
     if (b) b.classList.remove("show");
-  }
-
-  // ---- dark-mode toggle (mirrors the admin shell in _base.html) --------
-  function initThemeToggle() {
-    var btn = $("panels-theme");
-    if (!btn) return;
-    function sync() {
-      var dark = document.documentElement.getAttribute("data-theme") === "dark";
-      btn.innerHTML = dark ? '<i class="ph-bold ph-sun"></i>' : '<i class="ph-bold ph-moon"></i>';
-      btn.classList.toggle("on", dark);
-      btn.title = dark ? "Switch to light mode" : "Toggle dark mode";
-    }
-    btn.addEventListener("click", function () {
-      var next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
-      if (next === "dark") document.documentElement.setAttribute("data-theme", "dark");
-      else document.documentElement.removeAttribute("data-theme");
-      try { localStorage.setItem("tesserae-theme", next); } catch (e) { /* ignore */ }
-      sync();
-    });
-    sync();
   }
 
   // ---- per-element config drawer ---------------------------------------
@@ -3076,19 +3306,25 @@
   }
 
   // ---- collapsible + resizable sidebars --------------------------------
-  var LW_MIN = 190, LW_MAX = 560, RW_MIN = 220, RW_MAX = 620;
+  var LW_MIN = 200, LW_MAX = 560, RW_MIN = 260, RW_MAX = 620;
+  // Default column widths, narrower on smaller desktops so the canvas keeps
+  // room; a width dragged by hand wins.
+  function lwDef() { return window.innerWidth <= 1180 ? 232 : 272; }
+  function rwDef() { return window.innerWidth <= 1180 ? 296 : 340; }
   function saveUi() {
     try { localStorage.setItem("tesserae.panels.ui", JSON.stringify(S.ui || {})); } catch (e) { /* ignore */ }
   }
+  // Column widths go to CSS variables rather than an inline grid template, so
+  // the phone layout (one column and a bottom sheet) can ignore them.
   function applyGridCols() {
-    var root = document.querySelector(".ed");
+    var root = $("panels-main");
     if (!root) return;
     var ui = S.ui || {};
-    var lw = (ui.leftW || 252) + "px", rw = (ui.rightW || 300) + "px";
-    root.style.gridTemplateColumns = (ui.lcol ? "0px" : lw) + " 1fr " + (ui.rcol ? "0px" : rw);
-    var lp = $("panels-left"), rp = $("panels-right");
-    if (lp) lp.style.display = ui.lcol ? "none" : "";
-    if (rp) rp.style.display = ui.rcol ? "none" : "";
+    var lw = (ui.leftW || lwDef()) + "px", rw = (ui.rightW || rwDef()) + "px";
+    root.style.setProperty("--ed-lw", ui.lcol ? "0px" : lw);
+    root.style.setProperty("--ed-rw", ui.rcol ? "0px" : rw);
+    root.classList.toggle("is-lcol", !!ui.lcol);
+    root.classList.toggle("is-rcol", !!ui.rcol);
     var lb = $("panels-toggle-left"), rb = $("panels-toggle-right");
     if (lb) lb.classList.toggle("on", !ui.lcol);
     if (rb) rb.classList.toggle("on", !ui.rcol);
@@ -3114,7 +3350,7 @@
       ev.preventDefault();
       S.ui = S.ui || {};
       var startX = ev.clientX;
-      var startW = side === "left" ? (S.ui.leftW || 252) : (S.ui.rightW || 300);
+      var startW = side === "left" ? (S.ui.leftW || lwDef()) : (S.ui.rightW || rwDef());
       h.setPointerCapture(ev.pointerId);
       document.body.style.cursor = "col-resize";
       function move(m) {
@@ -3261,7 +3497,7 @@
       '<div class="cm-list"><div class="note" style="padding:10px 12px">Loading…</div></div>';
     document.body.appendChild(menu);
     var r = anchor.getBoundingClientRect();
-    menu.style.left = Math.round(r.left) + "px";
+    menu.style.left = Math.round(Math.max(8, Math.min(r.left, window.innerWidth - 296))) + "px";
     menu.style.top = Math.round(r.bottom + 6) + "px";
     menu.addEventListener("pointerdown", function (ev) { ev.stopPropagation(); });
     menu.querySelector(".cm-new").addEventListener("click", createCanvas);
@@ -3388,16 +3624,13 @@
     if (empty) empty.hidden = !!S.devices.length;
     S.devices.forEach(function (d) {
       var row = document.createElement("label");
-      row.style.cssText = "display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;cursor:pointer;font-size:13px";
-      row.addEventListener("mouseenter", function () { row.style.background = "var(--t-surface-soft)"; });
-      row.addEventListener("mouseleave", function () { row.style.background = ""; });
+      row.className = "ed-devrow";
       var cb = document.createElement("input");
       cb.type = "checkbox";
       cb.value = d.id;
       cb.className = "panels-device-cb";
       cb.addEventListener("change", onDeviceToggle);
       var name = document.createElement("span");
-      name.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
       name.textContent = (d.name || d.id) + (d.w && d.h ? "  ·  " + d.w + "×" + d.h : "");
       row.appendChild(cb);
       row.appendChild(name);
@@ -3406,7 +3639,7 @@
         fit.type = "button";
         fit.title = "Set the artboard to this panel's size (" + d.w + "×" + d.h + ")";
         fit.innerHTML = '<i class="ph-bold ph-arrows-out"></i>';
-        fit.style.cssText = "border:0;background:transparent;color:var(--t-muted);cursor:pointer;padding:2px 4px;font-size:14px";
+        fit.className = "ed-devfit";
         fit.addEventListener("click", function (e) {
           e.preventDefault(); e.stopPropagation();
           if (d.w !== S.doc.w || d.h !== S.doc.h) setPanelSize(d.w, d.h);
@@ -3446,7 +3679,13 @@
   function sendCanvas() {
     var status = $("panels-status");
     var ids = (S.doc && S.doc.device_ids) || [];
-    if (!ids.length) { if (status) status.textContent = "pick at least one device"; return; }
+    if (!ids.length) {
+      if (status) status.textContent = "pick at least one device";
+      // After this click finishes bubbling, or the outside-click handlers
+      // would close what this opens.
+      setTimeout(function () { if (isPhone()) openMore(true); showDevicePop(); }, 0);
+      return;
+    }
     if (status) status.textContent = "sending…";
     fetch(S.cfg.sendUrl, {
       method: "POST",
@@ -3545,6 +3784,244 @@
       });
   }
 
+  // ---- layout: left tabs, More menu, inspector menu, phone sheet --------
+  var PHONE_MQ = window.matchMedia ? window.matchMedia("(max-width: 900px)") : null;
+  function isPhone() { return !!(PHONE_MQ && PHONE_MQ.matches); }
+  function edRoot() { return document.querySelector(".ed"); }
+
+  // Layers | Add | Widgets, one sheet on the left. The choice is remembered.
+  function initLeftTabs() {
+    var sheet = $("panels-lefttabs");
+    if (!sheet) return;
+    var tabs = Array.prototype.slice.call(sheet.querySelectorAll("[data-ltab]"));
+    function set(t, focus) {
+      sheet.dataset.ltab = t;
+      tabs.forEach(function (b) {
+        var on = b.dataset.ltab === t;
+        b.setAttribute("aria-selected", on ? "true" : "false");
+        b.tabIndex = on ? 0 : -1;
+        if (on && focus) b.focus();
+      });
+      S.ui = S.ui || {};
+      if (S.ui.ltab !== t) { S.ui.ltab = t; saveUi(); }
+    }
+    tabs.forEach(function (b, i) {
+      b.addEventListener("click", function () { set(b.dataset.ltab); });
+      b.addEventListener("keydown", function (ev) {
+        var d = ev.key === "ArrowRight" ? 1 : ev.key === "ArrowLeft" ? -1 : 0;
+        if (!d) return;
+        ev.preventDefault();
+        set(tabs[(i + d + tabs.length) % tabs.length].dataset.ltab, true);
+      });
+    });
+    var want = (S.ui && S.ui.ltab) || "layers";
+    set(tabs.some(function (b) { return b.dataset.ltab === want; }) ? want : "layers");
+    var elements = $("panels-elements");
+    if (elements) renderElements(elements);
+  }
+
+  // The less-used tools fold behind "More" on narrower screens (CSS decides
+  // when); on a phone Save, the canvas switcher and the device picker join
+  // them, moved there and back so their handlers stay attached.
+  function openMore(on) {
+    var tbar = $("panels-tbar"), btn = $("panels-more");
+    if (!tbar) return;
+    tbar.classList.toggle("is-more", !!on);
+    if (btn) btn.setAttribute("aria-expanded", on ? "true" : "false");
+    if (!on) hideDevicePop();
+  }
+  function initMore() {
+    var tbar = $("panels-tbar"), btn = $("panels-more"), tools = $("panels-tools");
+    if (!tbar || !btn || !tools) return;
+    btn.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      openMore(!tbar.classList.contains("is-more"));
+    });
+    // A tool used from the menu closes it (the device picker excepted: it
+    // opens its own list inside the menu).
+    tools.addEventListener("click", function (ev) {
+      if (!tbar.classList.contains("is-more")) return;
+      var t = ev.target.closest ? ev.target.closest(".tbtn, #panels-save-btn") : null;
+      if (t) setTimeout(function () { openMore(false); }, 0);
+    });
+    document.addEventListener("click", function (ev) {
+      if (!tbar.classList.contains("is-more")) return;
+      if (tools.contains(ev.target) || btn.contains(ev.target)) return;
+      openMore(false);
+    });
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape" && tbar.classList.contains("is-more")) openMore(false);
+    });
+    // Placeholders remember where each phone-more item lives on desktop.
+    var moved = Array.prototype.slice.call(document.querySelectorAll("[data-phone-more]"));
+    moved.forEach(function (n) {
+      var mark = document.createComment("phone-more");
+      n.parentNode.insertBefore(mark, n);
+      n._edHome = mark;
+    });
+    function relocate() {
+      var phone = isPhone();
+      moved.forEach(function (n) {
+        if (phone && n.parentNode !== tools) tools.appendChild(n);
+        else if (!phone && n._edHome && n.previousSibling !== n._edHome) {
+          n._edHome.parentNode.insertBefore(n, n._edHome.nextSibling);
+        }
+      });
+      openMore(false);
+    }
+    relocate();
+    if (PHONE_MQ) {
+      if (PHONE_MQ.addEventListener) PHONE_MQ.addEventListener("change", relocate);
+      else if (PHONE_MQ.addListener) PHONE_MQ.addListener(relocate);
+    }
+  }
+
+  function initInspectorMenu() {
+    var btn = $("panels-insp-more"), menu = $("panels-insp-menu");
+    if (!btn || !menu) return;
+    btn.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      var on = menu.hidden;
+      menu.hidden = !on;
+      btn.setAttribute("aria-expanded", on ? "true" : "false");
+      if (on) { var first = menu.querySelector("button"); if (first) first.focus(); }
+    });
+    document.addEventListener("click", function (ev) {
+      if (!menu.hidden && !menu.contains(ev.target)) closeInspectorMenu();
+    });
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape" && !menu.hidden) { closeInspectorMenu(); btn.focus(); }
+    });
+  }
+
+  // Phone: one bottom sheet, tabs Add | Layers | Element | Agent. The sheet
+  // is either collapsed (tabs only) or half open; tap the active tab or the
+  // handle to switch, or drag the handle.
+  function phoneTab() { var r = edRoot(); return r ? r.dataset.ptab : ""; }
+  function setSheet(state) {
+    var r = edRoot();
+    if (r) r.dataset.psheet = state;
+  }
+  function setPhoneTab(t) {
+    var r = edRoot();
+    if (!r) return;
+    r.dataset.ptab = t;
+    r.querySelectorAll(".ed-ptab").forEach(function (b) {
+      b.setAttribute("aria-selected", b.dataset.ptab === t ? "true" : "false");
+    });
+    setSheet("half");
+    var rail = window.PanelsAgentRail;
+    if (t === "agent" && rail && rail.expand) rail.expand(true);
+  }
+  function initPhone() {
+    var r = edRoot();
+    if (!r) return;
+    r.querySelectorAll(".ed-ptab").forEach(function (b) {
+      b.addEventListener("click", function () {
+        if (r.dataset.ptab === b.dataset.ptab && r.dataset.psheet === "half") setSheet("collapsed");
+        else setPhoneTab(b.dataset.ptab);
+      });
+    });
+    var h = $("panels-phandle");
+    if (h) {
+      h.addEventListener("pointerdown", function (ev) {
+        var sy = ev.clientY, dy = 0;
+        h.setPointerCapture(ev.pointerId);
+        function mv(m) { dy = m.clientY - sy; }
+        function up() {
+          h.removeEventListener("pointermove", mv);
+          h.removeEventListener("pointerup", up);
+          h.removeEventListener("pointercancel", up);
+          if (Math.abs(dy) < 8) setSheet(r.dataset.psheet === "half" ? "collapsed" : "half");
+          else setSheet(dy < 0 ? "half" : "collapsed");
+        }
+        h.addEventListener("pointermove", mv);
+        h.addEventListener("pointerup", up);
+        h.addEventListener("pointercancel", up);
+      });
+      h.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          setSheet(r.dataset.psheet === "half" ? "collapsed" : "half");
+        }
+      });
+    }
+    // The toolbar's agent pill (or the floating strip's chevron) asks to see
+    // the agent: on a phone that is the Agent tab.
+    document.addEventListener("panels:agent-reveal", function () {
+      if (isPhone()) setPhoneTab("agent");
+    });
+  }
+
+  // Touch on the canvas: one finger on an element selects and drags it (the
+  // element's own handler); one finger elsewhere pans, and a tap there clears
+  // the selection; two fingers pinch to zoom and pan.
+  function initTouchCanvas(vp) {
+    var pts = {}, pinch = null;
+    function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y) || 1; }
+    function two() { var k = Object.keys(pts); return k.length >= 2 ? [pts[k[0]], pts[k[1]]] : null; }
+    vp.addEventListener("pointerdown", function (ev) {
+      if (ev.pointerType !== "touch") return;
+      pts[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
+      var p = two();
+      if (p && !pinch) {
+        pinch = { d: dist(p[0], p[1]), z: currentZoom(), mx: (p[0].x + p[1].x) / 2, my: (p[0].y + p[1].y) / 2,
+          px: S.panX || 0, py: S.panY || 0 };
+        S.pinching = true;
+        ev.stopPropagation();
+      }
+    }, true);
+    vp.addEventListener("pointermove", function (ev) {
+      if (!(ev.pointerId in pts)) return;
+      pts[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
+      var p = pinch && two();
+      if (!p) return;
+      var z = clamp(pinch.z * dist(p[0], p[1]) / pinch.d, 0.15, 4);
+      S.zoom = z;
+      S.panX = pinch.px + ((p[0].x + p[1].x) / 2 - pinch.mx);
+      S.panY = pinch.py + ((p[0].y + p[1].y) / 2 - pinch.my);
+      fitZoom();
+    }, true);
+    function end(ev) {
+      delete pts[ev.pointerId];
+      if (pinch && Object.keys(pts).length < 2) {
+        pinch = null;
+        // Cleared after this event so the gesture's other handlers still
+        // see it and ignore the rest of their drag.
+        setTimeout(function () { S.pinching = false; }, 0);
+      }
+    }
+    vp.addEventListener("pointerup", end, true);
+    vp.addEventListener("pointercancel", end, true);
+
+    // One finger off any element: pan, or a tap clears the selection.
+    vp.addEventListener("pointerdown", function (ev) {
+      if (ev.pointerType !== "touch" || S.pinching) return;
+      if (ev.target.closest && ev.target.closest(".el, .zoombar, .sidebar-resize")) return;
+      var sx = ev.clientX, sy = ev.clientY, ox = S.panX || 0, oy = S.panY || 0, moved = false, dead = false;
+      vp.setPointerCapture(ev.pointerId);
+      function mv(m) {
+        if (S.pinching) dead = true;
+        if (dead) return;
+        var dx = m.clientX - sx, dy = m.clientY - sy;
+        if (!moved && Math.abs(dx) + Math.abs(dy) < 6) return;
+        moved = true;
+        if (!S.zoom) S.zoom = currentZoom(); // pin the zoom so a repaint keeps the pan
+        S.panX = ox + dx; S.panY = oy + dy;
+        applyTransform(currentZoom());
+      }
+      function up() {
+        vp.removeEventListener("pointermove", mv);
+        vp.removeEventListener("pointerup", up);
+        vp.removeEventListener("pointercancel", up);
+        if (!moved && !dead && S.sel.size) select(null);
+      }
+      vp.addEventListener("pointermove", mv);
+      vp.addEventListener("pointerup", up);
+      vp.addEventListener("pointercancel", up);
+    });
+  }
+
   // ---- boot -------------------------------------------------------------
   function init() {
     var root = document.querySelector(".ed");
@@ -3586,19 +4063,17 @@
     if (vp) {
       var zc = el("div", "zoombar");
       zc.innerHTML =
-        '<button class="zb" data-z="out" title="Zoom out"><i class="ph-bold ph-minus"></i></button>' +
-        '<input type="range" id="panels-zoom-range" class="zrange" min="20" max="400" step="1" value="100" title="Zoom">' +
-        '<span id="panels-zoom-label" class="zlab">Fit</span>' +
-        '<button class="zb" data-z="in" title="Zoom in"><i class="ph-bold ph-plus"></i></button>' +
-        '<button class="zb" data-z="fit" title="Fit to view"><i class="ph-bold ph-corners-in"></i></button>';
+        '<button type="button" class="zb" data-z="out" title="Zoom out" aria-label="Zoom out"><i class="ph-bold ph-minus"></i></button>' +
+        '<span id="panels-zoom-label" class="zlab" aria-live="polite">100%</span>' +
+        '<button type="button" class="zb" data-z="in" title="Zoom in" aria-label="Zoom in"><i class="ph-bold ph-plus"></i></button>' +
+        '<span class="zsep" aria-hidden="true"></span>' +
+        '<button type="button" class="zb zfit" id="panels-zoom-fit" data-z="fit" title="Fit to view">Fit</button>';
       zc.addEventListener("click", function (ev) {
         var t = ev.target.closest ? ev.target.closest("[data-z]") : null;
         if (!t) return;
         if (t.dataset.z === "fit") setZoom(null);
         else { var cur = currentZoom(); setZoom(t.dataset.z === "in" ? cur * 1.25 : cur / 1.25); }
       });
-      var zrange = zc.querySelector("#panels-zoom-range");
-      if (zrange) zrange.addEventListener("input", function () { setZoom(Number(zrange.value) / 100); });
       frame.appendChild(zc);
       vp.addEventListener("wheel", function (ev) {
         if (!(ev.ctrlKey || ev.metaKey)) return;
@@ -3618,6 +4093,14 @@
     document.addEventListener("keyup", function (ev) {
       if (ev.code === "Space") { S.spaceDown = false; document.body.classList.remove("space-pan"); }
     });
+    if (vp) initTouchCanvas(vp);
+    // Refit whenever the canvas area changes size: a sidebar collapsing or
+    // being dragged, the phone sheet opening or closing.
+    if (vp && typeof ResizeObserver !== "undefined") {
+      var ro = new ResizeObserver(function () { if (S.doc) fitZoom(); });
+      ro.observe(frame);
+      ro.observe(vp);
+    }
 
     var drawerSave = $("panels-drawer-save");
     if (drawerSave) drawerSave.addEventListener("click", saveConfig);
@@ -3633,6 +4116,10 @@
     wireSidebarResize("panels-resize-left", "left");
     wireSidebarResize("panels-resize-right", "right");
     applyGridCols();
+    initLeftTabs();
+    initMore();
+    initInspectorMenu();
+    initPhone();
     ["panels-code-close", "panels-code-scrim", "panels-code-done"].forEach(function (id) {
       var node = $(id);
       if (node) node.addEventListener("click", closeCodeEditor);
@@ -3656,7 +4143,6 @@
     if (settingsBtn) settingsBtn.addEventListener("click", openPageSettings);
     var saveBtn = $("panels-save-btn");
     if (saveBtn) saveBtn.addEventListener("click", saveNow);
-    initThemeToggle();
     var canvasBtn = $("panels-canvas-menu");
     if (canvasBtn) canvasBtn.addEventListener("click", function (ev) {
       ev.stopPropagation(); toggleCanvasMenu(canvasBtn);
@@ -3709,7 +4195,7 @@
       else if (ev.key === "ArrowUp") { ev.preventDefault(); nudge(0, -step); }
       else if (ev.key === "ArrowDown") { ev.preventDefault(); nudge(0, step); }
     });
-    window.addEventListener("resize", function () { if (S.doc) fitZoom(); });
+    window.addEventListener("resize", function () { applyGridCols(); if (S.doc) fitZoom(); });
 
     Promise.all([
       fetch(S.cfg.catalogUrl).then(function (r) { return r.json(); }),

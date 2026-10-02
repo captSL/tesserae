@@ -1,0 +1,165 @@
+/*
+ * Paper design tokens and fonts, split out of paper.css so a standalone page
+ * (the canvas editor) can take the Paper palette without the admin-shell rules
+ * that paper.css applies to every element. Inert unless <html data-ui="paper">;
+ * the fonts only download when a rule uses them.
+ */
+
+/* ----- Fonts (bundled with fonts_core, OFL) -------------------------- */
+
+@font-face { font-family: "Archivo"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url("../../plugins/fonts_core/static/archivo/400.woff2") format("woff2"); }
+@font-face { font-family: "Archivo"; font-style: normal; font-weight: 500; font-display: swap;
+  src: url("../../plugins/fonts_core/static/archivo/400.woff2") format("woff2"); }
+@font-face { font-family: "Archivo"; font-style: normal; font-weight: 600; font-display: swap;
+  src: url("../../plugins/fonts_core/static/archivo/700.woff2") format("woff2"); }
+@font-face { font-family: "Archivo"; font-style: normal; font-weight: 700; font-display: swap;
+  src: url("../../plugins/fonts_core/static/archivo/700.woff2") format("woff2"); }
+@font-face { font-family: "Archivo"; font-style: normal; font-weight: 800; font-display: swap;
+  src: url("../../plugins/fonts_core/static/archivo/800.woff2") format("woff2"); }
+@font-face { font-family: "Martian Mono"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url("../../plugins/fonts_core/static/martian_mono/400.woff2") format("woff2"); }
+@font-face { font-family: "Martian Mono"; font-style: normal; font-weight: 700; font-display: swap;
+  src: url("../../plugins/fonts_core/static/martian_mono/700.woff2") format("woff2"); }
+
+/* ----- Tokens -------------------------------------------------------- */
+
+:root[data-ui="paper"] {
+  --p-sidebar-w: 248px;
+  --p-hover: #F7F3EA;
+  --p-selected: #E6E0D2;
+  --p-sheet-edge: #E2DCCF;
+  --p-sidebar: #FFFDF8;
+  --p-subnav: #F6F3EC;
+  --p-red: #B8352A;
+  --p-focus: #2B4E9B;
+  --p-logo-tile: #FFFDF8;
+  --p-logo-edge: #1C1B19;
+  --p-logo-a: #B8352A;
+  --p-logo-b: #1C1B19;
+  --p-ease: cubic-bezier(.2, .7, .2, 1);
+
+  --t-accent: #B8352A;
+  --t-accent-hover: #9E2C22;
+  --t-accent-soft: #F3DCD6;
+  --t-accent-fg: #FFFDF8;
+  --t-accent-ink: #7E231B;
+  --t-accent-tint: #F3DCD6;
+
+  --t-bg: #EEEAE1;
+  --t-surface: #FFFDF8;
+  --t-surface-soft: #FAF7F0;
+  --t-surface-sunk: #F1ECE1;
+  --t-surface-raised: #FFFDF8;
+  --t-fg: #1C1B19;
+  --t-fg-soft: #55524B;
+  --t-muted: #7A766C;
+  --t-border: #E0DACD;
+  --t-border-strong: #CFC8B8;
+  --t-inset: #FAF7F0;
+  --t-inset-border: #E0DACD;
+
+  --t-chart-1: #2B4E9B;
+  --t-chart-2: #B8352A;
+  --t-chart-3: #C9971C;
+  --t-chart-other: #8F8A7E;
+
+  --t-danger: #B8352A;
+  --t-danger-bg: #F3DCD6;
+  --t-warn: #9A6F0C;
+  --t-warn-bg: #F2E7CC;
+  --t-ok: #3D7A3A;
+  --t-ok-bg: #E3EBDD;
+  --t-pill-ok-bg: #E3EBDD;
+  --t-pill-ok-fg: #3D7A3A;
+  --t-pill-ok-border: #E3EBDD;
+  --t-pill-warn-bg: #F2E7CC;
+  --t-pill-warn-fg: #7A570A;
+  --t-pill-warn-border: #F2E7CC;
+  --t-pill-danger-bg: #F3DCD6;
+  --t-pill-danger-fg: #9E2C22;
+  --t-pill-danger-border: #F3DCD6;
+  --t-pill-neutral-bg: #F1ECE1;
+  --t-pill-neutral-fg: #55524B;
+  --t-code-bg: #F1ECE1;
+  --t-code-border: #E0DACD;
+  --t-code-key: #2B4E9B;
+
+  --t-font: "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --t-font-mono: "Martian Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --t-font-features: normal;
+
+  --t-radius-sm: 2px;
+  --t-radius: 2px;
+  --t-radius-md: 2px;
+  --t-radius-lg: 2px;
+  --t-radius-xl: 2px;
+
+  --t-shadow-xs: none;
+  --t-shadow-sm: none;
+  --t-shadow: none;
+  --t-shadow-md: none;
+  --t-shadow-lg: none;
+  --t-shadow-xl: none;
+  --t-shadow-inset: none;
+  --t-ring: 0 0 0 2px color-mix(in oklab, var(--p-focus) 45%, transparent);
+  --t-ring-soft: 0 0 0 2px color-mix(in oklab, var(--p-focus) 25%, transparent);
+}
+
+:root[data-ui="paper"][data-theme="dark"] {
+  --p-hover: #262421;
+  --p-selected: #2F2D29;
+  --p-sheet-edge: #35332E;
+  --p-sidebar: #1E1D1B;
+  --p-subnav: #1B1A18;
+  --p-red: #E06A5C;
+  --p-focus: #7C9BE0;
+  --p-logo-tile: #22211E;
+  --p-logo-edge: #EDE9DF;
+  --p-logo-a: #D0493C;
+  --p-logo-b: #EDE9DF;
+
+  --t-accent: #D0493C;
+  --t-accent-hover: #E05A4C;
+  --t-accent-soft: #3B211D;
+  --t-accent-fg: #FFFFFF;
+  --t-accent-ink: #F0A497;
+  --t-accent-tint: #3B211D;
+
+  --t-bg: #151412;
+  --t-surface: #22211E;
+  --t-surface-soft: #262421;
+  --t-surface-sunk: #1E1D1B;
+  --t-surface-raised: #22211E;
+  --t-fg: #EDE9DF;
+  --t-fg-soft: #A8A397;
+  --t-muted: #8A857A;
+  --t-border: #35332E;
+  --t-border-strong: #45423C;
+  --t-inset: #1E1D1B;
+  --t-inset-border: #35332E;
+
+  --t-chart-1: #7C9BE0;
+  --t-chart-2: #E06A5C;
+  --t-chart-3: #D9B45A;
+
+  --t-danger: #E58474;
+  --t-danger-bg: #3B211D;
+  --t-warn: #D9B45A;
+  --t-warn-bg: #3A311B;
+  --t-ok: #8DBF7F;
+  --t-ok-bg: #24301F;
+  --t-pill-ok-bg: #24301F;
+  --t-pill-ok-fg: #8DBF7F;
+  --t-pill-ok-border: #24301F;
+  --t-pill-warn-bg: #3A311B;
+  --t-pill-warn-fg: #D9B45A;
+  --t-pill-warn-border: #3A311B;
+  --t-pill-danger-bg: #3B211D;
+  --t-pill-danger-fg: #E58474;
+  --t-pill-danger-border: #3B211D;
+  --t-pill-neutral-bg: #2D2B27;
+  --t-pill-neutral-fg: #A8A397;
+  --t-code-bg: #1E1D1B;
+  --t-code-border: #35332E;
+}

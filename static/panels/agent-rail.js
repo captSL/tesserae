@@ -8,8 +8,11 @@
 //
 // Owns two pieces of the editor chrome, both created here so the editor's
 // template carries none of it when the MCP feature is off:
-//   * the rail card, docked at the top of the right sidebar
-//   * a throbber pill in the toolbar, live while the agent is working
+//   * the agent strip, docked at the top of the right column: one line (ring,
+//     what it is doing, "Agent · N steps · …") that opens on its chevron into
+//     the finished-step ticks, the nudge box and Follow. Closed until asked;
+//     it never opens itself.
+//   * a throbber pill in the toolbar, "Agent working", live while it works
 //
 // The host passes hooks rather than the rail reaching into the editor:
 // onMoved(pageId, pageName) fires when the agent starts touching a different
@@ -38,15 +41,15 @@ window.PanelsAgentRail = (function () {
     "Musing", "Considering", "Weighing it up", "Ruminating", "Puzzling it out",
     "Percolating", "Chewing on it", "Turning it over", "Composing",
   ];
-  // Ticks kept in the DOM. Nobody scrolls back past this in a 300px column,
-  // and the header keeps the true count.
+  // Ticks kept in the DOM. Nobody scrolls back past this in a 340px column,
+  // and the sub-line keeps the true count.
   var MAX_TICKS = 80;
   // Below this a step's context cost is noise (a written element is ~40
   // tokens); above it, it's worth knowing which call is eating the budget.
   var CTX_FLOOR = 150;
 
   var cfg = null, hooks = null;
-  var card = null, ticksEl = null, nowEl = null, countEl = null, barEl = null, pill = null;
+  var card = null, ticksEl = null, nowEl = null, pill = null;
   var es = null;
   var run = null;
   var total = 0;      // every step this run, including ones that never showed
@@ -92,54 +95,33 @@ window.PanelsAgentRail = (function () {
   //
   // The one way a word from the operator reaches the model: the server queues
   // it and hands it to the agent on its next tool result (MCP is client-driven,
-  // so nothing can be pushed). Off unless asked for, and the toggle only
-  // appears once the ``noteUrl`` hook is configured, so an install without the
-  // endpoint shows no dead control.
-  var REPLY_KEY = "tesserae-agent-reply";
-  var replyEl = null, replyToggle = null, replyInput = null, replyNote = null;
-
-  function replyOpen() {
-    try { return localStorage.getItem(REPLY_KEY) === "on"; } catch { return false; }
-  }
-  function setReplyOpen(on) {
-    try { localStorage.setItem(REPLY_KEY, on ? "on" : "off"); } catch { /* private mode */ }
-  }
+  // so nothing can be pushed). Shown in the open strip only when the
+  // ``noteUrl`` hook is configured, so an install without the endpoint shows
+  // no dead control.
+  var replyEl = null, replyInput = null, replyNote = null;
 
   function buildReply() {
     replyEl = el("div", "ag-reply");
     replyEl.hidden = true;
     replyEl.innerHTML =
-      '<textarea class="ag-reply-i" rows="2" maxlength="500" ' +
-      'placeholder="Tell the agent something. Enter sends."></textarea>' +
-      '<div class="ag-reply-b"><span class="ag-reply-n"></span>' +
+      '<label class="ag-reply-l"><span class="sr">Note for the agent</span>' +
+      '<textarea class="ag-reply-i" rows="1" maxlength="500" ' +
+      'placeholder="Nudge the agent…"></textarea></label>' +
+      '<div class="ag-reply-b"><span class="ag-reply-n" aria-live="polite"></span>' +
       '<button type="button" class="ag-reply-s">Send</button></div>';
     return replyEl;
   }
 
   function wireReply() {
-    replyToggle = card.querySelector(".ag-reply-t");
     replyInput = replyEl.querySelector(".ag-reply-i");
     replyNote = replyEl.querySelector(".ag-reply-n");
-    if (!cfg.noteUrl) return;          // no endpoint: leave the toggle hidden
-    replyToggle.hidden = false;
-    applyReply(replyOpen());
-    replyToggle.addEventListener("click", function () {
-      var on = !replyEl.hidden ? false : true;
-      setReplyOpen(on);
-      applyReply(on);
-      if (on) replyInput.focus();
-    });
+    if (!cfg.noteUrl) return;          // no endpoint: no box
+    replyEl.hidden = false;
     replyEl.querySelector(".ag-reply-s").addEventListener("click", sendNote);
     replyInput.addEventListener("keydown", function (e) {
       // Enter sends, Shift+Enter is a newline: this is a message, not a form.
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendNote(); }
     });
-  }
-
-  function applyReply(on) {
-    replyEl.hidden = !on;
-    replyToggle.setAttribute("aria-pressed", on ? "true" : "false");
-    replyToggle.classList.toggle("is-on", !!on);
   }
 
   function say(text, bad) {
@@ -169,64 +151,141 @@ window.PanelsAgentRail = (function () {
       .catch(function () { say("not sent", true); });
   }
 
+  // ---- follow ---------------------------------------------------------
+  //
+  // Whether the editor follows the agent to another dashboard. The same
+  // preference the editor and the admin shell's toast read; on unless it was
+  // turned off.
+  var FOLLOW_KEY = "tesserae-agent-follow";
+  function followOn() {
+    try { return localStorage.getItem(FOLLOW_KEY) !== "off"; } catch { return true; }
+  }
+  function drawFollow(btn) {
+    var on = followOn();
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.title = on
+      ? "Following: when the agent moves to another dashboard, this editor goes with it"
+      : "Not following: the editor stays here when the agent moves on";
+  }
+
   // ---- chrome ---------------------------------------------------------
+
+  var open = false; // the strip is expanded; only ever by the operator
+  var bodyEl = null, chevEl = null, objEl = null;
+
+  function setOpen(on) {
+    open = !!on;
+    if (!card) return;
+    card.classList.toggle("is-open", open);
+    bodyEl.hidden = !open;
+    chevEl.setAttribute("aria-expanded", open ? "true" : "false");
+    chevEl.title = open ? "Hide steps" : "Show steps";
+  }
 
   function build() {
     var right = document.getElementById("panels-right");
     if (!right) return false;
 
-    card = el("div", "card2 ag");
+    card = el("section", "ed-sheet ag");
     card.id = "panels-agent";
     card.hidden = true;
-    card.innerHTML =
-      '<div class="pnh"><span class="t"><i class="ph-bold ph-sparkle"></i>Agent</span>' +
-      '<span class="x ag-count"></span>' +
-      '<button type="button" class="ag-reply-t" title="Send the agent a note" ' +
-      'aria-pressed="false" hidden><i class="ph-bold ph-chat-teardrop-text"></i></button>' +
-      "</div>" +
-      '<div class="ag-bar" hidden><i></i></div>';
+    card.setAttribute("aria-label", "Agent");
+    var strip = el("div", "ag-strip");
     nowEl = el("div", "ag-now");
-    ticksEl = el("div", "pnb scroll ag-ticks");
-    card.appendChild(nowEl);
-    card.appendChild(ticksEl);
-    card.appendChild(buildReply());
-    right.insertBefore(card, right.firstChild);
-    countEl = card.querySelector(".ag-count");
-    barEl = card.querySelector(".ag-bar");
-    wireReply();
+    strip.appendChild(nowEl);
+    chevEl = el("button", "ag-chev",
+      '<i class="ph-bold ph-caret-down" aria-hidden="true"></i><span class="sr">Steps</span>');
+    chevEl.type = "button";
+    chevEl.setAttribute("aria-controls", "panels-agent-body");
+    strip.appendChild(chevEl);
+    card.appendChild(strip);
 
-    // Toolbar throbber, so a build is visible with the sidebar collapsed.
-    var menu = document.getElementById("panels-canvas-menu");
-    pill = el("div", "ag-pill",
-      '<span class="ag-bars"><i></i><i></i><i></i></span><span class="ag-pill-t">agent</span>');
+    bodyEl = el("div", "ag-body");
+    bodyEl.id = "panels-agent-body";
+    objEl = el("div", "ag-obj");
+    ticksEl = el("div", "ag-ticks");
+    ticksEl.setAttribute("role", "list");
+    bodyEl.appendChild(objEl);
+    bodyEl.appendChild(ticksEl);
+    var foot = el("div", "ag-foot");
+    foot.appendChild(buildReply());
+    var follow = el("button", "ag-follow", '<i class="ph-bold ph-eye" aria-hidden="true"></i>Follow');
+    follow.type = "button";
+    drawFollow(follow);
+    follow.addEventListener("click", function () {
+      try { localStorage.setItem(FOLLOW_KEY, followOn() ? "off" : "on"); } catch { /* private mode */ }
+      drawFollow(follow);
+    });
+    foot.appendChild(follow);
+    bodyEl.appendChild(foot);
+    card.appendChild(bodyEl);
+    right.insertBefore(card, right.firstChild);
+    wireReply();
+    setOpen(false);
+    chevEl.addEventListener("click", function () {
+      // On a phone the strip can float over the canvas; there the chevron
+      // means "show me", which is the Agent tab of the bottom sheet.
+      var floating = window.getComputedStyle(card).position === "fixed";
+      setOpen(floating ? true : !open);
+      if (open) document.dispatchEvent(new CustomEvent("panels:agent-reveal"));
+    });
+
+    // Toolbar throbber, so a build is visible with the right column hidden.
+    var host = document.getElementById("panels-tright");
+    pill = el("button", "ag-pill",
+      '<span class="ag-dot" aria-hidden="true"></span><span class="ag-pill-t">Agent working</span>');
+    pill.type = "button";
     pill.hidden = true;
-    pill.title = "The agent is building this dashboard";
+    pill.title = "The agent is building this dashboard. Show its steps.";
     pill.addEventListener("click", function () {
       card.hidden = false;
+      setOpen(true);
       card.scrollIntoView({ block: "nearest" });
+      document.dispatchEvent(new CustomEvent("panels:agent-reveal"));
     });
-    if (menu && menu.parentNode) menu.parentNode.insertBefore(pill, menu);
+    if (host) host.insertBefore(pill, host.firstChild);
     return true;
   }
 
-  // ---- the "now" block ------------------------------------------------
+  // ---- the "now" line -------------------------------------------------
+
+  // phase: "live" (a step in flight), "think" (between calls), "done",
+  // "away" (working on another dashboard). The card carries it as a class so
+  // the ring and the phone's floating strip can follow it.
+  var phase = "";
+  function setPhase(p) {
+    phase = p;
+    if (!card) return;
+    ["live", "think", "done", "away"].forEach(function (k) {
+      card.classList.toggle("is-" + k, k === p);
+    });
+    // Working (in any form but finished): what the phone floats over the canvas.
+    card.classList.toggle("is-working", p !== "done");
+  }
+
+  function nowHtml(icon, verb, done) {
+    return '<div class="ag-ring' + (done ? " is-done" : "") + '">' +
+        (done ? "" : '<span class="ag-ring-sweep" aria-hidden="true"></span>') +
+        '<i class="ph-bold ph-' + esc(icon) + '" aria-hidden="true"></i>' +
+      "</div>" +
+      '<div class="ag-txt">' +
+        '<div class="ag-verb">' + esc(verb) + "</div>" +
+        '<div class="ag-sub"></div>' +
+      "</div>";
+  }
 
   // An indeterminate ring: the agent never says how many calls a build will
-  // take, so the sweep means "working" and the header carries the count.
+  // take, so the sweep means "working" and the sub-line carries the count.
   function renderNow(step) {
     current = step;
     clearInterval(wordT);   // a real step outranks the thinking block
     wordT = null;
+    setPhase("live");
     nowEl.className = "ag-now is-live";
-    nowEl.innerHTML =
-      '<div class="ag-ring">' +
-        '<span class="ag-ring-sweep"></span>' +
-        '<i class="ph-bold ph-' + esc(step.icon || "circle") + '"></i>' +
-      "</div>" +
-      '<div class="ag-txt">' +
-        '<div class="ag-verb">' + esc(step.verb || step.label) + "</div>" +
-        '<div class="ag-obj">' + (objectOf(step) || "&nbsp;") + "</div>" +
-      "</div>";
+    nowEl.innerHTML = nowHtml(step.icon || "circle", step.verb || step.label);
+    objEl.innerHTML = objectOf(step);
+    objEl.hidden = !objEl.innerHTML;
+    renderCount();
   }
 
   // Between calls. The ring keeps sweeping because the run is still open, but
@@ -236,43 +295,52 @@ window.PanelsAgentRail = (function () {
     var word = THINKING[Math.floor(Math.random() * THINKING.length)];
     if (word === lastWord) word = THINKING[(THINKING.indexOf(word) + 1) % THINKING.length];
     lastWord = word;
+    setPhase("think");
     nowEl.className = "ag-now is-think";
-    nowEl.innerHTML =
-      '<div class="ag-ring">' +
-        '<span class="ag-ring-sweep"></span>' +
-        '<i class="ph-bold ph-dots-three"></i>' +
-      "</div>" +
-      '<div class="ag-txt">' +
-        '<div class="ag-verb">' + esc(word) + "…</div>" +
-        '<div class="ag-obj">no calls for ' + fmtSecs(Date.now() - quietSince) + "</div>" +
-      "</div>";
+    nowEl.innerHTML = nowHtml("dots-three", word + "…");
+    objEl.hidden = true;
+    renderCount();
   }
 
   function renderDone() {
+    setPhase("done");
     nowEl.className = "ag-now is-done";
-    nowEl.innerHTML =
-      '<div class="ag-ring is-done"><i class="ph-bold ph-check"></i></div>' +
-      '<div class="ag-txt"><div class="ag-verb">Agent finished</div>' +
-      '<div class="ag-obj">' + total + " step" + (total === 1 ? "" : "s") +
-      " in " + fmtSecs(Date.now() - startedAt) +
-      (ctxTotal ? " &middot; " + fmtCtx(ctxTotal) : "") + "</div></div>";
+    nowEl.innerHTML = nowHtml("check", "Agent finished", true);
+    objEl.hidden = true;
+    renderCount();
   }
 
   function renderElsewhere() {
     clearInterval(wordT);
     wordT = null;
+    setPhase("away");
     nowEl.className = "ag-now is-away";
-    nowEl.innerHTML =
-      '<div class="ag-ring"><span class="ag-ring-sweep"></span>' +
-      '<i class="ph-bold ph-arrow-square-out"></i></div>' +
-      '<div class="ag-txt"><div class="ag-verb">Working elsewhere</div>' +
-      '<div class="ag-obj">on another dashboard</div></div>';
+    nowEl.innerHTML = nowHtml("arrow-square-out", "Working elsewhere");
+    objEl.hidden = true;
+    renderCount();
   }
 
+  function fmtClock(ms) {
+    var sec = Math.max(0, Math.round(ms / 1000));
+    return sec < 60 ? sec + " s" : Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
+  }
+
+  // The mono line under the verb: "Agent · 6 steps · 6 s quiet". Rewritten on
+  // a 200 ms tick while the run is open so the clock moves.
   function renderCount() {
-    countEl.textContent = total
-      ? total + " step" + (total === 1 ? "" : "s") + " · " + fmtSecs(Date.now() - startedAt)
-      : "";
+    var sub = nowEl && nowEl.querySelector(".ag-sub");
+    if (!sub) return;
+    var steps = total + " step" + (total === 1 ? "" : "s");
+    var tail;
+    if (phase === "done") {
+      sub.textContent = steps + " in " + fmtSecs(Date.now() - startedAt) +
+        (ctxTotal ? " · " + fmtCtx(ctxTotal) : "");
+      return;
+    }
+    if (phase === "away") tail = "on another dashboard";
+    else if (phase === "think") tail = fmtClock(Date.now() - quietSince) + " quiet";
+    else tail = fmtClock(Date.now() - startedAt);
+    sub.textContent = "Agent · " + steps + " · " + tail;
   }
 
   // ---- ticks ----------------------------------------------------------
@@ -317,6 +385,7 @@ window.PanelsAgentRail = (function () {
       (probe ? " is-probe" : "") +
       (step.status === "error" ? " is-err" : "") +
       (step.kind === "send" ? " is-send" : ""));
+    tick.setAttribute("role", "listitem");
     tick.dataset.n = "1";
     tick.dataset.ep = step.endpoint || "";
     tick.dataset.tok = String(step.tokens_est || 0);
@@ -357,7 +426,6 @@ window.PanelsAgentRail = (function () {
     clearInterval(wordT);
     wordT = null;
     card.hidden = false;
-    barEl.hidden = false;
     pill.hidden = false;
     pill.classList.add("is-live");
     clearInterval(tickT);
@@ -385,9 +453,7 @@ window.PanelsAgentRail = (function () {
     current = null;
     pill.classList.remove("is-live");
     pill.hidden = true;
-    barEl.hidden = true;
     renderDone();
-    renderCount();
   }
 
   // ``gapMs`` is how long the surface has ALREADY been quiet, which is only
@@ -470,5 +536,6 @@ window.PanelsAgentRail = (function () {
     });
   }
 
-  return { init: init };
+  // expand(true) opens the strip (the editor's phone Agent tab does).
+  return { init: init, expand: function (on) { if (card) setOpen(on); } };
 })();

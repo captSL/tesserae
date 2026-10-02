@@ -150,6 +150,7 @@
   {% block head_extra %}{% endblock %}
   {# Last, so the opt-in Paper design wins over page sheets. Inert unless
      <html data-ui="paper">, apart from the design switch's own styles. #}
+  <link rel="stylesheet" href="{{ url_for('static', filename='style/paper-tokens.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style/paper.css') }}">
 </head>
 <body class="admin{% if config.DEV_MODE %} dev-mode{% endif %}">
