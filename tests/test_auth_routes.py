@@ -280,3 +280,48 @@ def test_trusted_networks_env_var_merges_with_settings(app: Flask) -> None:
     assert _from(app.test_client(), "/renders/nope.png", "203.0.113.9").status_code == 404
     assert _from(app.test_client(), "/renders/nope.png", "2001:db8:abcd::9").status_code == 404
     assert _from(app.test_client(), "/renders/nope.png", "203.0.114.9").status_code == 403
+
+
+# -- forged forwarding headers ----------------------------------------------
+
+
+def _spoofed(client: FlaskClient, path: str, peer: str, forwarded_for: str):
+    return client.get(
+        path, environ_overrides={"REMOTE_ADDR": peer}, headers={"X-Forwarded-For": forwarded_for}
+    )
+
+
+def test_lan_client_cannot_pass_for_loopback_with_a_forwarding_header(app: Flask) -> None:
+    """A LAN client claiming ``X-Forwarded-For: 127.0.0.1`` used to pass the
+    loopback-only bypass (the renderer's /compose/ pages) without a session.
+    Loopback now means a direct connection from this machine."""
+    _gated(app)
+    _sign_in(app.test_client())
+    path = "/compose/nope"
+    assert _from(app.test_client(), path, "127.0.0.1").status_code != 403
+    assert _spoofed(app.test_client(), path, "192.168.1.50", "127.0.0.1").status_code == 403
+    # A proxy on this host relays everyone from 127.0.0.1 with the header set.
+    assert _spoofed(app.test_client(), path, "127.0.0.1", "203.0.113.9").status_code == 403
+
+
+def test_public_client_cannot_pass_for_lan_with_a_forwarding_header(app: Flask) -> None:
+    """With the password off, LAN clients reach the admin UI. A public client
+    setting ``X-Forwarded-For`` to a LAN address used to be believed; only a
+    proxy on this machine or the local network may name the real client."""
+    _gated(app)
+    _sign_in(app.test_client())
+    auth.set_password_disabled(_settings_store(app), True)
+    assert (
+        _spoofed(app.test_client(), "/settings/system", "203.0.113.9", "192.168.1.5").status_code
+        == 403
+    )
+    # A reverse proxy on the LAN still passes its LAN client through.
+    assert (
+        _spoofed(app.test_client(), "/settings/system", "192.168.1.2", "192.168.1.5").status_code
+        == 200
+    )
+    # And it can't make a public caller look local.
+    assert (
+        _spoofed(app.test_client(), "/settings/system", "192.168.1.2", "203.0.113.9").status_code
+        == 403
+    )

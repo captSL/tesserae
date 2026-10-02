@@ -369,6 +369,26 @@ def create_app(
             x_prefix=_forwarded_hops,
         )
 
+        class _UntrustedForwardedForMiddleware:
+            """Drop ``X-Forwarded-For`` unless the connection comes from a
+            proxy on this machine or the local network, before ProxyFix
+            reads it. Otherwise any client could set the header and be
+            taken for a LAN or loopback address by the auth gate. Scheme,
+            host and prefix headers are left alone: they shape links, not
+            who the caller is."""
+
+            def __init__(self, inner: Any) -> None:
+                self._inner = inner
+
+            def __call__(self, environ: dict[str, Any], start_response: Any) -> Any:
+                from app.auth import peer_may_forward
+
+                if not peer_may_forward(environ.get("REMOTE_ADDR")):
+                    environ.pop("HTTP_X_FORWARDED_FOR", None)
+                return self._inner(environ, start_response)
+
+        app.wsgi_app = _UntrustedForwardedForMiddleware(app.wsgi_app)  # type: ignore[method-assign]
+
     # Resolve the running package version. Prefer pyproject.toml on disk
     # (so a source checkout reflects post-pip-install bumps) and fall
     # back to importlib.metadata for installed wheels. Used by the

@@ -80,6 +80,17 @@ All notable changes to Tesserae are recorded here. Format loosely follows
   title is the one splash of colour; and every form control is one height
   (40px, 44px on phones, 32px inside list rows).
 
+### Security
+
+- A client could set `X-Forwarded-For` to pass for this machine or for
+  the local network. From the network, claiming `127.0.0.1` opened the
+  pages kept for the built-in renderer (`/compose/`, the theme
+  stylesheets) without signing in; from the internet, claiming a LAN
+  address got past the network check on installs with the password
+  turned off. Only a reverse proxy on this machine or the local network
+  may now say who the real client is, and "this machine" means a direct
+  connection with no forwarding headers.
+
 ## [0.436.1], 2026-10-01
 
 ### Added

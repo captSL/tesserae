@@ -376,11 +376,40 @@ def _canonical_ip(addr: str | None) -> ipaddress.IPv4Address | ipaddress.IPv6Add
     return ip
 
 
+# Headers a reverse proxy adds when it relays a request. Their presence means
+# the real caller is somewhere else, whatever address the request arrives from.
+_FORWARDING_HEADERS: Final[tuple[str, ...]] = ("X-Forwarded-For", "Forwarded", "X-Real-IP")
+
+
+def _direct_peer() -> str | None:
+    """The address that actually opened the connection, before ProxyFix
+    rewrote ``remote_addr`` from ``X-Forwarded-For``."""
+    orig = request.environ.get("werkzeug.proxy_fix.orig") or {}
+    return orig.get("REMOTE_ADDR") or request.remote_addr
+
+
 def _is_loopback() -> bool:
-    if request.remote_addr in _LOOPBACK_HOSTS:
+    """A caller on this machine that connected directly. Judged on the real
+    peer address with no forwarding headers, so neither a forged
+    ``X-Forwarded-For: 127.0.0.1`` from the network nor a reverse proxy on
+    the same host (which relays everyone from 127.0.0.1) passes as local.
+    The in-process renderer and a co-located agent send none of these."""
+    if any(request.headers.get(h) for h in _FORWARDING_HEADERS):
+        return False
+    peer = _direct_peer()
+    if peer in _LOOPBACK_HOSTS:
         return True
-    ip = _canonical_ip(request.remote_addr)
+    ip = _canonical_ip(peer)
     return ip is not None and ip.is_loopback
+
+
+def peer_may_forward(addr: str | None) -> bool:
+    """Whether a direct peer at ``addr`` is allowed to tell us who the real
+    client is via ``X-Forwarded-For``: only a proxy on this machine or the
+    local network. A peer on a public address could otherwise claim to be a
+    LAN client and walk past the network checks below."""
+    ip = _canonical_ip(addr)
+    return ip is not None and any(ip in net for net in _PRIVATE_NETWORKS)
 
 
 def _is_private_client() -> bool:

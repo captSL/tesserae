@@ -185,6 +185,7 @@ def _direct_loopback() -> bool:
     proxy on the same host would make every caller look local. A co-located
     agent talks to Tesserae directly and sends none of these headers.
     """
+    # app.auth._is_loopback applies the same rule for every loopback check.
     if any(request.headers.get(h) for h in _FORWARDING_HEADERS):
         return False
     return _is_loopback()
