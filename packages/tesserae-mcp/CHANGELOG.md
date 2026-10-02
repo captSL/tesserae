@@ -16,6 +16,17 @@ main [CHANGELOG](../../CHANGELOG.md) for the server side of each change.
 
 ## [Unreleased]
 
+## [0.18.1], 2026-10-02
+
+### Changed
+
+- Messages and docs no longer talk about an "mcp experiment". Agent access is a
+  regular Tesserae feature, on by default from Tesserae 0.439.0, so the
+  connection error now asks whether agent access is switched on in
+  Settings → System → MCP.
+
+## [0.18.0], 2026-09-27
+
 ### Added
 
 - `list_widgets(q=, fields=)`. `q` asks Tesserae for only the widgets whose key,
@@ -24,6 +35,8 @@ main [CHANGELOG](../../CHANGELOG.md) for the server side of each change.
   weather no longer pays for the whole catalog. Needs Tesserae 0.430.0 or later
   for the server side; an older server ignores the parameters and returns the
   usual summary.
+
+## [0.17.1], 2026-09-24
 
 ### Fixed
 

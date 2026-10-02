@@ -80,6 +80,12 @@ All notable changes to Tesserae are recorded here. Format loosely follows
   title is the one splash of colour; and every form control is one height
   (40px, 44px on phones, 32px inside list rows).
 
+### Changed (bridge)
+
+- Settings › System › MCP now expects the `tesserae-mcp` bridge 0.18.1, whose
+  messages no longer mention an "mcp experiment"; `pipx upgrade tesserae-mcp`
+  picks it up.
+
 ### Security
 
 - A client could set `X-Forwarded-For` to pass for this machine or for

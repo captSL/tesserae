@@ -5,7 +5,8 @@ tools an agent uses to build **freeform (canvas) dashboards**: discover widgets
 and devices, create + edit a canvas, **render a preview image** to check its own
 work, and push to a panel.
 
-Tesserae side: enable the ``mcp`` experiment under Settings → System → MCP.
+Tesserae side: agent access is on by default (Settings → System → MCP holds the
+switch and the token).
 
 Config via environment:
 - ``TESSERAE_URL``        base URL of a running Tesserae (default http://127.0.0.1:8765)
@@ -25,7 +26,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-__version__ = "0.18.0"
+__version__ = "0.18.1"
 
 _BASE = os.environ.get("TESSERAE_URL", "http://127.0.0.1:8765").rstrip("/")
 _TOKEN = os.environ.get("TESSERAE_MCP_TOKEN", "").strip()
@@ -295,8 +296,8 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None) -> tupl
     except urllib.error.URLError as exc:
         detail = getattr(exc, "reason", exc)
         raise RuntimeError(
-            f"Cannot reach Tesserae at {_BASE} ({detail}). Is it running, and is the "
-            f"'mcp' experiment enabled in Settings → System → MCP?"
+            f"Cannot reach Tesserae at {_BASE} ({detail}). Is it running, and is agent "
+            f"access switched on in Settings → System → MCP?"
         ) from exc
 
 
@@ -415,7 +416,7 @@ def _fetch_docs() -> dict[str, Any]:
     with, so we can tell the agent this bridge is behind).
 
     Returns whichever of those it could read, or ``{}`` on any failure --
-    unreachable server, ``mcp`` experiment off (404), an older Tesserae without
+    unreachable server, agent access switched off (404), an older Tesserae without
     the endpoint, or a payload schema this bridge doesn't understand. The caller
     falls back to the embedded copy per key, so the bridge always works offline.
     """
@@ -1215,7 +1216,7 @@ def build_server() -> Any:
 
     # Prefer the running server's docs (so a Tesserae-side copy change needs no
     # bridge republish); fall back to the embedded copy per key when it's
-    # unreachable, the mcp experiment is off, or the server predates the endpoint.
+    # unreachable, agent access is switched off, or the server predates the endpoint.
     docs = _fetch_docs()
     instructions = docs.get("instructions") or _INSTRUCTIONS
     doc_shape = docs.get("doc_shape") or _DOC_SHAPE

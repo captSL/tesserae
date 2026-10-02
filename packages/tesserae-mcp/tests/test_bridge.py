@@ -107,7 +107,7 @@ def test_fetch_docs_prefers_server_copy(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_fetch_docs_falls_back_when_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An unreachable / experiment-off server leaves the embedded copy in place."""
+    """An unreachable server, or one with agent access off, leaves the embedded copy in place."""
 
     def _boom(*a, **k):
         raise RuntimeError("cannot reach Tesserae")
