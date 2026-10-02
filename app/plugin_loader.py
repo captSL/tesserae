@@ -517,6 +517,18 @@ def _scan_plugin_dir(
         logger.info("Loaded plugin %s (kind=%s)", plugin_id, manifest["kind"])
 
 
+def _plugin_source(plugin: Plugin, data_root: Path) -> str:
+    """Where a loaded plugin came from, for the Widgets page's filter:
+    "catalog" (installed from the catalog into the data volume), "authored"
+    (pushed by an authoring client, also under the data volume) or
+    "bundled" (shipped with Tesserae)."""
+    try:
+        rel = plugin.path.resolve().relative_to(data_root.resolve())
+    except (OSError, ValueError):
+        return "bundled"
+    return "catalog" if rel.parts[:1] == ("marketplace",) else "authored"
+
+
 def register_routes(app: Flask, registry: PluginRegistry) -> None:
     """Register per-plugin static asset routes and any plugin-provided blueprints."""
     bp = Blueprint("plugins", __name__)
@@ -540,6 +552,7 @@ def register_routes(app: Flask, registry: PluginRegistry) -> None:
             "plugins_index.html",
             plugins=sorted(reg.plugins.values(), key=lambda p: (p.kind, p.name.lower())),
             errors=[_describe_error(err, reg, data_root) for err in reg.errors],
+            plugin_sources={p.id: _plugin_source(p, data_root) for p in reg.plugins.values()},
         )
 
     @bp.get("/<plugin_id>/<path:asset>")

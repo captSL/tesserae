@@ -51,6 +51,7 @@ from werkzeug.wrappers import Response
 from app.composer import _hydrate_page
 from app.layouts import LAYOUTS, LAYOUTS_BY_SLUG, detect_layout, to_panel_pixels
 from app.panel import (
+    device_panel,
     fit_cells_to_panel,
     preview_groups_for_page,
     resolve_panel_for_page,
@@ -844,10 +845,9 @@ def _lineups_by_page() -> dict[str, list[str]]:
     return out
 
 
-def _pages_on_glass(devices: Any) -> dict[str, list[str]]:
-    """Display names keyed by the dashboard each display is showing right
-    now, for the Dashboards list's live dot and "On the panel" state. Same
-    resolution as the Lineups screen (nav record, then the last served
+def _shown_by_device() -> dict[str, str]:
+    """The dashboard each display is showing right now, keyed by device id.
+    Same resolution as the Lineups screen (nav record, then the last served
     render). Empty when it cannot be worked out; the list then reads idle."""
     try:
         from app.deck_routes import _live_map
@@ -856,14 +856,39 @@ def _pages_on_glass(devices: Any) -> dict[str, list[str]]:
     except Exception:
         current_app.logger.exception("dashboards list: resolving what each panel shows failed")
         return {}
+    return {device_id: page_id for device_id, (_deck_id, page_id) in live.items() if page_id}
+
+
+def _pages_on_glass(devices: Any, shown: dict[str, str] | None = None) -> dict[str, list[str]]:
+    """Display names keyed by the dashboard each display is showing right
+    now, for the Dashboards list's live dot and "On the panel" state."""
+    if shown is None:
+        shown = _shown_by_device()
     out: dict[str, list[str]] = {}
-    for device_id, (_deck_id, page_id) in live.items():
-        if not page_id:
-            continue
+    for device_id, page_id in shown.items():
         device = devices.devices.get(device_id) if devices is not None else None
         name = device.display_name if device is not None else device_id
         out.setdefault(page_id, []).append(name)
     return out
+
+
+def _device_health(device_id: str) -> str:
+    """ok / warn / stale / unknown from the last heartbeat, the same
+    freshness bands as the Devices table's status dot."""
+    try:
+        from app.settings._shared import STATUS_FRESH_S, STATUS_WARN_S, device_status
+
+        cache = device_status().get(device_id)
+    except Exception:
+        return "unknown"
+    if not cache:
+        return "unknown"
+    age = max(0.0, time.time() - float(cache.get("received_at", 0) or 0))
+    if age <= STATUS_FRESH_S:
+        return "ok"
+    if age <= STATUS_WARN_S:
+        return "warn"
+    return "stale"
 
 
 @bp.get("")
@@ -912,7 +937,38 @@ def index() -> str:
             for did in dict.fromkeys(page.device_ids)
             if devices is not None and devices.devices.get(did) is not None
         ]
-    page_live = _pages_on_glass(devices)
+    shown = _shown_by_device()
+    page_live = _pages_on_glass(devices, shown)
+    page_live_ids: dict[str, list[str]] = {}
+    for device_id, page_id in shown.items():
+        page_live_ids.setdefault(page_id, []).append(device_id)
+    names_by_id = {p.id: p.name for p in all_pages}
+    # One group per display the list's dashboards are bound to (a dashboard
+    # bound to several shows under each), then "Not on a panel".
+    dash_groups: list[dict[str, Any]] = []
+    for device, group in page_groups:
+        if device is None:
+            dash_groups.append(
+                {"key": "-", "device": None, "name": "Not on a panel", "pages": group}
+            )
+            continue
+        try:
+            panel = device_panel(device)
+        except (KeyError, TypeError, ValueError):
+            panel = None
+        showing = shown.get(device.id)
+        dash_groups.append(
+            {
+                "key": device.id,
+                "device": device,
+                "name": device.display_name,
+                "health": _device_health(device.id),
+                "size": f"{panel.w}×{panel.h}" if panel is not None else "",
+                "showing": names_by_id.get(showing, showing) if showing else "",
+                "url": url_for("auth.device_page", instance_id=device.id),
+                "pages": group,
+            }
+        )
     # "Last pushed" per page for the redesigned Dashboards list. One
     # SQL roundtrip aggregates MAX(timestamp) per target across every
     # successful push row; targets with no row are absent (and
@@ -955,6 +1011,9 @@ def index() -> str:
         page_device_ids=page_device_ids,
         page_live=page_live,
         page_last_pushed_rel=page_last_pushed_rel,
+        page_last_pushed=page_last_pushed,
+        page_live_ids=page_live_ids,
+        dash_groups=dash_groups,
         page_preview_tokens=page_preview_tokens,
         composer_enabled=experiments.is_enabled("composer"),
     )

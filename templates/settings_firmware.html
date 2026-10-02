@@ -48,22 +48,51 @@
 
 {# ---- Unified device list ------------------------------------------------- #}
 {% if device_rows %}
-<section class="card">
+<section class="card" data-lf="firmware">
   {{ card_head('Devices', icon_name='device-tablet', level=2) }}
+  <div class="lf-tb fw-tb">
+    <label class="dx-devtb-search">
+      <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+      <input type="search" placeholder="Search devices" aria-label="Search devices"
+             autocomplete="off" spellcheck="false" data-lf-search>
+    </label>
+    <select class="dx-devtb-select" aria-label="Filter by status" data-lf-filter="status">
+      <option value="">Any status</option>
+      <option value="attention">Needs attention</option>
+      <option value="available">Update available</option>
+      <option value="busy">Queued or updating</option>
+      <option value="current">Up to date</option>
+      <option value="usb">Updates over USB</option>
+      <option value="unknown">No heartbeat yet</option>
+    </select>
+    <select class="dx-devtb-select" aria-label="Filter by automatic updates" data-lf-filter="auto">
+      <option value="">Automatic or not</option>
+      <option value="on">Automatic updates on</option>
+      <option value="off">Automatic updates off</option>
+    </select>
+    <span class="lf-count" data-lf-count data-lf-noun="device" aria-live="polite">{{ device_rows|length }} device{{ '' if device_rows|length == 1 else 's' }}</span>
+  </div>
   <table class="fw-table">
     <thead>
       <tr>
-        <th>Device</th>
-        <th>Installed</th>
-        <th>Available</th>
-        <th>Status</th>
-        <th>Auto</th>
+        <th data-lf-sort-key="name">Device</th>
+        <th data-lf-sort-key="installed">Installed</th>
+        <th data-lf-sort-key="available">Available</th>
+        <th data-lf-sort-key="status">Status</th>
+        <th data-lf-sort-key="auto" data-lf-sort-type="num">Auto</th>
         <th></th>
       </tr>
     </thead>
     <tbody>
       {% for d in device_rows %}
-      <tr{% if d.needs_attention %} class="fw-row--attention"{% endif %}>
+      {% set _st = 'unknown' if not d.known else ('usb' if not d.capable else (('busy' if d.pill_class != 'is-danger' else 'attention') if d.phase else ('busy' if d.queued else ('available' if d.update_available else ('current' if d.fw_version else 'unknown'))))) %}
+      <tr{% if d.needs_attention %} class="fw-row--attention"{% endif %} data-lf-item
+          data-lf-text="{{ (d.name ~ ' ' ~ d.kind_name ~ ' ' ~ d.id ~ ' ' ~ (d.fw_version or '') ~ ' ' ~ (d.available_fw or ''))|lower }}"
+          data-lf-status="{{ _st }}{{ ' attention' if d.needs_attention and _st != 'attention' else '' }}"
+          data-lf-auto="{{ 'on' if d.capable and d.auto else 'off' }}"
+          data-sort-name="{{ d.name }}" data-sort-installed="{{ d.fw_version or '' }}"
+          data-sort-available="{{ d.available_fw or '' }}" data-sort-status="{{ _st }}"
+          data-sort-auto="{{ (1 if d.auto else 0) if d.capable else '' }}">
         <td class="fw-cell-name">
           <span>{{ d.name }}</span>
           <span class="dx-status-muted">{{ d.kind_name }}</span>
@@ -135,6 +164,7 @@
       {% endfor %}
     </tbody>
   </table>
+  <p class="lf-empty" data-lf-empty hidden>No devices match.</p>
 </section>
 {% else %}
 {{ empty_state('download-simple', 'No devices yet',

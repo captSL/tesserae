@@ -182,6 +182,164 @@
   :root[data-ui="paper"] body:has(.topbar > .topbar-batteries--topbar) .editor-header { padding-right: 112px; }
 }
 
+/* ----- Shell: the sidebar folds to an icon rail ---------------------- */
+/* The toggle at the sidebar foot puts .sidebar-collapsed on <html> (the
+   head script restores it before paint). Folded, the sidebar is the
+   canvas editor's 64px rail: the logo and one 44px square per item, the
+   labels gone (a tooltip names each item, see _base.html), dropdowns as
+   flyouts to the right. Everything that measures from the sidebar
+   (the page's left padding, the Settings column) follows the token. */
+.sidebar-toggle,
+.rail-tip { display: none; }
+@media (min-width: 901px) {
+  :root[data-ui="paper"].sidebar-collapsed { --p-sidebar-w: 64px; }
+  /* Only while the toggle is moving it (the script sets the class for the
+     length of the slide), so a page load never animates the sidebar in. */
+  :root[data-ui="paper"].sidebar-sliding body.admin,
+  :root[data-ui="paper"].sidebar-sliding .topbar,
+  :root[data-ui="paper"].sidebar-sliding .settings-nav {
+    transition: padding-left 200ms var(--p-ease), width 200ms var(--p-ease), left 200ms var(--p-ease);
+  }
+
+  :root[data-ui="paper"] .sidebar-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 12px;
+    width: 100%;
+    height: 40px;
+    flex: none;
+    margin: 0;
+    padding: 0 var(--t-space-3);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    color: var(--t-fg-soft);
+    font-size: 13px;
+    font-weight: 500;
+  }
+  :root[data-ui="paper"] .sidebar-toggle:hover { background: var(--p-hover); color: var(--t-fg); transform: none; }
+  :root[data-ui="paper"] .sidebar-toggle .ph { font-size: 19px; }
+
+  :root[data-ui="paper"].sidebar-collapsed .topbar {
+    align-items: center;
+    padding: 14px 0;
+    gap: 6px;
+  }
+  :root[data-ui="paper"].sidebar-collapsed .brand {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    margin-bottom: 12px;
+    justify-content: center;
+    gap: 0;
+  }
+  :root[data-ui="paper"].sidebar-collapsed .brand-mark,
+  :root[data-ui="paper"].sidebar-collapsed .brand-mark svg { width: 30px; height: 30px; }
+  :root[data-ui="paper"].sidebar-collapsed .brand-name { display: none; }
+  :root[data-ui="paper"].sidebar-collapsed .topnav { align-items: center; gap: 6px; width: 100%; }
+  /* Every item becomes a 44px square holding its icon. */
+  :root[data-ui="paper"].sidebar-collapsed .topnav > a,
+  :root[data-ui="paper"].sidebar-collapsed .topnav .nav-dropdown > summary,
+  :root[data-ui="paper"].sidebar-collapsed .topnav .theme-toggle--drawer,
+  :root[data-ui="paper"].sidebar-collapsed .topnav .ui-switch--nav,
+  :root[data-ui="paper"].sidebar-collapsed .topbar > .topbar-discovered--topbar,
+  :root[data-ui="paper"].sidebar-collapsed .topbar-restart,
+  :root[data-ui="paper"].sidebar-collapsed .sidebar-toggle {
+    position: relative;
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    padding: 0;
+    gap: 0;
+    justify-content: center;
+    align-self: center;
+  }
+  :root[data-ui="paper"].sidebar-collapsed .topnav .nav-dropdown { align-self: center; }
+  :root[data-ui="paper"].sidebar-collapsed .topnav > a .ph,
+  :root[data-ui="paper"].sidebar-collapsed .topnav .nav-dropdown > summary .ph { font-size: 20px; }
+  :root[data-ui="paper"].sidebar-collapsed .topnav > a > span,
+  :root[data-ui="paper"].sidebar-collapsed .topnav .nav-dropdown > summary > span,
+  :root[data-ui="paper"].sidebar-collapsed .topnav .nav-dropdown .caret-soft,
+  :root[data-ui="paper"].sidebar-collapsed .topnav .theme-toggle-label,
+  :root[data-ui="paper"].sidebar-collapsed .topnav .ui-switch-label,
+  :root[data-ui="paper"].sidebar-collapsed .topbar-discovered-label,
+  :root[data-ui="paper"].sidebar-collapsed .topbar-restart-label,
+  :root[data-ui="paper"].sidebar-collapsed .topbar-optin-no-label,
+  :root[data-ui="paper"].sidebar-collapsed .topbar-optin-yes .topbar-restart-label,
+  :root[data-ui="paper"].sidebar-collapsed .sidebar-toggle-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  /* The update badges keep their dot on the icon's corner. */
+  :root[data-ui="paper"].sidebar-collapsed .topnav > a.topbar-update .topbar-update-dot { position: absolute; top: 9px; right: 9px; margin: 0; }
+  /* New devices: the count rides on the icon. */
+  :root[data-ui="paper"].sidebar-collapsed .topbar > .topbar-discovered--topbar .tg-count {
+    position: absolute;
+    top: 4px;
+    right: 2px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 3px;
+    font-size: 10px;
+    line-height: 16px;
+  }
+  /* The design switch is just its track. */
+  :root[data-ui="paper"].sidebar-collapsed .topnav .ui-switch--nav { border-radius: 0; }
+  :root[data-ui="paper"].sidebar-collapsed .topnav .theme-toggle--drawer { margin-top: auto; }
+  /* The opt-in prompt becomes two icon buttons, one under the other. */
+  :root[data-ui="paper"].sidebar-collapsed .topbar-optin { width: 44px; align-self: center; align-items: center; }
+  :root[data-ui="paper"].sidebar-collapsed .topbar-optin button { width: 44px; height: 44px; padding: 0; justify-content: center; }
+  :root[data-ui="paper"].sidebar-collapsed .topbar-optin-no > .ph { display: inline-block; font-size: 18px; }
+  /* The fold toggle flips to point back out. */
+  :root[data-ui="paper"].sidebar-collapsed .sidebar-toggle-icon { transform: scaleX(-1); }
+
+  /* Dropdowns fly out to the right of the rail. */
+  :root[data-ui="paper"].sidebar-collapsed .topnav .nav-dropdown-panel {
+    position: fixed;
+    top: var(--flyout-top, 120px);
+    left: calc(var(--p-sidebar-w) + 8px);
+    z-index: 700;
+    min-width: 220px;
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
+    margin: 0;
+    padding: 6px;
+    border: 1px solid var(--p-sheet-edge);
+    border-radius: 2px;
+    background: var(--t-surface);
+    box-shadow: none;
+  }
+  :root[data-ui="paper"].sidebar-collapsed .topnav .nav-dropdown-link { padding: 9px 10px; }
+
+  /* The tooltip: a small ink label to the right of the rail. */
+  :root[data-ui="paper"] .rail-tip {
+    display: block;
+    position: fixed;
+    z-index: 800;
+    transform: translateY(-50%);
+    padding: 5px 9px;
+    border-radius: 2px;
+    background: var(--t-fg);
+    color: var(--t-bg);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  :root[data-ui="paper"] .rail-tip[hidden] { display: none; }
+}
+@media (min-width: 901px) and (prefers-reduced-motion: reduce) {
+  :root[data-ui="paper"].sidebar-sliding body.admin,
+  :root[data-ui="paper"].sidebar-sliding .topbar,
+  :root[data-ui="paper"].sidebar-sliding .settings-nav { transition: none; }
+}
+
 /* ----- Shell: phones and small tablets ------------------------------- */
 
 @media (max-width: 900px) {
@@ -564,6 +722,13 @@
 :root[data-ui="paper"] .dx-dashtable .dx-qtile-value { font-size: 22px; letter-spacing: -0.02em; }
 :root[data-ui="paper"] .dx-dashtable .dx-qtile-sub { font-family: var(--t-font); font-size: 12px; color: var(--t-fg-soft); }
 :root[data-ui="paper"] .dx-dash-chev { color: var(--t-fg); }
+/* Display groups: a shaded band with the name in the sheet's ink. */
+:root[data-ui="paper"] .dx-dashgroup-head { background: var(--t-surface-soft); border-bottom-color: var(--t-border); }
+:root[data-ui="paper"] .dx-dashgroup-head:hover { background: var(--p-hover); }
+:root[data-ui="paper"] .dx-dashgroup-name { font-size: 15px; letter-spacing: -0.01em; }
+:root[data-ui="paper"] .dx-dashgroup-fold,
+:root[data-ui="paper"] .dx-dashgroup-link { color: var(--t-fg); }
+:root[data-ui="paper"] .dx-dashgroup-meta { color: var(--t-fg-soft); }
 :root[data-ui="paper"] .dx-dashquick-ctls .dx-updates-ctl select { border-color: var(--t-border-strong); }
 @container dashtable (max-width: 720px) {
   :root[data-ui="paper"] .dx-dashquick-preview { height: auto; aspect-ratio: 5 / 3; max-height: 220px; }

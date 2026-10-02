@@ -3718,6 +3718,75 @@ select.dx-input:hover {
   font-weight: 600;
   width: auto;
 }
+/* ---- List toolbars: search, filters, sort, count -------------------- */
+/* The same toolbar on every list (static/list-filter.js does the work):
+   the devices search box and selects, a count pushed to the right and an
+   optional hint line under it. */
+[data-lf-out] { display: none !important; }
+.lf-tb {
+  --dx-faint: var(--t-muted);
+  --dx-mono: var(--t-font-mono);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 0 0 16px;
+  min-width: 0;
+}
+.lf-tb .dx-devtb-search { flex: 1 1 200px; width: auto; max-width: 320px; min-width: 0; }
+.lf-tb .dx-devtb-select { flex: 0 1 auto; min-width: 0; max-width: 220px; text-overflow: ellipsis; }
+.lf-count {
+  margin-left: auto;
+  font-family: var(--t-font-mono);
+  font-size: 12px;
+  color: var(--t-muted);
+  white-space: nowrap;
+}
+.lf-hint { flex-basis: 100%; margin: 0; font-size: 12px; color: var(--t-muted); }
+.lf-empty { padding: 22px 20px; font-size: 13px; color: var(--t-muted); text-align: center; }
+.lf-empty[hidden] { display: none; }
+@media (max-width: 600px) {
+  .lf-tb .dx-devtb-search { flex: 1 1 100%; max-width: none; }
+  .lf-tb .dx-devtb-select { flex: 1 1 0; max-width: none; }
+  .lf-count { flex-basis: 100%; margin-left: 0; }
+}
+/* Lists made of several section cards (Widgets) stack them with a gap, so
+   a group the filter hides leaves no double margin behind. */
+.lf-stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.lf-stack > .lf-tb { margin: 0; }
+.lf-stack > * > .dx-section-card { margin: 0; }
+.dx-section-card + .lf-stack { margin-top: 16px; }
+/* Narrow columns (the themes strip) stack the toolbar. */
+.lf-tb--stack .dx-devtb-search,
+.lf-tb--stack .dx-devtb-select { flex: 1 1 100%; max-width: none; width: 100%; }
+.lf-tb--stack .lf-count { flex-basis: 100%; margin-left: 0; }
+
+/* Sortable column heads: the label becomes a button with a caret. */
+.lf-sortable { overflow: visible; }
+.lf-sort-btn,
+.lf-sort-btn:hover,
+.lf-sort-btn:active {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  white-space: nowrap;
+}
+.lf-sort-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.lf-sort-btn:hover { color: var(--t-fg); }
+.lf-sort-btn:focus-visible { outline: 2px solid var(--t-accent); outline-offset: 2px; }
+/* The caret only shows on the sorted column, so unsorted heads keep their
+   full width for the label. */
+.lf-caret { flex: none; font-size: 11px; display: none; }
+.lf-sortable.is-sorted { color: var(--t-fg); }
+.lf-sortable.is-sorted .lf-caret { display: inline-block; }
+
 .dx-devadd { margin: 0 0 16px; }
 .dx-devadd[hidden] { display: none; }
 .dx-devadd > .dx-section-card { margin: 0; }

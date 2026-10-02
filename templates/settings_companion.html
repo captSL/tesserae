@@ -126,14 +126,38 @@
     {% endif %}
 
     {% if companion_sessions %}
-    <div class="dx-pending-codes">
+    <div class="dx-pending-codes" data-lf="companion-apps">
       <div class="dx-discovered-sublabel">
         <span>PAIRED APPS</span>
         <span class="tg-count">{{ companion_sessions|length }}</span>
       </div>
+      <div class="lf-tb companion-tb">
+        <label class="dx-devtb-search">
+          <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+          <input type="search" placeholder="Search paired apps" aria-label="Search paired apps"
+                 autocomplete="off" spellcheck="false" data-lf-search>
+        </label>
+        <select class="dx-devtb-select" aria-label="Filter by extra access" data-lf-filter="access">
+          <option value="">Any access</option>
+          {% for opt in companion_sessions[0].optional %}<option value="{{ opt.scope|replace(':', '-') }}">{{ opt.label }}</option>{% endfor %}
+          <option value="none">No extras</option>
+        </select>
+        <select class="dx-devtb-select" aria-label="Sort" data-lf-sort>
+          <option value="">Pairing order</option>
+          <option value="name:asc">Name A to Z</option>
+          <option value="used:desc">Last used</option>
+          <option value="paired:desc">Newest pairing</option>
+        </select>
+        <span class="lf-count" data-lf-count data-lf-noun="app" aria-live="polite">{{ companion_sessions|length }} app{{ '' if companion_sessions|length == 1 else 's' }}</span>
+      </div>
       <ul class="dx-discovered-list">
         {% for c in companion_sessions %}
-        <li class="dx-discovered-row">
+        <li class="dx-discovered-row" data-lf-item
+            data-lf-text="{{ (c.name ~ ' ' ~ (c.note or ''))|lower }}"
+            {% set _granted = c.optional|selectattr('granted')|map(attribute='scope')|map('replace', ':', '-')|list %}
+            data-lf-access="{{ _granted|join(' ') if _granted else 'none' }}"
+            data-sort-name="{{ c.name }}" data-sort-used="{{ c.last_used_at or '' }}"
+            data-sort-paired="{{ c.created_at or '' }}">
           <div class="dx-discovered-info">
             <div class="dx-discovered-id">{{ c.name }}{% if c.note %} <span class="companion-note">· {{ c.note }}</span>{% endif %}</div>
             <div class="dx-discovered-meta">

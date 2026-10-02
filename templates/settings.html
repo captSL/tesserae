@@ -858,9 +858,33 @@ docker compose up -d</code></pre>
         <span>Existing backups</span>
         <span class="tg tg--sm tg--mono">{{ system_backups | length }}</span>
       </summary>
+      {% set _labels = system_backups|map(attribute='label')|unique|list %}
+      <div data-lf="backups">
+      <div class="lf-tb backups-tb">
+        <label class="dx-devtb-search">
+          <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+          <input type="search" placeholder="Search backups" aria-label="Search backups"
+                 autocomplete="off" spellcheck="false" data-lf-search>
+        </label>
+        {% if _labels|length > 1 %}
+        <select class="dx-devtb-select" aria-label="Filter by kind" data-lf-filter="label">
+          <option value="">Every kind</option>
+          {% for l in _labels %}<option value="{{ l|replace(' ', '_') }}">{{ l }}</option>{% endfor %}
+        </select>
+        {% endif %}
+        <select class="dx-devtb-select" aria-label="Sort" data-lf-sort>
+          <option value="">Newest first</option>
+          <option value="time:asc" data-type="num">Oldest first</option>
+          <option value="size:desc" data-type="num">Largest first</option>
+        </select>
+        <span class="lf-count" data-lf-count data-lf-noun="backup" aria-live="polite">{{ system_backups|length }} backup{{ '' if system_backups|length == 1 else 's' }}</span>
+      </div>
       <ul class="backup-list">
         {% for b in system_backups %}
-        <li class="card card--compact backup-row">
+        <li class="card card--compact backup-row" data-lf-item
+            data-lf-text="{{ (b.id ~ ' ' ~ b.label ~ ' ' ~ (b.note or ''))|lower }}"
+            data-lf-label="{{ b.label|replace(' ', '_') }}"
+            data-sort-time="{{ b.created_at }}" data-sort-size="{{ b.bytes }}">
           <div class="backup-meta">
             <div class="backup-top">
               <code>{{ b.id }}</code>
@@ -881,6 +905,8 @@ docker compose up -d</code></pre>
         </li>
         {% endfor %}
       </ul>
+      <p class="lf-empty" data-lf-empty hidden>No backups match.</p>
+      </div>
     </details>
     {% else %}
     <p class="lede">No backups yet.</p>

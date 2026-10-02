@@ -52,11 +52,34 @@
 {% call section_card(icon='pulse', title='Event timeline',
                      description='Click any row to expand the raw event payload — useful for diagnosing scheduler decisions, condition holds, or render errors.',
                      meta={'label': '', 'value': rows|length}) %}
+  <div data-lf="events">
   <div class="dx-events-toolbar">
     <span class="dx-listening" data-live-indicator data-state="connecting">
       <span class="dx-listening-dot"></span>
       <span class="dx-listening-label">Connecting…</span>
     </span>
+  </div>
+  {# Search, status and sort act on the events loaded here (live ones
+     included); the type tabs above ask the server. #}
+  <div class="lf-tb dx-events-tb">
+    <label class="dx-devtb-search">
+      <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+      <input type="search" placeholder="Search these events" aria-label="Search these events"
+             autocomplete="off" spellcheck="false" data-lf-search>
+    </label>
+    <select class="dx-devtb-select" aria-label="Filter by status" data-lf-filter="level">
+      <option value="">Any status</option>
+      <option value="ok">OK</option>
+      <option value="warn">Busy or denied</option>
+      <option value="error">Errors</option>
+    </select>
+    <select class="dx-devtb-select" aria-label="Sort" data-lf-sort>
+      <option value="">Newest first</option>
+      <option value="time:asc" data-type="num">Oldest first</option>
+      <option value="dur:desc" data-type="num">Slowest first</option>
+    </select>
+    <span class="lf-count" data-lf-count data-lf-noun="event" aria-live="polite">{{ rows|length }} event{{ '' if rows|length == 1 else 's' }}</span>
+    <p class="lf-hint">Covers the newest {{ limit }} events of this type, new ones included as they arrive.</p>
   </div>
 
   {% if not rows %}
@@ -68,7 +91,11 @@
   {% else %}
   <ul class="dx-discovered-list dx-events-list">
     {% for ev in rows %}
-    <li class="dx-inset-row dx-event-row dx-event-row--{{ ev.type }}" data-event-id="{{ ev.id }}">
+    <li class="dx-inset-row dx-event-row dx-event-row--{{ ev.type }}" data-event-id="{{ ev.id }}"
+        data-lf-item
+        data-lf-text="{{ (ev.type ~ ' ' ~ ev.status ~ ' ' ~ ev.source ~ ' ' ~ ev.target ~ ' ' ~ (ev.error or '') ~ ' ' ~ (ev.digest or ''))|lower }}"
+        data-lf-level="{{ 'ok' if ev.status in ('sent', 'ok') else ('warn' if ev.status in ('busy', 'denied') else 'error') }}"
+        data-sort-time="{{ ev.timestamp }}" data-sort-dur="{{ ev.duration_s or 0 }}">
       <button type="button" class="dx-event-summary" data-event-toggle aria-expanded="false">
         <span class="dx-event-icon"><i class="ph ph-{{ TYPE_ICONS.get(ev.type, 'circle') }}" aria-hidden="true"></i></span>
         <div class="dx-event-body">
@@ -197,6 +224,8 @@
     {% endfor %}
   </ul>
   {% endif %}
+  <div class="lf-empty" data-lf-empty hidden>No events here match.</div>
+  </div>
 {% endcall %}
 
 <script type="module" src="{{ url_for('static', filename='pages/json-highlight.js') }}"></script>

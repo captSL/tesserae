@@ -175,28 +175,17 @@
       });
     });
 
-    // Search + transport filter: client-side, over name / kind / id.
-    const search = document.querySelector('[data-devtable-search]');
-    const filter = document.querySelector('[data-devtable-filter]');
-    const empty = table.querySelector('[data-devtable-empty]');
-    function applyFilter() {
-      const q = (search ? search.value : '').trim().toLowerCase();
-      const t = filter ? filter.value : '';
-      let shown = 0;
-      rows.forEach(function (row) {
-        const hay = row.getAttribute('data-search') || '';
-        const okQ = !q || hay.indexOf(q) !== -1;
-        const okT = !t || row.getAttribute('data-transport') === t;
-        const show = okQ && okT;
-        row.hidden = !show;
-        const panel = panelFor(row);
-        if (panel && !show) { setOpen(row, false); }
-        if (show) shown += 1;
+    // Search, filters and sorting come from the shared list helper
+    // (static/list-filter.js, data-lf on the area); an open row that
+    // filters out closes so its panel doesn't linger.
+    const area = table.closest('[data-lf]');
+    if (area) {
+      area.addEventListener('lf:change', function () {
+        rows.forEach(function (row) {
+          if (row.hasAttribute('data-lf-out') && row.classList.contains('is-open')) setOpen(row, false);
+        });
       });
-      if (empty) empty.hidden = shown !== 0;
     }
-    if (search) search.addEventListener('input', applyFilter);
-    if (filter) filter.addEventListener('change', applyFilter);
   }
 
   // Add device: the toolbar button reveals the (hidden by default) card.

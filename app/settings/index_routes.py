@@ -2090,6 +2090,8 @@ def _status_view(device: Device) -> dict[str, Any]:
     base: dict[str, Any] = {
         "health": "unknown",
         "relative": "no heartbeat received yet",
+        # Epoch seconds of the last heartbeat, for sorting lists by it.
+        "seen_at": None,
         "parsed": {},
         "tiles": _status_tiles({}),
         "smart_sync": smart_sync,
@@ -2116,6 +2118,7 @@ def _status_view(device: Device) -> dict[str, Any]:
         {
             "health": health,
             "relative": format_relative(age),
+            "seen_at": float(cache.get("received_at", 0)) or None,
             "parsed": parsed,
             "tiles": _status_tiles(parsed),
             "reported_panel_hint": _reported_panel_hint(device, parsed),

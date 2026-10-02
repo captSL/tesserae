@@ -74,14 +74,51 @@
 {% else %}
 
 {% set kinds = plugins | groupby('kind') %}
+{% set _sources = plugin_sources.values()|unique|list if plugin_sources is defined else [] %}
+<div class="lf-stack" data-lf="widgets">
+<div class="lf-tb dx-widgets-tb">
+  <label class="dx-devtb-search">
+    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+    <input type="search" placeholder="Search widgets" aria-label="Search widgets"
+           autocomplete="off" spellcheck="false" data-lf-search>
+  </label>
+  {% if kinds|length > 1 %}
+  <select class="dx-devtb-select" aria-label="Filter by kind" data-lf-filter="kind">
+    <option value="">Every kind</option>
+    {% for kind, _items in kinds %}<option value="{{ kind }}">{{ kind|capitalize }}</option>{% endfor %}
+  </select>
+  {% endif %}
+  {% if _sources|length > 1 %}
+  <select class="dx-devtb-select" aria-label="Filter by source" data-lf-filter="source">
+    <option value="">Any source</option>
+    {% for src in ['bundled', 'catalog', 'authored'] if src in _sources %}<option value="{{ src }}">{{ {'bundled': 'Bundled', 'catalog': 'From the catalog', 'authored': 'Pushed by an authoring tool'}[src] }}</option>{% endfor %}
+  </select>
+  {% endif %}
+  <select class="dx-devtb-select" aria-label="Filter by admin page" data-lf-filter="admin">
+    <option value="">Any admin page</option>
+    <option value="yes">Has an admin page</option>
+    <option value="no">No admin page</option>
+  </select>
+  <select class="dx-devtb-select" aria-label="Sort" data-lf-sort>
+    <option value="">Name A to Z</option>
+    <option value="name:desc">Name Z to A</option>
+    <option value="id:asc">Id</option>
+  </select>
+  <span class="lf-count" data-lf-count data-lf-noun="plugin" aria-live="polite">{{ plugins|length }} plugin{{ '' if plugins|length == 1 else 's' }}</span>
+</div>
 {% for kind, items in kinds %}
+<div class="dx-widgets-group" data-lf-group>
 {% call section_card(icon=KIND_ICONS.get(kind, 'puzzle-piece'),
                      title=kind|capitalize,
                      description=KIND_DESC.get(kind, ''),
                      meta={'label': '', 'value': items|length}) %}
   <ul class="dx-discovered-list">
     {% for plugin in items %}
-    <li class="dx-inset-row dx-widget-row">
+    <li class="dx-inset-row dx-widget-row" data-lf-item
+        data-lf-text="{{ (plugin.name ~ ' ' ~ plugin.id ~ ' ' ~ (plugin.manifest.description or ''))|lower }}"
+        data-lf-kind="{{ plugin.kind }}" data-lf-admin="{{ 'yes' if plugin.has_admin else 'no' }}"
+        data-lf-source="{{ plugin_sources.get(plugin.id, 'bundled') if plugin_sources is defined else 'bundled' }}"
+        data-sort-name="{{ plugin.name }}" data-sort-id="{{ plugin.id }}">
       <span class="dx-section-icon dx-widget-icon" aria-hidden="true">
         <i class="ph ph-{{ plugin.icon or KIND_ICONS.get(plugin.kind, 'puzzle-piece') }}"></i>
       </span>
@@ -106,6 +143,9 @@
     {% endfor %}
   </ul>
 {% endcall %}
+</div>
 {% endfor %}
+<div class="lf-empty dx-section-card" data-lf-empty hidden>No widgets match.</div>
+</div>
 {% endif %}
 {% endblock %}

@@ -2109,8 +2109,9 @@ def test_dashboards_list_is_a_table_with_toolbar_and_opening_rows(app: Flask) ->
     assert '<option value="-">Not on a panel</option>' in body
     assert 'href="/pages?tab=archived"' in body
     assert "2 dashboards · 0 on a panel" in body
-    # Head + rows: the grouping is gone; the Panel column carries the display.
-    assert "dx-dashboard-group" not in body
+    # Head + rows, grouped by display: the group head names the panel, so
+    # there is no Panel column.
+    assert "dx-dc-panel" not in body
     assert body.count("data-dashrow ") == 2
     bound = body[body.index('id="dash-bound"') : body.index('id="dash-loose"')]
     assert 'data-panels="lounge"' in bound
@@ -2130,10 +2131,10 @@ def test_dashboards_list_is_a_table_with_toolbar_and_opening_rows(app: Flask) ->
     assert 'action="/pages/bound/delete"' in panel
     assert "Open in editor" in panel
     # Closed unless asked for; ?opened=<id> lands with that row open.
-    assert 'id="dashq-bound" data-dashquick hidden' in body
+    assert 'id="dashq-bound" data-dashquick data-lf-tail hidden' in body
     opened = client.get("/pages?opened=bound").get_data(as_text=True)
-    assert 'id="dashq-bound" data-dashquick>' in opened
-    assert 'id="dashq-loose" data-dashquick hidden' in opened
+    assert 'id="dashq-bound" data-dashquick data-lf-tail>' in opened
+    assert 'id="dashq-loose" data-dashquick data-lf-tail hidden' in opened
 
 
 def test_dashboards_list_marks_what_a_panel_is_showing(app: Flask, monkeypatch) -> None:
@@ -2159,6 +2160,55 @@ def test_dashboards_list_marks_what_a_panel_is_showing(app: Flask, monkeypatch) 
     queued = body[body.index('id="dash-queued"') : body.index('id="dashq-queued"')]
     assert "dx-dash-dot is-lineup" in queued and "in Hall lineup" in queued
     assert "2 dashboards · 1 on a panel" in body
+
+
+def test_dashboards_list_groups_rows_by_display(app: Flask, monkeypatch) -> None:
+    """Rows sit under one group head per display (status dot, name, size,
+    what it shows, a count, a link to the device page), "Not on a panel"
+    last. A dashboard on two displays is listed under each, with one uid so
+    the count and bulk select take it once; only its first row carries the
+    plain ids the ?opened= link lands on."""
+    import app.deck_routes as deck_routes
+
+    client = app.test_client()
+    _sign_in(client)
+    for did, name in (("lounge", "Lounge"), ("study", "Study")):
+        client.post("/settings/devices/add", data={"id": did, "kind": "esp32_client", "name": name})
+    from app.state.page_store import Page
+
+    store = app.config["PAGE_STORE"]
+    store.save(Page(id="both", name="Both", device_ids=["lounge", "study"]))
+    store.save(Page(id="solo", name="Solo", device_ids=["study"]))
+    store.save(Page(id="loose", name="Loose"))
+    monkeypatch.setattr(deck_routes, "_live_map", lambda: {"study": (None, "solo")})
+    body = client.get("/pages").get_data(as_text=True)
+
+    heads = [body.index(f'data-dash-group="{k}"') for k in ("lounge", "study", "-")]
+    assert heads == sorted(heads)
+    study = body[heads[1] : heads[2]]
+    assert '<span class="dx-dashgroup-name">Study</span>' in study
+    assert "dx-dashgroup-dot is-unknown" in study
+    assert "showing Solo" in study and "2 dashboards" in study
+    assert 'href="/settings/devices/study"' in study
+    assert '<span class="dx-dashgroup-name">Not on a panel</span>' in body[heads[2] :]
+    # Listed under both displays; the second copy gets a suffixed id.
+    assert body.count('data-page-id="both"') == 2
+    assert 'id="dash-both"' in body and 'id="dash-both--study"' in body
+    assert 'aria-controls="dashq-both--study"' in body
+    assert body.count('data-lf-uid="both"') == 2
+    assert "+1 panel" in body
+    # The count line counts each dashboard once.
+    assert "3 dashboards · 1 on a panel" in body
+    # Toolbar: the shared helper's hooks, fold-all, sortable heads.
+    assert 'data-lf="dashboards"' in body and "data-lf-search" in body
+    assert 'data-lf-filter="panels"' in body and "data-dash-groups-toggle" in body
+    for key in ("name", "size", "updates", "wake", "pushed", "state"):
+        assert f'data-lf-sort-key="{key}"' in body
+    assert 'data-sort-name="Both"' in body
+    # Only the first copy opens from ?opened=.
+    opened = client.get("/pages?opened=both").get_data(as_text=True)
+    assert 'id="dashq-both" data-dashquick data-lf-tail>' in opened
+    assert 'id="dashq-both--study" data-dashquick data-lf-tail hidden' in opened
 
 
 def test_create_form_sits_behind_new_dashboard(app: Flask) -> None:

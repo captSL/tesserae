@@ -31,6 +31,27 @@
     <p class="dx-empty-help">Once a registered device sends a heartbeat with a <code>battery_pct</code> field, samples land here and you'll see a trace plus a days-to-empty estimate.</p>
   </div>
   {% else %}
+  <div data-lf="batteries">
+  <div class="lf-tb dx-battery-tb">
+    <label class="dx-devtb-search">
+      <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+      <input type="search" placeholder="Search devices" aria-label="Search devices"
+             autocomplete="off" spellcheck="false" data-lf-search>
+    </label>
+    <select class="dx-devtb-select" aria-label="Filter by charge" data-lf-filter="tone">
+      <option value="">Any charge</option>
+      <option value="critical">10% or less</option>
+      <option value="low">30% or less</option>
+      <option value="ok">Above 30%</option>
+    </select>
+    <select class="dx-devtb-select" aria-label="Sort" data-lf-sort>
+      <option value="">Default order</option>
+      <option value="pct:asc" data-type="num">Lowest charge first</option>
+      <option value="empty:asc" data-type="num">Runs out soonest</option>
+      <option value="name:asc">Name A to Z</option>
+    </select>
+    <span class="lf-count" data-lf-count data-lf-noun="device" aria-live="polite">{{ cards|length }} device{{ '' if cards|length == 1 else 's' }}</span>
+  </div>
   <div class="dx-battery-grid">
     {% for c in cards %}
     {% set pct = c.current.pct if c.current.pct is defined else None %}
@@ -38,7 +59,11 @@
                    else 'low'  if pct is not none and pct <= 30
                    else 'ok' %}
     {% set show_id = c.id != c.name %}
-    <article class="dx-battery-card" data-tone="{{ tone }}">
+    <article class="dx-battery-card" data-tone="{{ tone }}" data-lf-item
+             data-lf-text="{{ (c.name ~ ' ' ~ c.id)|lower }}"
+             data-lf-tone="{{ tone }}{{ ' low' if tone == 'critical' else '' }}"
+             data-sort-pct="{{ pct if pct is not none else '' }}" data-sort-name="{{ c.name }}"
+             data-sort-empty="{{ c.prediction.days_to_empty if c.prediction and c.prediction.days_to_empty is not none else '' }}">
       <header class="dx-battery-head">
         <div class="dx-battery-name">
           <h4>{{ c.name }}</h4>
@@ -157,6 +182,8 @@
       {% endif %}
     </article>
     {% endfor %}
+  </div>
+  <p class="lf-empty" data-lf-empty hidden>No devices match.</p>
   </div>
   {% endif %}
 {% endcall %}

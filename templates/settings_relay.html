@@ -133,12 +133,27 @@
 </section>
 
 {# ---- Remote panels ------------------------------------------------------- #}
-<section class="card">
+<section class="card" data-lf="relay">
   {{ card_head('Remote panels', blurb='Devices delivered through the relay. Configure each one on the Devices tab, same as a local display; changes reach the panel on its next wake.') }}
   {% if relay_devices %}
+  <div class="lf-tb relay-tb">
+    <label class="dx-devtb-search">
+      <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+      <input type="search" placeholder="Search remote panels" aria-label="Search remote panels"
+             autocomplete="off" spellcheck="false" data-lf-search>
+    </label>
+    <select class="dx-devtb-select" aria-label="Sort" data-lf-sort>
+      <option value="">Pairing order</option>
+      <option value="name:asc">Name A to Z</option>
+      <option value="name:desc">Name Z to A</option>
+      <option value="id:asc">Device id</option>
+    </select>
+    <span class="lf-count" data-lf-count data-lf-noun="remote panel" aria-live="polite">{{ relay_devices|length }} remote panel{{ '' if relay_devices|length == 1 else 's' }}</span>
+  </div>
   <ul class="pages-list">
     {% for d in relay_devices %}
-    <li class="page-row">
+    <li class="page-row" data-lf-item data-lf-text="{{ (d.display_name ~ ' ' ~ d.id)|lower }}"
+        data-sort-name="{{ d.display_name }}" data-sort-id="{{ d.id }}">
       <span class="page-icon-tile"><i class="ph ph-cloud" aria-hidden="true"></i></span>
       <div class="page-row-main">
         <span class="page-name">{{ d.display_name }}</span>
@@ -160,6 +175,7 @@
     </li>
     {% endfor %}
   </ul>
+  <p class="lf-empty" data-lf-empty hidden>No remote panels match.</p>
   {% else %}
     {{ empty_state('cloud', 'No remote panels yet', 'Add one above to pair a panel at another location.') }}
   {% endif %}

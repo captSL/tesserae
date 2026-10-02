@@ -508,6 +508,7 @@ def index() -> str:
         split_presses=split_presses,
         sort_mode=sort_mode,
         filter_args=filter_args,
+        page_rows=HISTORY_PAGE_ROWS,
     )
 
 

@@ -72,15 +72,15 @@
 </div>
 {% endif %}
 
-<section class="dx-devtable dx-dashtable card" data-dashtable aria-label="{{ 'Archived dashboards' if archived_tab else 'Dashboards' }}">
+<section class="dx-devtable dx-dashtable card" data-dashtable data-lf="dashboards{{ '-archived' if archived_tab else '' }}" aria-label="{{ 'Archived dashboards' if archived_tab else 'Dashboards' }}">
   {# TOOLBAR #}
   <div class="dx-devtb dx-dashtb" data-devtb>
     <label class="dx-devtb-search dx-dashtb-search">
       <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
       <input type="search" placeholder="Search dashboards" aria-label="Search dashboards"
-             autocomplete="off" spellcheck="false" data-dashtable-search>
+             autocomplete="off" spellcheck="false" data-dashtable-search data-lf-search>
     </label>
-    <select class="dx-devtb-select dx-dashtb-filter" aria-label="Filter by panel" data-dashtable-filter>
+    <select class="dx-devtb-select dx-dashtb-filter" aria-label="Filter by panel" data-dashtable-filter data-lf-filter="panels">
       <option value="">All panels</option>
       {% for did, dname in panel_filters %}<option value="{{ did }}">{{ dname }}</option>{% endfor %}
       <option value="-">Not on a panel</option>
@@ -99,6 +99,13 @@
         </a>
       </span>
     </nav>
+    {% if dash_groups|length >= 2 %}
+    {# Folds or unfolds every display's group; the label follows the
+       groups' live state, so it always names what it will do. #}
+    <button type="button" class="dx-btn dx-dashtb-fold" data-dash-groups-toggle title="Fold or unfold every display's group">
+      <i class="ph ph-arrows-in-line-vertical" aria-hidden="true"></i><span>Collapse all</span>
+    </button>
+    {% endif %}
     <span class="dx-dashtb-count" data-dashtable-count aria-live="polite">{{ rows|length }} dashboard{{ '' if rows|length == 1 else 's' }}{% if not archived_tab %} · {{ _live_total }} on a panel{% endif %}</span>
   </div>
   {% if archived_tab %}
@@ -120,17 +127,51 @@
   {% else %}
   <div class="dx-dashtable-head">
     <span class="dx-dc dx-dc-sel"><input type="checkbox" class="dx-dash-selall" data-dash-selall aria-label="Select every dashboard shown" title="Select every dashboard shown"></span>
-    <span class="dx-dc dx-dc-name" aria-hidden="true">Dashboard</span>
-    <span class="dx-dc dx-dc-panel" aria-hidden="true">Panel</span>
-    <span class="dx-dc dx-dc-size" aria-hidden="true">Size</span>
-    <span class="dx-dc dx-dc-updates" aria-hidden="true">Updates</span>
-    <span class="dx-dc dx-dc-wake" aria-hidden="true">Wake</span>
-    <span class="dx-dc dx-dc-pushed" aria-hidden="true">Last pushed</span>
-    <span class="dx-dc dx-dc-state" aria-hidden="true">State</span>
-    <span class="dx-dc dx-dc-chev"></span>
+    <span class="dx-dc dx-dc-name" data-lf-sort-key="name">Dashboard</span>
+    <span class="dx-dc dx-dc-size" data-lf-sort-key="size" data-lf-sort-type="num">Size</span>
+    <span class="dx-dc dx-dc-updates" data-lf-sort-key="updates" data-lf-sort-type="num">Updates</span>
+    <span class="dx-dc dx-dc-wake" data-lf-sort-key="wake" data-lf-sort-type="num">Wake</span>
+    <span class="dx-dc dx-dc-pushed" data-lf-sort-key="pushed" data-lf-sort-type="num">Last pushed</span>
+    <span class="dx-dc dx-dc-state" data-lf-sort-key="state" data-lf-sort-type="num">State</span>
+    <span class="dx-dc dx-dc-chev" aria-hidden="true"></span>
   </div>
 
-  {% for page in rows %}
+  {# One group per display, in name order, then "Not on a panel". A
+     dashboard bound to several displays is listed under each; its first
+     appearance carries the plain row ids (dash-<id>, the ?opened= target),
+     later ones a per-group suffix. Rows sort inside their own group. #}
+  {% set seen = namespace(ids=[]) %}
+  {% for g in dash_groups %}
+  <div class="dx-dashgroup" role="rowgroup" data-lf-group data-dash-group="{{ g.key }}"
+       aria-label="{{ g.name }}">
+    <div class="dx-dashgroup-head">
+      <button type="button" class="dx-dashgroup-fold" data-dash-group-fold aria-expanded="true"
+              aria-controls="dashg-{{ g.key }}" aria-label="Fold {{ g.name }}">
+        <i class="ph ph-caret-down" aria-hidden="true"></i>
+      </button>
+      {% if g.device %}
+      <span class="dx-dot dx-dashgroup-dot is-{{ g.health }}" aria-hidden="true"
+            title="{{ {'ok': 'Online', 'warn': 'Late', 'stale': 'Offline'}.get(g.health, 'Never seen') }}"></span>
+      {% else %}
+      <i class="ph ph-link-break dx-dashgroup-icon" aria-hidden="true"></i>
+      {% endif %}
+      <span class="dx-dashgroup-name">{{ g.name }}</span>
+      <span class="dx-dashgroup-meta">
+        {%- if g.device and g.size %}<span>{{ g.size }}</span>{% endif -%}
+        {%- if g.device and g.showing %}<span class="dx-dashgroup-showing" title="Showing {{ g.showing }}">showing {{ g.showing }}</span>{% endif -%}
+        <span data-lf-group-count data-lf-noun="dashboard">{{ g.pages|length }} dashboard{{ '' if g.pages|length == 1 else 's' }}</span>
+      </span>
+      {% if g.device %}
+      <a class="dx-dashgroup-link" href="{{ g.url }}" title="Open {{ g.name }}'s device page">
+        <span>Device</span><i class="ph ph-caret-right" aria-hidden="true"></i>
+      </a>
+      {% endif %}
+    </div>
+    <div class="dx-dashgroup-rows" id="dashg-{{ g.key }}">
+  {% for page in g.pages %}
+  {% set _first = page.id not in seen.ids %}
+  {% if _first %}{% set seen.ids = seen.ids + [page.id] %}{% endif %}
+  {% set _rid = page.id if _first else page.id ~ '--' ~ g.key %}
   {% set d = page_dims.get(page.id) %}
   {# Preview dims must match what /compose renders at: an unbound freeform
      canvas lays out at its authored size, everything else at the resolved
@@ -142,17 +183,29 @@
   {% set _names = page_devices.get(page.id) or [] %}
   {% set _live = page_live.get(page.id) or [] %}
   {% set _lineups = page_lineups.get(page.id) or [] %}
-  {% set _open = _opened == page.id %}
-  {% set _state = 'archived' if archived_tab else ('live' if _live else ('lineup' if _lineups else ('nopanel' if not _names else 'idle'))) %}
+  {% set _open = _first and _opened == page.id %}
+  {# On a display's group, "on the panel" means that display shows it. #}
+  {% set _live_here = (page.id in page_live_ids and g.key in page_live_ids[page.id]) if g.device else (_live and not _names) %}
+  {% set _state = 'archived' if archived_tab else ('live' if _live_here else ('lineup' if _lineups else ('nopanel' if not _names else 'idle'))) %}
+  {% set _others = _names|length - (1 if g.device else 0) %}
   {% set _link_count = _names|length %}
   <div class="dx-dashrow dx-dashboard-row is-{{ _state }}{% if _open %} is-open{% endif %}"
-       id="dash-{{ page.id }}" data-dashrow data-page-id="{{ page.id }}"
+       id="dash-{{ _rid }}" data-dashrow data-page-id="{{ page.id }}"
        data-panels="{{ (page_device_ids.get(page.id) or ['-'])|join(' ') }}"
        data-live="{{ '1' if _live else '0' }}"
        data-search="{{ (page.name ~ ' ' ~ _names|join(' ') ~ ' ' ~ page.id)|lower }}"
+       data-lf-item data-lf-uid="{{ page.id }}"
+       data-lf-text="{{ (page.name ~ ' ' ~ _names|join(' ') ~ ' ' ~ page.id)|lower }}"
+       data-lf-panels="{{ (page_device_ids.get(page.id) or ['-'])|join(' ') }}"
+       data-sort-name="{{ page.name }}"
+       data-sort-size="{{ (d.w * d.h) if d else '' }}"
+       data-sort-updates="{{ page.refresh_minutes if page.refresh_minutes else 1000000 }}"
+       data-sort-wake="{{ page.sleep_interval_s if page.sleep_interval_s is not none else '' }}"
+       data-sort-pushed="{{ page_last_pushed.get(page.id, '') }}"
+       data-sort-state="{{ {'live': 0, 'lineup': 1, 'idle': 2, 'nopanel': 3, 'archived': 4}[_state] }}"
        {% if pv_w and pv_h %}data-preview-src="{{ url_for('composer.compose', page_id=page.id) }}" data-preview-png="{{ _png }}" data-preview-w="{{ pv_w }}" data-preview-h="{{ pv_h }}"{% endif %}>
     <span class="dx-dc dx-dc-sel">
-      <input type="checkbox" class="dx-dash-select" value="{{ page.id }}"
+      <input type="checkbox" class="dx-dash-select" value="{{ page.id }}" data-dash-select
              aria-label="Select {{ page.name }}" title="{{ 'Select for bulk restore / delete' if archived_tab else 'Select for bulk push / archive / delete' }}">
     </span>
     <span class="dx-dc dx-dc-name">
@@ -162,14 +215,14 @@
         <i class="ph ph-{{ page.icon or 'cube' }}"></i>
       </span>
       <a class="dx-dash-name" href="{{ url_for('pages.edit', page_id=page.id) }}" title="{{ page.name }}">{{ page.name }}</a>
+      {% if _others > 0 %}
+      {% set _other_names = _names|reject('equalto', g.name)|list if g.device else _names %}
+      <span class="dx-dash-more" title="Also on {{ _other_names|join(', ') }}">+{{ _others }} panel{{ '' if _others == 1 else 's' }}</span>
+      {% endif %}
     </span>
     {# Phone: these become the row's second line; on wider screens the
        wrapper is display: contents and each one is its own column. #}
     <span class="dx-dc-meta">
-      <span class="dx-dc dx-dc-panel"{% if _names %} title="{{ _names|join(', ') }}"{% endif %}>
-        {% if _names %}<span class="dx-dash-ellip">{{ _names[0] }}</span>{% if _names|length > 1 %}<span class="dx-dash-more">+{{ _names|length - 1 }}</span>{% endif %}
-        {% else %}<span class="dx-dash-muted">not on a panel</span>{% endif %}
-      </span>
       <span class="dx-dc dx-dc-size dx-dash-mono">{% if d %}{{ d.w }}×{{ d.h }}{% else %}-{% endif %}</span>
       <span class="dx-dc dx-dc-updates">{{ updates_text(page.refresh_minutes) }}</span>
       <span class="dx-dc dx-dc-wake">{{ wake_text(page.sleep_interval_s) }}</span>
@@ -183,7 +236,7 @@
       </span>
     </span>
     <span class="dx-dc dx-dc-chev">
-      <button type="button" class="dx-dash-chev" data-dash-toggle aria-controls="dashq-{{ page.id }}"
+      <button type="button" class="dx-dash-chev" data-dash-toggle aria-controls="dashq-{{ _rid }}"
               aria-expanded="{{ 'true' if _open else 'false' }}" aria-label="{{ 'Close' if _open else 'Open' }} {{ page.name }}">
         <i class="ph ph-caret-right" aria-hidden="true"></i>
       </button>
@@ -191,7 +244,7 @@
   </div>
 
   {# OPENED ROW: preview, four figures, then the row's controls. #}
-  <div class="dx-devquick dx-dashquick" id="dashq-{{ page.id }}" data-dashquick{% if not _open %} hidden{% endif %}>
+  <div class="dx-devquick dx-dashquick" id="dashq-{{ _rid }}" data-dashquick data-lf-tail{% if not _open %} hidden{% endif %}>
     <div class="dx-dashquick-preview{% if not (pv_w and pv_h) %} is-empty{% endif %}"
          {% if pv_w and pv_h %}style="aspect-ratio: {{ pv_w }} / {{ pv_h }}"{% endif %} data-dashquick-preview>
       <span class="dx-thumb-empty"><i class="ph ph-image" aria-hidden="true"></i><span>{{ 'Rendering preview' if pv_w and pv_h else 'No preview' }}</span></span>
@@ -367,10 +420,29 @@
     </div>
   </div>
   {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
 
-  <div class="dx-devtable-empty" data-dashtable-empty hidden>No dashboards match.</div>
+  <div class="dx-devtable-empty" data-dashtable-empty data-lf-empty hidden>No dashboards match.</div>
   {% endif %}
 </section>
+<script>
+  // Restore folded groups before the list paints, so a folded group never
+  // flashes open. A group holding the ?opened= row stays open.
+  (function () {
+    var folded = [];
+    try { folded = JSON.parse(localStorage.getItem('tesserae-dash-groups') || '[]') || []; } catch (e) { folded = []; }
+    var groups = document.querySelectorAll('[data-dash-group]');
+    for (var i = 0; i < groups.length; i++) {
+      var g = groups[i];
+      if (folded.indexOf(g.getAttribute('data-dash-group')) === -1 || g.querySelector('.dx-dashrow.is-open')) continue;
+      g.classList.add('is-folded');
+      var b = g.querySelector('[data-dash-group-fold]');
+      if (b) b.setAttribute('aria-expanded', 'false');
+    }
+  })();
+</script>
 
 {# Bulk action bar: floats in once >=1 dashboard is checked. The push /
    delete forms live here (not nested in the per-row action forms) and are
@@ -493,15 +565,13 @@
   })();
 
   // The table: each row opens the panel under it in place (one at a time),
-  // mirrored in ?opened=<id> so a reload lands on the same row. Search and
-  // the Panel filter run client-side, and the count follows them.
+  // mirrored in ?opened=<id> so a reload lands on the same row. Rows sit in
+  // one group per display; a dashboard on several displays has a row in
+  // each, which open independently.
   (function () {
     const table = document.querySelector('[data-dashtable]');
     if (!table) return;
     const rows = Array.prototype.slice.call(table.querySelectorAll('[data-dashrow]'));
-    const search = table.querySelector('[data-dashtable-search]');
-    const filter = table.querySelector('[data-dashtable-filter]');
-    const empty = table.querySelector('[data-dashtable-empty]');
     const count = table.querySelector('[data-dashtable-count]');
     const showLive = count && count.textContent.indexOf('on a panel') !== -1;
     function btnFor(row) { return row.querySelector('[data-dash-toggle]'); }
@@ -581,30 +651,86 @@
       });
     });
 
-    function applyFilter() {
-      const q = (search ? search.value : '').trim().toLowerCase();
-      const f = filter ? filter.value : '';
-      let shown = 0, live = 0;
+    // Search, the Panel filter and the column sorts run in the shared list
+    // helper (static/list-filter.js), which also keeps each group's count.
+    // After each pass: close an opened row that filtered out and recount
+    // (each dashboard once, however many groups list it).
+    table.addEventListener('lf:change', function (ev) {
+      const visible = ev.detail.visible;
       rows.forEach(function (row) {
-        const hay = row.getAttribute('data-search') || '';
-        const panels = (row.getAttribute('data-panels') || '').split(' ');
-        const show = (!q || hay.indexOf(q) !== -1) && (!f || panels.indexOf(f) !== -1);
-        row.hidden = !show;
-        if (!show && row.classList.contains('is-open')) setOpen(row, false);
-        if (show) {
-          shown += 1;
-          if (row.getAttribute('data-live') === '1') live += 1;
-        }
+        if (row.hasAttribute('data-lf-out') && row.classList.contains('is-open')) setOpen(row, false);
       });
-      if (empty) empty.hidden = shown !== 0;
+      const seen = {};
+      let shown = 0, live = 0;
+      visible.forEach(function (row) {
+        const id = row.getAttribute('data-page-id');
+        if (seen[id]) return;
+        seen[id] = true;
+        shown += 1;
+        if (row.getAttribute('data-live') === '1') live += 1;
+      });
       if (count) {
         count.textContent = shown + ' dashboard' + (shown === 1 ? '' : 's') +
           (showLive ? ' · ' + live + ' on a panel' : '');
       }
       document.dispatchEvent(new CustomEvent('dash-filter'));
+    });
+
+    // Groups fold one by one (remembered), or all at once from the toolbar.
+    const KEY = 'tesserae-dash-groups';
+    const groups = Array.prototype.slice.call(table.querySelectorAll('[data-dash-group]'));
+    const allBtn = table.querySelector('[data-dash-groups-toggle]');
+    function isFolded(g) { return g.classList.contains('is-folded'); }
+    function setFolded(g, folded) {
+      g.classList.toggle('is-folded', folded);
+      const b = g.querySelector('[data-dash-group-fold]');
+      if (b) {
+        b.setAttribute('aria-expanded', folded ? 'false' : 'true');
+        const name = (g.querySelector('.dx-dashgroup-name') || {}).textContent || '';
+        b.setAttribute('aria-label', (folded ? 'Unfold ' : 'Fold ') + name);
+      }
+      if (folded) {
+        g.querySelectorAll('.dx-dashrow.is-open').forEach(function (r) { setOpen(r, false); });
+      }
     }
-    if (search) search.addEventListener('input', applyFilter);
-    if (filter) filter.addEventListener('change', applyFilter);
+    function saveFolds() {
+      const folded = groups.filter(isFolded).map(function (g) { return g.getAttribute('data-dash-group'); });
+      try {
+        if (folded.length) localStorage.setItem(KEY, JSON.stringify(folded));
+        else localStorage.removeItem(KEY);
+      } catch (e) { /* not remembered */ }
+    }
+    function syncAll() {
+      if (!allBtn) return;
+      const anyOpen = groups.some(function (g) { return !isFolded(g); });
+      allBtn.querySelector('span').textContent = anyOpen ? 'Collapse all' : 'Expand all';
+      allBtn.querySelector('.ph').className = 'ph ' + (anyOpen ? 'ph-arrows-in-line-vertical' : 'ph-arrows-out-line-vertical');
+    }
+    groups.forEach(function (g) {
+      setFolded(g, isFolded(g));
+      const b = g.querySelector('[data-dash-group-fold]');
+      const head = g.querySelector('.dx-dashgroup-head');
+      function flip() {
+        setFolded(g, !isFolded(g));
+        saveFolds();
+        syncAll();
+        document.dispatchEvent(new CustomEvent('dash-filter'));
+      }
+      if (b) b.addEventListener('click', flip);
+      // A click on the head's empty space folds too; its link keeps its job.
+      if (head) head.addEventListener('click', function (ev) {
+        if (ev.target.closest('a, button')) return;
+        flip();
+      });
+    });
+    if (allBtn) allBtn.addEventListener('click', function () {
+      const anyOpen = groups.some(function (g) { return !isFolded(g); });
+      groups.forEach(function (g) { setFolded(g, anyOpen); });
+      saveFolds();
+      syncAll();
+      document.dispatchEvent(new CustomEvent('dash-filter'));
+    });
+    syncAll();
   })();
 
   // Hover preview on a row's thumbnail. One shared popover holding a cached
@@ -721,17 +847,34 @@
     const restoreForm = document.getElementById('dx-bulk-unarchive-form');
     const clearBtn = document.getElementById('dx-bulk-clear');
 
-    function visible() { return boxes.filter(function (b) { return !b.closest('[data-dashrow]').hidden; }); }
-    function selected() { return boxes.filter(function (b) { return b.checked; }); }
+    // A dashboard listed under several displays has a box in each group;
+    // the copies move together and count once.
+    function shown(b) {
+      const row = b.closest('[data-dashrow]');
+      const g = row.closest('[data-dash-group]');
+      return !row.hasAttribute('data-lf-out') && !(g && g.classList.contains('is-folded'));
+    }
+    function visible() { return boxes.filter(shown); }
+    function selected() {
+      const seen = {};
+      return boxes.filter(function (b) {
+        if (!b.checked || seen[b.value]) return false;
+        seen[b.value] = true;
+        return true;
+      });
+    }
+    function mirror(src) {
+      boxes.forEach(function (b) { if (b !== src && b.value === src.value) b.checked = src.checked; });
+    }
     function sync() {
       const n = selected().length;
       bar.hidden = n === 0;
       if (n) count.textContent = n + ' selected';
       if (all) {
-        const shown = visible();
-        const on = shown.filter(function (b) { return b.checked; }).length;
-        all.checked = shown.length > 0 && on === shown.length;
-        all.indeterminate = on > 0 && on < shown.length;
+        const vis = visible();
+        const on = vis.filter(function (b) { return b.checked; }).length;
+        all.checked = vis.length > 0 && on === vis.length;
+        all.indeterminate = on > 0 && on < vis.length;
       }
     }
     function inject(form) {
@@ -742,9 +885,9 @@
         form.appendChild(inp);
       });
     }
-    boxes.forEach(function (b) { b.addEventListener('change', sync); });
+    boxes.forEach(function (b) { b.addEventListener('change', function () { mirror(b); sync(); }); });
     if (all) all.addEventListener('change', function () {
-      visible().forEach(function (b) { b.checked = all.checked; });
+      visible().forEach(function (b) { b.checked = all.checked; mirror(b); });
       sync();
     });
     document.addEventListener('dash-filter', sync);

@@ -90,7 +90,7 @@
 }
 
 .room-row { border-bottom: 1px solid var(--t-border); }
-.room-row:last-child { border-bottom: 0; }
+.room-row:last-of-type { border-bottom: 0; }
 .room-row[open] { background: var(--t-surface-soft); }
 .room-row > summary {
   list-style: none;

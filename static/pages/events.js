@@ -171,7 +171,11 @@
     if (empty) empty.remove();
     l = document.createElement("ul");
     l.className = "dx-discovered-list dx-events-list";
-    const card = document.querySelector(".dx-section-card .dx-section-body");
+    // Inside the list helper's root when there is one, so live rows
+    // join its search, filters and sort.
+    const card =
+      document.querySelector('[data-lf="events"]') ||
+      document.querySelector(".dx-section-card .dx-section-body");
     if (card) {
       card.appendChild(l);
     } else {
@@ -187,6 +191,22 @@
     const li = document.createElement("li");
     li.className = "dx-inset-row dx-event-row dx-event-row--" + ev.type;
     li.dataset.eventId = String(ev.id);
+    // Hooks for the list helper (static/list-filter.js), as on server rows.
+    li.setAttribute("data-lf-item", "");
+    li.setAttribute(
+      "data-lf-text",
+      [ev.type, ev.status, ev.source, ev.target, ev.error || "", ev.digest || ""].join(" ").toLowerCase(),
+    );
+    li.setAttribute(
+      "data-lf-level",
+      ev.status === "sent" || ev.status === "ok"
+        ? "ok"
+        : ev.status === "busy" || ev.status === "denied"
+          ? "warn"
+          : "error",
+    );
+    li.setAttribute("data-sort-time", String(ev.timestamp || ""));
+    li.setAttribute("data-sort-dur", String(ev.duration_s || 0));
     li.innerHTML = rowHtml(ev);
     root.insertBefore(li, root.firstChild);
     // Bound the DOM so a flood doesn't blow up the page. Matches the

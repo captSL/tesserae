@@ -137,21 +137,52 @@
 </form>
 
 {# ---- the list ---------------------------------------------------------- #}
+<div data-lf="rooms">
 <div class="rooms-eyebrow">
   <h2>{{ rooms|length }} room{{ '' if rooms|length == 1 else 's' }}</h2>
 </div>
+{% if rooms %}
+<div class="lf-tb rooms-tb">
+  <label class="dx-devtb-search">
+    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+    <input type="search" placeholder="Search rooms" aria-label="Search rooms"
+           autocomplete="off" spellcheck="false" data-lf-search>
+  </label>
+  <select class="dx-devtb-select" aria-label="Filter by panels" data-lf-filter="panels">
+    <option value="">With or without panels</option>
+    <option value="yes">Has a panel</option>
+    <option value="no">No panel yet</option>
+  </select>
+  <select class="dx-devtb-select" aria-label="Filter by status" data-lf-filter="status">
+    <option value="">Any status</option>
+    <option value="on">Enabled</option>
+    <option value="off">Paused</option>
+    <option value="problem">Feed problem</option>
+  </select>
+  <span class="lf-count" data-lf-count data-lf-noun="room" aria-live="polite">{{ rooms|length }} room{{ '' if rooms|length == 1 else 's' }}</span>
+</div>
+{% endif %}
 
 <div class="rooms-list">
-  {# aria-hidden: every cell below states its own meaning in words, so
-     this is redundant to a screen reader, and it is dropped when narrow. #}
-  <div class="rooms-grid rooms-head" aria-hidden="true">
-    <span></span><span>Room</span><span>Calendar feed</span><span>Panels</span>
-    <span>Booking</span><span>Next</span><span>Dashboard</span>
+  {# The labels are dropped when narrow, where every cell states its own
+     meaning in words; on wide screens the labels sort the list. #}
+  <div class="rooms-grid rooms-head">
+    <span aria-hidden="true"></span><span data-lf-sort-key="name">Room</span><span data-lf-sort-key="feed">Calendar feed</span><span data-lf-sort-key="panels" data-lf-sort-type="num">Panels</span>
+    <span data-lf-sort-key="booking">Booking</span><span data-lf-sort-key="next" data-lf-sort-type="num">Next</span><span data-lf-sort-key="status">Dashboard</span>
   </div>
 
   {% for view in room_views %}
   {% set room = view.room %}
-  <details class="room-row">
+  {% set _problem = view.feed_missing or not view.feed_name or view.feed_error %}
+  {% set _nx = view.next_event.until if view.next_event and view.next_event.until else none %}
+  <details class="room-row" data-lf-item
+           data-lf-text="{{ (room.name ~ ' ' ~ (room.location_filter or '') ~ ' ' ~ (view.feed_name or '') ~ ' ' ~ (view.panels|map(attribute='name')|join(' ')))|lower }}"
+           data-lf-panels="{{ 'yes' if view.panels else 'no' }}"
+           data-lf-status="{{ 'on' if room.enabled else 'off' }}{{ ' problem' if _problem else '' }}"
+           data-sort-name="{{ room.name }}" data-sort-feed="{{ view.feed_name or '' }}"
+           data-sort-panels="{{ view.panels|length }}" data-sort-booking="{{ room.booking_mode or '' }}"
+           data-sort-next="{{ _nx.timestamp() if _nx else '' }}"
+           data-sort-status="{{ 'enabled' if room.enabled else 'paused' }}">
     <summary>
       <span class="room-wide rooms-grid">
       <span class="caret" aria-hidden="true"><i class="ph ph-caret-right"></i></span>
@@ -448,6 +479,8 @@
     </div>
   </details>
   {% endfor %}
+  <div class="lf-empty" data-lf-empty hidden>No rooms match.</div>
+</div>
 </div>
 
 {# ---- board -------------------------------------------------------------- #}

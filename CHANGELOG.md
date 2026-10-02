@@ -8,6 +8,26 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Added
 
+- **Search, filters and sorting on every list.** One shared toolbar (a
+  search box, one or two filters, a count) now heads Settings › Devices,
+  Dashboards, History, Events, Lineups, Widgets › Installed, the Themes
+  strip, Rooms, Firmware, Cloud relay remote panels, Companion app paired
+  apps, Device batteries, the Stats display list and System backups. Table
+  columns sort from their heads (ascending, descending, then back to the
+  list's own order, with a caret on the sorted column); lists without
+  column heads get a Sort menu. Numbers, sizes and times sort by value, and
+  the last sort is remembered per list in the browser. History and Events
+  filter the rows the page loaded and say so; their server-side filters are
+  unchanged. Live rows (Events, the Lineups refresh) join the current
+  search and sort as they arrive.
+- **Paper's sidebar folds to an icon rail.** A Collapse button at the foot
+  of the desktop sidebar narrows it to 64px: the logo and one icon per
+  item, each named by a tooltip, with Widgets opening as a flyout to the
+  right and the theme and design switches as icons. The choice is
+  remembered in the browser and applied before the page paints; the page,
+  the Settings column and the batteries pill follow the new width. The
+  phone drawer and the classic design are unchanged.
+
 - **Paper, an opt-in redesign of the web UI.** A switch in the header
   ("Try the new design"; in the phone menu as "New design") turns it on for
   the install, and the same switch turns it off again. Paper moves the
@@ -21,6 +41,16 @@ All notable changes to Tesserae are recorded here. Format loosely follows
   runs (`ui`), so adoption can be counted; see docs/privacy.md.
 
 ### Changed
+
+- **Dashboards are grouped by display again, inside the table.** Each
+  display gets a full-width group row with its status dot, name, size,
+  what it is showing, a count and a link to its device page, with "Not on
+  a panel" last. A dashboard on several displays is listed under each, and
+  bulk select and the count take it once. Groups fold one by one
+  (remembered) or all at once from the toolbar, and search, the Panel
+  filter and Active / Archived work across them. The Panel column is gone
+  since the group names the display; a dashboard also on other displays
+  shows "+N panels".
 
 - **The canvas editor is laid out again, and works on a phone.** It now
   follows the app: the Paper or classic design, and the app's light, dark or

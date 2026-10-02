@@ -84,9 +84,15 @@
 {% endif %}
 {% endmacro %}
 
-{% macro dk_row(c, row_id, show_chips=False) %}
+{% macro dk_row(c, row_id, show_chips=False, group_id='') %}
 <article class="dk-row{% if c.playing %} is-playing{% endif %}{% if not c.enabled %} is-off{% endif %}{% if c.is_new %} is-new{% endif %}"
-         data-kind="{{ c.kind }}"{% if row_id %} id="udeck-{{ c.id }}"{% endif %}>
+         data-kind="{{ c.kind }}"{% if row_id %} id="udeck-{{ c.id }}"{% endif %}
+         data-lf-item data-lf-uid="{{ c.id }}"
+         data-lf-text="{{ (c.name ~ ' ' ~ c.badge ~ ' ' ~ (c.device_names|join(' ')) ~ ' ' ~ (c.screens|map(attribute='name')|join(' ')))|lower }}"
+         data-lf-display="{{ group_id or '-' }}" data-lf-kind="{{ c.kind }}"
+         data-lf-state="{{ ('playing on' if c.playing else 'on') if c.enabled else 'off' }}"
+         data-sort-name="{{ c.name }}" data-sort-kind="{{ c.badge }}"
+         data-sort-screens="{{ c.screens|length }}">
   <div class="dk-row-head">
     <span class="tg tg--upper dk-badge{% if c.playing and c.kind == 'cycle' %} tg--teal{% endif %}">
       {% if c.playing and c.kind == 'cycle' %}<i class="ph-fill ph-play" aria-hidden="true"></i>{% else %}<i class="ph-bold ph-{{ c.badge_icon }}" aria-hidden="true"></i>{% endif %}{{ c.badge }}
@@ -221,12 +227,51 @@
 
 {# Everything inside data-lineups-live is re-fetched and swapped in place by
    the live-refresh loop below; keep interactive elements that hold JS
-   listeners (the wizard, the schedule forms) OUTSIDE it. #}
+   listeners (the wizard, the schedule forms) OUTSIDE it. The toolbar sits
+   outside too; the list helper re-applies it to every refreshed region. #}
+<div data-lf="lineups">
+{% if groups %}
+{% set _cards = namespace(ids=[], n=0) %}
+{% for g in groups %}{% for c in g.cards %}{% if c.id not in _cards.ids %}{% set _cards.ids = _cards.ids + [c.id] %}{% endif %}{% endfor %}{% endfor %}
+<div class="lf-tb dk-tb">
+  <label class="dx-devtb-search">
+    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+    <input type="search" placeholder="Search lineups" aria-label="Search lineups"
+           autocomplete="off" spellcheck="false" data-lf-search>
+  </label>
+  {% if groups|length > 1 %}
+  <select class="dx-devtb-select" aria-label="Filter by display" data-lf-filter="display">
+    <option value="">All displays</option>
+    {% for g in groups %}<option value="{{ g.id or '-' }}">{{ g.name }}</option>{% endfor %}
+  </select>
+  {% endif %}
+  <select class="dx-devtb-select" aria-label="Filter by kind" data-lf-filter="kind">
+    <option value="">Every kind</option>
+    <option value="cycle">Rotations</option>
+    <option value="send">Schedules</option>
+    <option value="nav">By hand or tap</option>
+  </select>
+  <select class="dx-devtb-select" aria-label="Filter by state" data-lf-filter="state">
+    <option value="">On or off</option>
+    <option value="playing">Playing now</option>
+    <option value="on">On</option>
+    <option value="off">Off</option>
+  </select>
+  <select class="dx-devtb-select" aria-label="Sort" data-lf-sort>
+    <option value="">Display order</option>
+    <option value="name:asc">Name A to Z</option>
+    <option value="name:desc">Name Z to A</option>
+    <option value="kind:asc">Kind</option>
+    <option value="screens:desc" data-type="num">Most dashboards</option>
+  </select>
+  <span class="lf-count" data-lf-count data-lf-noun="lineup" aria-live="polite">{{ _cards.ids|length }} lineup{{ '' if _cards.ids|length == 1 else 's' }}</span>
+</div>
+{% endif %}
 <div data-lineups-live>
 {% if groups %}
 {% set seen = namespace(ids=[]) %}
 {% for g in groups %}
-<section class="dk-group"{% if g.id %} id="display-{{ g.id }}"{% endif %}>
+<section class="dk-group"{% if g.id %} id="display-{{ g.id }}"{% endif %} data-lf-group>
   <header class="dk-group-head">
     <span class="dk-group-icon" aria-hidden="true"><i class="ph ph-{{ g.icon }}"></i></span>
     <h2 class="dk-group-name">{{ g.name }}</h2>
@@ -243,7 +288,7 @@
        appearance carries the anchor id the post-action redirects land on. #}
     {% set first_here = c.id not in seen.ids %}
     {% if first_here %}{% set seen.ids = seen.ids + [c.id] %}{% endif %}
-    {{ dk_row(c, first_here, show_chips=not g.id) }}
+    {{ dk_row(c, first_here, show_chips=not g.id, group_id=g.id) }}
     {% endfor %}
   </div>
 </section>
@@ -258,6 +303,8 @@
   </button>
 </div>
 {% endif %}
+{% if groups %}<div class="lf-empty dk-lf-empty" data-lf-empty hidden>No lineups match.</div>{% endif %}
+</div>
 </div>
 <script>
   (function () {

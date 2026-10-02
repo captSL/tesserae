@@ -17,7 +17,7 @@
 {% set _transports = [] %}
 {% for s in _devices %}{% if s.transport_badge not in _transports %}{% set _ = _transports.append(s.transport_badge) %}{% endif %}{% endfor %}
 
-<div class="dx-devices-area">
+<div class="dx-devices-area" data-lf="devices">
 
   {# TOOLBAR #}
   <div class="dx-devtb" data-devtb>
@@ -35,12 +35,20 @@
       <label class="dx-devtb-search">
         <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
         <input type="search" placeholder="Search devices" aria-label="Search devices"
-               autocomplete="off" spellcheck="false" data-devtable-search>
+               autocomplete="off" spellcheck="false" data-devtable-search data-lf-search>
       </label>
-      <select class="dx-devtb-select" aria-label="Filter by transport" data-devtable-filter>
+      <select class="dx-devtb-select" aria-label="Filter by transport" data-devtable-filter data-lf-filter="transport">
         <option value="">All transports</option>
-        {% for t in _transports %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+        {% for t in _transports %}<option value="{{ t|replace(' ', '_') }}">{{ t }}</option>{% endfor %}
       </select>
+      <select class="dx-devtb-select" aria-label="Filter by status" data-lf-filter="health">
+        <option value="">Any status</option>
+        <option value="ok">Online</option>
+        <option value="warn">Late</option>
+        <option value="stale">Offline</option>
+        <option value="unknown">Never seen</option>
+      </select>
+      {% if _devices %}<span class="lf-count" data-lf-count data-lf-noun="device" aria-live="polite">{{ _devices|length }} device{{ '' if _devices|length == 1 else 's' }}</span>{% endif %}
     </div>
   </div>
 
@@ -55,16 +63,16 @@
   {# DEVICES TABLE #}
   {% if _devices %}
   <div class="dx-devtable card" data-devtable>
-    <div class="dx-devtable-head" aria-hidden="true">
-      <span></span>
-      <span>Device</span>
-      <span>Kind</span>
-      <span>Link</span>
-      <span>Panel</span>
-      <span>Battery</span>
-      <span>Firmware</span>
-      <span>Last seen</span>
-      <span></span>
+    <div class="dx-devtable-head">
+      <span aria-hidden="true"></span>
+      <span data-lf-sort-key="name">Device</span>
+      <span data-lf-sort-key="kind">Kind</span>
+      <span data-lf-sort-key="link">Link</span>
+      <span data-lf-sort-key="panel" data-lf-sort-type="num">Panel</span>
+      <span data-lf-sort-key="battery" data-lf-sort-type="num">Battery</span>
+      <span data-lf-sort-key="firmware">Firmware</span>
+      <span data-lf-sort-key="seen" data-lf-sort-type="num">Last seen</span>
+      <span aria-hidden="true"></span>
     </div>
 
     {% for section in _devices %}
@@ -75,6 +83,16 @@
          data-devrow data-device-id="{{ section.device_id }}"
          data-transport="{{ section.transport_badge }}"
          data-search="{{ (section.device_name ~ ' ' ~ section.kind_name ~ ' ' ~ section.device_id ~ ' ' ~ section.transport_badge)|lower }}"
+         data-lf-item
+         data-lf-text="{{ (section.device_name ~ ' ' ~ section.kind_name ~ ' ' ~ section.device_id ~ ' ' ~ section.transport_badge)|lower }}"
+         data-lf-transport="{{ section.transport_badge|replace(' ', '_') }}" data-lf-health="{{ _h }}"
+         {% set _bp = section.status.parsed.get('battery_pct') %}
+         data-sort-name="{{ section.device_name }}" data-sort-kind="{{ section.kind_name }}"
+         data-sort-link="{{ section.transport_badge }}"
+         data-sort-panel="{{ (section.panel.w * section.panel.h) if section.panel else '' }}"
+         data-sort-battery="{{ _bp if _bp is number else '' }}"
+         data-sort-firmware="{{ section.status.firmware.current if section.status.firmware and section.status.firmware.current else '' }}"
+         data-sort-seen="{{ section.status.seen_at or '' }}"
          role="button" tabindex="0"
          aria-expanded="{% if _open %}true{% else %}false{% endif %}"
          aria-controls="quick-{{ section.device_id }}">
@@ -104,7 +122,7 @@
     </div>
 
     {# QUICK PANEL: thumbnail + four tiles + actions + lineups + Open settings. #}
-    <div class="dx-devquick" id="quick-{{ section.device_id }}" data-devquick{% if not _open %} hidden{% endif %}>
+    <div class="dx-devquick" id="quick-{{ section.device_id }}" data-devquick data-lf-tail{% if not _open %} hidden{% endif %}>
       {{ render_thumb(section, 'dx-thumb--quick') }}
       <div class="dx-devquick-body">
         <div class="dx-devquick-tiles">
@@ -123,7 +141,7 @@
     </div>
     {% endfor %}
 
-    <div class="dx-devtable-empty" data-devtable-empty hidden>No devices match.</div>
+    <div class="dx-devtable-empty" data-devtable-empty data-lf-empty hidden>No devices match.</div>
   </div>
   {% else %}
   <div class="dx-devtable card">

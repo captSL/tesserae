@@ -63,15 +63,42 @@
   </nav>
 
   {# ----- Left strip: every theme, grouped by family ----------------- #}
-  <aside class="themes-strip" aria-label="Theme catalogue">
+  <aside class="themes-strip" aria-label="Theme catalogue" data-lf="themes">
+    {% set _tcount = namespace(n=0, fams=[]) %}
+    {% for family in families %}{% if grouped[family] %}{% set _tcount.n = _tcount.n + grouped[family]|length %}{% set _tcount.fams = _tcount.fams + [family] %}{% endif %}{% endfor %}
+    <div class="lf-tb lf-tb--stack themes-strip-tb">
+      <label class="dx-devtb-search">
+        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+        <input type="search" placeholder="Search themes" aria-label="Search themes"
+               autocomplete="off" spellcheck="false" data-lf-search>
+      </label>
+      <select class="dx-devtb-select" aria-label="Filter by family" data-lf-filter="family">
+        <option value="">Every family</option>
+        {% for family in _tcount.fams %}<option value="{{ family }}">{{ family_labels[family] }}</option>{% endfor %}
+      </select>
+      <select class="dx-devtb-select" aria-label="Filter by picker visibility" data-lf-filter="vis">
+        <option value="">Shown or hidden</option>
+        <option value="shown">Shown in the picker</option>
+        <option value="hidden">Hidden from the picker</option>
+      </select>
+      <select class="dx-devtb-select" aria-label="Sort" data-lf-sort>
+        <option value="">Family order</option>
+        <option value="name:asc">Name A to Z</option>
+        <option value="name:desc">Name Z to A</option>
+      </select>
+      <span class="lf-count" data-lf-count data-lf-noun="theme" aria-live="polite">{{ _tcount.n }} theme{{ '' if _tcount.n == 1 else 's' }}</span>
+    </div>
     {% for family in families %}
       {% if grouped[family] %}
-      <section class="themes-strip-family">
+      <section class="themes-strip-family" data-lf-group>
         <h3 class="themes-strip-head">{{ family_labels[family] }}</h3>
         <ul class="themes-strip-list">
           {% for t in grouped[family] %}
           {% set is_disabled = t.id in disabled_ids %}
-          <li class="themes-strip-li {% if is_disabled %}is-hidden{% endif %}">
+          <li class="themes-strip-li {% if is_disabled %}is-hidden{% endif %}" data-lf-item
+              data-lf-text="{{ (t.name ~ ' ' ~ t.id ~ ' ' ~ (t.tagline or '') ~ ' ' ~ family_labels[family])|lower }}"
+              data-lf-family="{{ family }}" data-lf-vis="{{ 'hidden' if is_disabled else 'shown' }}"
+              data-sort-name="{{ t.name }}">
             <a class="themes-strip-item {% if selected_id == t.id %}is-active{% endif %}"
                href="{{ url_for('themes.show', theme_id=t.id) }}"
                data-theme="{{ t.id }}">
@@ -101,6 +128,7 @@
       </section>
       {% endif %}
     {% endfor %}
+    <p class="lf-empty" data-lf-empty hidden>No themes match.</p>
   </aside>
 
   {# ----- Right pane: builder ---------------------------------------- #}

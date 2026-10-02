@@ -1015,6 +1015,8 @@ body.modal-open { overflow: hidden; }
   cursor: pointer;
 }
 .topbar-optin-no:hover { color: var(--t-fg, #1a1a1a); text-decoration: underline; }
+/* The x only shows on Paper's folded icon rail, where the words don't fit. */
+.topbar-optin-no > .ph { display: none; }
 .topbar-restart-form { margin-left: auto; }
 /* When batteries are also shown, batteries already grabbed the auto
    margin, so this row of trailing items collapses cleanly. */

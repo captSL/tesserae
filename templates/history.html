@@ -148,7 +148,33 @@
 </div>
 {% endif %}
 
-<section class="dx-section-card dx-hist-card" aria-label="Push history">
+<section class="dx-section-card dx-hist-card" aria-label="Push history" data-lf="history">
+  {% if history %}
+  {# Search, outcome and sort act on the rows this page loaded; the source
+     and display filters above go back to the server and reach the whole log. #}
+  <div class="lf-tb dx-hist-tb">
+    <label class="dx-devtb-search">
+      <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+      <input type="search" placeholder="Search these pushes" aria-label="Search these pushes"
+             autocomplete="off" spellcheck="false" data-lf-search>
+    </label>
+    <select class="dx-devtb-select" aria-label="Filter by outcome" data-lf-filter="outcome">
+      <option value="">Any outcome</option>
+      <option value="ok">Pushed or fetched</option>
+      <option value="held">Held or skipped</option>
+      <option value="other">No change or background</option>
+      <option value="failed">Failed</option>
+    </select>
+    <select class="dx-devtb-select" aria-label="Sort" data-lf-sort>
+      <option value="">Newest first</option>
+      <option value="time:asc" data-type="num">Oldest first</option>
+      <option value="dur:desc" data-type="num">Slowest first</option>
+      <option value="target:asc">Dashboard A to Z</option>
+    </select>
+    <span class="lf-count" data-lf-count data-lf-noun="push" data-lf-plural="pushes" aria-live="polite">{{ history|length }} push{{ 'es' if history|length != 1 }}</span>
+    <p class="lf-hint">Search, outcome and sort cover the {{ history|length }} row{{ 's' if history|length != 1 }} on this page{% if history|length >= page_rows %}, the newest {{ page_rows }}{% endif %}. Sorting keeps each {{ 'dashboard' if sort_mode == 'dashboard' else 'day' }} together.</p>
+  </div>
+  {% endif %}
   {% if not history %}
   <div class="dx-empty">
     <div class="dx-empty-icon"><i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i></div>
@@ -166,14 +192,20 @@
   </div>
   {% else %}
   {% for group in groups %}
-  <section class="dx-hist-group" data-history-group="{{ group.key }}">
+  <section class="dx-hist-group" data-history-group="{{ group.key }}" data-lf-group>
     <div class="dx-hist-group-head">
       <h2 class="dx-hist-group-title">{{ group.label }}</h2>
       <span class="dx-hist-group-sub">{{ group.count }} push{{ 'es' if group.count != 1 }}{% if group.failed %} · {{ group.failed }} failed{% endif %}</span>
     </div>
     <ul class="dx-hist-rows">
       {% for ev in group.rows %}
-      <li class="dx-hist-row{% if ev.failed %} dx-hist-row--failed{% endif %}" data-history-row="{{ ev.id }}">
+      {% set _tone = STATUS_META.get(ev.push_status or ev.status, ('', 'bad'))[1] %}
+      {% set _smeta = SOURCE_META.get(ev.source) %}
+      <li class="dx-hist-row{% if ev.failed %} dx-hist-row--failed{% endif %}" data-history-row="{{ ev.id }}"
+          data-lf-item
+          data-lf-text="{{ (ev.target ~ ' ' ~ (ev.target_devices|map(attribute='name')|join(' ')) ~ ' ' ~ (_smeta[0] if _smeta else ev.source) ~ ' ' ~ ev.status ~ ' ' ~ (ev.push_status or '') ~ ' ' ~ (ev.error or '') ~ ' ' ~ ev.time)|lower }}"
+          data-lf-outcome="{{ 'failed' if ev.failed else ('ok' if _tone == 'ok' else ('held' if _tone == 'warn' else 'other')) }}"
+          data-sort-time="{{ ev.timestamp }}" data-sort-dur="{{ ev.duration_s or 0 }}" data-sort-target="{{ ev.target }}">
         <span class="dx-hist-dot{% if ev.failed %} is-bad{% endif %}" aria-hidden="true"></span>
         <input type="checkbox" class="dx-hist-select" value="{{ ev.ids|join(',') }}"
                aria-label="Select entry #{{ ev.id }}" title="Select for bulk delete">
@@ -233,6 +265,7 @@
     </ul>
   </section>
   {% endfor %}
+  <div class="lf-empty" data-lf-empty hidden>No pushes on this page match.</div>
   {% endif %}
 </section>
 

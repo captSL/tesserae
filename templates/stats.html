@@ -105,16 +105,16 @@
      attribute: tojson is escaped for script context, and its inner
      double quotes would end a quoted attribute early. #}
   <script id="pushes-data" type="application/json">{{ {"days": pushes.days, "series": pushes.series} | tojson }}</script>
-  <details class="dx-chart-table">
+  <details class="dx-chart-table" data-lf="stats-pushes">
     <summary>Show as a table</summary>
     <table class="dx-table">
       <thead>
-        <tr><th scope="col">Day</th>{% for s in pushes.series %}<th scope="col">{{ s.label }}</th>{% endfor %}</tr>
+        <tr><th scope="col" data-lf-sort-key="day">Day</th>{% for s in pushes.series %}<th scope="col" data-lf-sort-key="s{{ loop.index0 }}" data-lf-sort-type="num">{{ s.label }}</th>{% endfor %}</tr>
       </thead>
       <tbody>
         {% for day in pushes.days %}
         {% set outer = loop.index0 %}
-        <tr>
+        <tr data-lf-item data-sort-day="{{ outer }}"{% for s in pushes.series %} data-sort-s{{ loop.index0 }}="{{ s.values[outer] }}"{% endfor %}>
           <th scope="row">{{ day }}</th>
           {% for s in pushes.series %}<td>{{ s.values[outer] }}</td>{% endfor %}
         </tr>
@@ -132,9 +132,26 @@
     <p class="dx-muted-note">No frames counted in this window.</p>
     {% else %}
     {% set busiest = devices[0].frames or 1 %}
+    <div data-lf="stats-displays">
+    {% if devices|length > 1 %}
+    <div class="lf-tb dx-stats-tb">
+      <label class="dx-devtb-search">
+        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+        <input type="search" placeholder="Search displays" aria-label="Search displays"
+               autocomplete="off" spellcheck="false" data-lf-search>
+      </label>
+      <select class="dx-devtb-select" aria-label="Sort" data-lf-sort>
+        <option value="">Most frames</option>
+        <option value="frames:asc" data-type="num">Fewest frames</option>
+        <option value="wakes:desc" data-type="num">Most check-ins</option>
+        <option value="name:asc">Name A to Z</option>
+      </select>
+    </div>
+    {% endif %}
     <ul class="dx-bar-list">
       {% for d in devices %}
-      <li>
+      <li data-lf-item data-lf-text="{{ d.name|lower }}" data-sort-name="{{ d.name }}"
+          data-sort-frames="{{ d.frames }}" data-sort-wakes="{{ d.wakes or 0 }}">
         <div class="dx-bar-row">
           <span class="dx-bar-label">
             {{ d.name }}
@@ -149,6 +166,8 @@
       </li>
       {% endfor %}
     </ul>
+    <p class="lf-empty" data-lf-empty hidden>No displays match.</p>
+    </div>
     {% endif %}
   {% endcall %}
 
@@ -157,11 +176,11 @@
     {% if not outcomes %}
     <p class="dx-muted-note">No pushes counted in this window.</p>
     {% else %}
-    <table class="dx-table">
-      <thead><tr><th scope="col">Outcome</th><th scope="col">Count</th><th scope="col">Share</th></tr></thead>
+    <table class="dx-table" data-lf="stats-outcomes">
+      <thead><tr><th scope="col" data-lf-sort-key="label">Outcome</th><th scope="col" data-lf-sort-key="count" data-lf-sort-type="num">Count</th><th scope="col" data-lf-sort-key="share" data-lf-sort-type="num">Share</th></tr></thead>
       <tbody>
         {% for row in outcomes %}
-        <tr>
+        <tr data-lf-item data-sort-label="{{ row.label }}" data-sort-count="{{ row.value }}" data-sort-share="{{ row.share }}">
           <th scope="row">{{ row.label }}</th>
           <td>{{ "{:,}".format(row.value) }}</td>
           <td class="dx-share">{{ row.share }}%</td>

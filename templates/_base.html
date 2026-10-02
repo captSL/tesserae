@@ -88,6 +88,13 @@
         else if (mq.addListener) mq.addListener(follow);
       }
     })();
+    // Paper's sidebar folds to an icon rail on desktop. Applied here, before
+    // paint, so a folded sidebar never flashes open on navigation.
+    try {
+      if (localStorage.getItem('tesserae-sidebar') === 'collapsed') {
+        document.documentElement.classList.add('sidebar-collapsed');
+      }
+    } catch (e) { /* localStorage unavailable: the sidebar stays open */ }
     // SCRIPT_NAME under HA Ingress (e.g. /api/hassio_ingress/<token>), empty
     // otherwise. JS that builds absolute paths must prepend this, root-
     // relative URLs from inside the ingress iframe would otherwise resolve
@@ -392,7 +399,7 @@
       <form method="post" action="{{ url_for('auth.settings_online_features_toggle') }}" class="inline">
         <input type="hidden" name="online_features" value="0">
         <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
-        <button type="submit" class="topbar-optin-no" title="Keep this install offline. Changeable later in Settings → System.">No thanks</button>
+        <button type="submit" class="topbar-optin-no" title="Keep this install offline. Changeable later in Settings → System."><i class="ph ph-x" aria-hidden="true"></i><span class="topbar-optin-no-label">No thanks</span></button>
       </form>
     </div>
     {% endif %}
@@ -417,6 +424,14 @@
       <i class="ph ph-circle-half is-mode-system" aria-hidden="true"></i>
       <i class="ph ph-sun is-mode-light" aria-hidden="true"></i>
       <i class="ph ph-moon is-mode-dark" aria-hidden="true"></i>
+    </button>
+    {# Paper desktop only: folds the sidebar to a 64px icon rail (paper.css
+       hides it everywhere else). The state lives in localStorage and the
+       head script applies it before paint. #}
+    <button type="button" class="sidebar-toggle" data-sidebar-toggle aria-controls="primary-nav"
+            aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar">
+      <i class="ph ph-sidebar-simple sidebar-toggle-icon" aria-hidden="true"></i>
+      <span class="sidebar-toggle-label">Collapse</span>
     </button>
     {% endif %}
   </header>
@@ -490,7 +505,9 @@
   {% endif %}
   <script src="{{ url_for('static', filename='restart-form.js') }}"></script>
   <script src="{{ url_for('static', filename='components.js') }}"></script>
+  <script src="{{ url_for('static', filename='list-filter.js') }}"></script>
   {% if _paper %}<script src="{{ url_for('static', filename='morph.js') }}"></script>{% endif %}
+  {% if _paper and not shell_locked %}<script src="{{ url_for('static', filename='sidebar-rail.js') }}"></script>{% endif %}
   <script src="{{ url_for('static', filename='info-pop.js') }}"></script>
   <script src="{{ url_for('static', filename='icon-picker.js') }}"></script>
   <script src="{{ url_for('static', filename='entity-overrides.js') }}"></script>
