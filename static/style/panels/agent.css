@@ -27,7 +27,7 @@
 .ag.is-think .ag-verb { animation: ag-breathe 2.4s ease-in-out infinite; }
 .ag.is-away .ag-verb, .ag.is-done .ag-verb { font-weight: 600; }
 @keyframes ag-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
-.ag-sub { font: 400 10.5px/1.4 var(--t-font-mono); color: var(--t-fg-soft); overflow-wrap: anywhere; }
+.ag-sub { font: 400 10.5px/1.4 var(--t-font-mono); color: var(--t-fg-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ag-chev {
   flex: none; width: 30px; height: 30px; display: grid; place-items: center;
   border: 0; border-radius: var(--ed-r-sm); background: transparent; color: var(--t-fg);
