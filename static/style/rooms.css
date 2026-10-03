@@ -259,8 +259,13 @@
   border-left: 3px solid var(--t-accent);
 }
 .rooms-notice--dep i { color: var(--t-accent); font-size: 20px; }
-.rooms-notice--warn { background: #fdf6e9; border: 1px solid #ecdcbe; }
-.rooms-notice--warn i { color: #8a5a10; font-size: 18px; }
+/* Warn tokens, not fixed light colours: the dark UI used to draw its
+   near-white text on a cream card here. */
+.rooms-notice--warn {
+  background: var(--t-warn-bg);
+  border: 1px solid color-mix(in oklab, var(--t-warn) 35%, var(--t-border));
+}
+.rooms-notice--warn i { color: var(--t-warn); font-size: 18px; }
 .rooms-notice h2 { font-size: 14.5px; font-weight: 600; margin: 0 0 4px; }
 .rooms-notice p { margin: 0 0 10px; font-size: 13.5px; line-height: 1.55; }
 

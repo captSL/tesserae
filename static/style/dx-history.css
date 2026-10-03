@@ -50,6 +50,10 @@
   font-size: 12.5px;
 }
 .dx-hist-clear-btn { color: var(--t-danger); }
+/* With rows ticked the button deletes the selection, so the cutoff select
+   and its label step aside until the selection clears. */
+.dx-hist-clear.is-selection label,
+.dx-hist-clear.is-selection .dx-hist-clear-age { display: none; }
 
 /* Card + groups ------------------------------------------------ */
 .dx-hist-card {

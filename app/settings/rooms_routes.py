@@ -112,6 +112,7 @@ def rooms_index() -> str:
         feeds=feeds,
         panels=_panels(),
         widget_installed=_widget_installed(),
+        calendar_installed=core is not None,
         board=board,
         board_devices=(board.device_ids if board is not None else []),
         board_room_count=sum(1 for r in all_rooms if r.enabled),

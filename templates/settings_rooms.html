@@ -45,7 +45,9 @@
       Rooms will still save and their dashboards will still build. The room rows on them
       will just come out blank until the widget is there to draw them.
     </p>
-    <a class="btn btn-quiet" href="{{ url_for('auth.settings_area', area='plugins') }}">
+    {# Room Status comes from the catalog, so send people to the browse page
+       with the search prefilled rather than to the installed-widgets settings. #}
+    <a class="btn btn-quiet" href="{{ url_for('marketplace.browse', q='room status') }}">
       <i class="ph ph-download-simple" aria-hidden="true"></i> Install Room Status
     </a>
   </div>
@@ -63,7 +65,11 @@
       There aren't any feeds set up yet, so there's nothing for a room to show. Add one,
       an .ics URL or a CalDAV account will do, and it'll appear in the feed list here.
     </p>
+    {% if calendar_installed %}
     <a class="btn" href="{{ url_for('auth.settings_area', area='plugins') }}">Add a calendar feed</a>
+    {% else %}
+    <a class="btn" href="{{ url_for('marketplace.browse', q='calendar') }}">Install the calendar connector</a>
+    {% endif %}
   </div>
 </div>
 

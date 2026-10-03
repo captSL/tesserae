@@ -113,6 +113,24 @@ All notable changes to Tesserae are recorded here. Format loosely follows
   title is the one splash of colour; and every form control is one height
   (40px, 44px on phones, 32px inside list rows).
 
+### Fixed
+
+- History's Clear history control no longer asks "Delete the selected
+  history?" when it is about to delete everything older than the chosen
+  cutoff; the confirm now names the cutoff. With rows ticked, the same
+  button deletes the selection instead of reporting that it deleted 0
+  entries (#346).
+- Settings › Rooms: the "widget isn't installed" notice drew the dark
+  theme's text on a fixed cream card; it now uses the warn tokens in both
+  themes. Its Install Room Status button goes to the catalog with the
+  search prefilled, where the widget can actually be installed, instead of
+  the installed-widgets settings; the calendar prompt does the same when
+  the calendar connector is missing (#346).
+- Settings › Themes says that these are the palettes dashboards render in
+  on the panel, and that the admin UI's own light and dark mode is the
+  sidebar toggle, after a report that picking one was expected to switch
+  the UI (#346).
+
 ### Changed (bridge)
 
 - Settings › System › MCP now expects the `tesserae-mcp` bridge 0.18.1, whose

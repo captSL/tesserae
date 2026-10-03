@@ -129,8 +129,11 @@
     {% endif %}
     {% if history %}
     {# Manual housekeeping (issue #116): clear everything older than a cutoff. #}
+    {# The confirm names the chosen cutoff (issue #346: "Delete the selected
+       history?" read as acting on ticked rows). With rows ticked, the button
+       deletes the selection instead; see the script below. #}
     <form method="post" action="{{ url_for('send.clear_history') }}" class="form form--inline dx-hist-clear"
-          onsubmit="return confirm('Delete the selected history? This cannot be undone.');">
+          id="dx-hist-clear-form">
       <label class="u-muted" for="hist-older">Clear history</label>
       <select name="older_than" id="hist-older" class="dx-hist-clear-age">
         <option value="7">older than 7 days</option>
@@ -296,10 +299,22 @@
     const clearBtn = document.getElementById('dx-hist-bulk-clear');
 
     function selected() { return boxes.filter(function (b) { return b.checked; }); }
+    const clearForm = document.getElementById('dx-hist-clear-form');
+    const clearBtnLabel = clearForm ? clearForm.querySelector('.dx-hist-clear-btn span') : null;
     function sync() {
       const n = selected().length;
       bar.hidden = n === 0;
       if (n) count.textContent = n + ' selected';
+      // The top-right Delete follows the selection while one exists.
+      if (clearBtnLabel) clearBtnLabel.textContent = n ? 'Delete ' + n + ' selected' : 'Delete';
+      if (clearForm) clearForm.classList.toggle('is-selection', n > 0);
+    }
+    if (clearForm) {
+      clearForm.addEventListener('submit', function (e) {
+        if (!selected().length) return;
+        e.preventDefault();
+        form.requestSubmit();
+      });
     }
     boxes.forEach(function (b) { b.addEventListener('change', sync); });
     form.addEventListener('submit', function () {
@@ -319,6 +334,19 @@
       sync();
     });
     sync();
+  })();
+  // Clear history: the confirm says what the cutoff select says, so
+  // "older than 7 days" is never mistaken for the ticked rows.
+  (function () {
+    const form = document.getElementById('dx-hist-clear-form');
+    if (!form) return;
+    form.addEventListener('submit', function (e) {
+      if (e.defaultPrevented) return;
+      const sel = form.querySelector('select[name="older_than"]');
+      const opt = sel && sel.options[sel.selectedIndex];
+      const scope = opt && opt.value ? 'all history ' + opt.text : 'all history';
+      if (!confirm('Delete ' + scope + '? This cannot be undone.')) e.preventDefault();
+    });
   })();
   // One open overflow menu at a time; any outside click closes it.
   (function () {
