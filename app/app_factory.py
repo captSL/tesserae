@@ -426,6 +426,28 @@ def create_app(
         if endpoint == "static" and "v" not in values:
             values["v"] = static_version
 
+    # Flask serves static files with ``Cache-Control: no-cache``, which
+    # makes the browser revalidate every stylesheet, script and icon font
+    # on every page: ~40 conditional requests per navigation, each a round
+    # trip, with the render-blocking stylesheets and the icon font (which
+    # hides its glyphs until it arrives) waiting on them. That read as lag
+    # and a flash of missing icons on every page change. A URL carrying
+    # the current version can be cached for good, since every ship changes
+    # the version (and every dev restart, above). Files reached without
+    # one (the icon font and images that stylesheets refer to by relative
+    # path) are cached for a day; dev keeps them revalidated. With no
+    # version to go on (neither pyproject nor package metadata) nothing is
+    # held for good, since an upgrade would not change the URL.
+    @app.after_request
+    def _cache_static(resp: Response) -> Response:
+        if request.endpoint != "static" or resp.status_code not in (200, 304):
+            return resp
+        if pkg_version != "0.0.0" and request.args.get("v") == static_version:
+            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif not dev:
+            resp.headers["Cache-Control"] = "public, max-age=86400"
+        return resp
+
     # Human-readable timestamp filter for templates. Used by the events
     # page so each row reads as "Jun  1 14:23:45" (local time) instead
     # of a raw unix float. Same shape on the client streamer.
