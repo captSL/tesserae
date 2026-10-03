@@ -453,7 +453,9 @@ def register_discovered(discovered_id: str) -> Response:
     overrides.update(geometry)
     renderers = _renderers()
     kind = _devices().get(kind_id)
-    renderer_id = device_service.renderer_id_for_format(renderers, kind, entry.wire_format)
+    renderer_id = device_service.renderer_id_for_gamut(
+        renderers, kind, overrides.get("gamut")
+    ) or device_service.renderer_id_for_format(renderers, kind, entry.wire_format)
     result = device_service.create_instance(
         devices=_devices(),
         renderers=renderers,

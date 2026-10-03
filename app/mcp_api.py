@@ -1092,11 +1092,17 @@ def _gamut_info(gamut: str) -> dict[str, Any]:
     resolved = q.canonicalise_gamut(gamut) if gamut in q.ACCEPTED_GAMUTS else gamut
 
     # Full-colour transports carry no fixed ink palette but must not read as mono.
-    if resolved in ("rgb24", "rgb16"):
-        bits = "24" if resolved == "rgb24" else "16"
+    # Kaleido 3 (colour e-readers) is the same shape at a lower depth: any
+    # colour, 16 levels per channel, so there is nothing to list as inks.
+    if resolved in ("rgb24", "rgb16", "kaleido3"):
+        if resolved == "kaleido3":
+            mode = "colour e-ink (Kaleido 3: 4096 colours, 16 levels per channel, muted)"
+        else:
+            bits = "24" if resolved == "rgb24" else "16"
+            mode = f"full colour ({bits}-bit)"
         return {
             "gamut": gamut,
-            "color_mode": f"full colour ({bits}-bit)",
+            "color_mode": mode,
             "colors": [],
             # No fixed inks, so nothing to name as a mix of two of them. The key is still
             # present so every device reports the same shape.

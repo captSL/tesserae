@@ -1,0 +1,23 @@
+{
+  "tesserae_compat": "1.x",
+  "id": "kobo_clara_colour",
+  "name": "Kobo Clara Colour",
+  "vendor": "Kobo",
+  "url": "https://www.kobo.com/ereaders",
+  "icon": "book-open",
+  "description": "Kobo Clara Colour, 1072x1448 E Ink Kaleido 3 colour e-reader (4096 colours, 16 levels per channel) running KOReader with the Tesserae plugin. No jailbreak needed: KOReader installs alongside the stock firmware. Receives a colour PNG rather than a packed grey frame.",
+  "protocol": "koreader_client",
+  "panel": {
+    "w": 1072,
+    "h": 1448,
+    "orientation": "portrait",
+    "name": "Kobo Clara Colour screen",
+    "gamut": "kaleido3",
+    "native_w": 1072,
+    "native_h": 1448
+  },
+  "renderers": ["kaleido_png", "esp32_gray_bin", "esp32_gray2_bin", "esp32_bw_bin"],
+  "refresh_floor_s": 60,
+  "image_format": "png",
+  "notes_md": "Awaiting confirmed test on real hardware. Runs the Tesserae KOReader plugin (dmellok/tesserae-koreader); the plugin pairs with gamut `kaleido3` when KOReader reports a colour screen with colour rendering on, and the server answers with a 24-bit RGB PNG dithered to 16 levels per channel (`format: \"png\"` on `/frame`). With colour rendering off in KOReader the plugin pairs as a 16-level greyscale reader and takes the packed grey frame instead. KOReader's hardware wake (WakeupMgr) is native on Kobo, so the reader sleeps between refreshes. The plugin reports the real screen size at pairing, so this entry only fixes the default panel and the store listing."
+}

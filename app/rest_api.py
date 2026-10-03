@@ -635,6 +635,41 @@ def _maybe_switch_wire_format(device_id: str, body: dict[str, Any]) -> None:
         current_app.logger.exception("rest: wire-format switch failed for device=%s", device_id)
 
 
+def _maybe_heal_gamut(device_id: str, body: dict[str, Any]) -> None:
+    """Honour a re-declared panel gamut on an already-registered device
+    when it moves the device onto, or off, a gamut-dedicated renderer.
+
+    A KOReader plugin that learns to report ``kaleido3`` for a colour
+    reader it first paired as ``gray_16`` would otherwise keep receiving
+    packed grey frames forever: the idempotent re-register path leaves
+    the panel block alone. ``update_instance_gamut`` only acts when a
+    dedicated renderer is involved (``kaleido_png`` either way), so a
+    client restating a gamut its default renderer already serves is
+    still a no-op. When the device moves, its cached render is dropped so
+    ``/frame`` reports 204 until the next push repaints it in the new
+    format. Best-effort: any failure is logged and swallowed so it never
+    breaks the poll."""
+    declared = body.get("gamut")
+    if not isinstance(declared, str) or not declared.strip():
+        return
+    try:
+        from app.device_service import update_instance_gamut
+
+        _result, changed = update_instance_gamut(
+            devices=_devices(),
+            renderers=_renderers(),
+            data_root=_device_data_root(),
+            instance_id=device_id,
+            gamut=declared.strip(),
+        )
+        if changed:
+            push_mgr = current_app.config.get("PUSH_MANAGER")
+            if push_mgr is not None:
+                push_mgr.invalidate_latest_render(device_id)
+    except Exception:
+        current_app.logger.exception("rest: gamut heal failed for device=%s", device_id)
+
+
 def _maybe_heal_kind(device_id: str, body: dict[str, Any]) -> None:
     """Move an already-registered device to the kind its firmware now
     declares, when that differs from the stored one.
@@ -3435,6 +3470,9 @@ def _register() -> Response:
         # re-fetch it for the config echo.
         _maybe_heal_kind(device_id, body)
         _maybe_switch_wire_format(device_id, body)
+        # Last, so a gamut with a dedicated renderer wins over a declared
+        # wire format here exactly as it does on a first registration.
+        _maybe_heal_gamut(device_id, body)
         # A re-pair means the firmware's NVS (and its wake-event
         # counter) may have been wiped; forget the dedup high-water
         # mark or every future button/touch reads as a duplicate.
@@ -3477,13 +3515,19 @@ def _register() -> Response:
         )
     markers.clear(device_id)
 
-    # Wire format the client asked for (png / bmp), resolved to a
-    # renderer of the chosen kind. Lets a memory-constrained
-    # CircuitPython client pin the uncompressed-BMP renderer at pairing
-    # time, matching the discover-and-claim path.
-    from app.device_service import renderer_id_for_format
+    # A gamut with a renderer dedicated to it (``kaleido3`` -> the colour
+    # PNG renderer on the KOReader kind) pins that renderer ahead of any
+    # wire format the client asked for: a packed grey ``.bin`` is not a
+    # frame a colour reader can use, whatever its ``format`` says.
+    # Otherwise the wire format (png / bmp) resolves to a renderer of the
+    # chosen kind, which lets a memory-constrained CircuitPython client
+    # pin the uncompressed-BMP renderer at pairing time, matching the
+    # discover-and-claim path.
+    from app.device_service import renderer_id_for_format, renderer_id_for_gamut
 
-    renderer_id_arg = renderer_id_for_format(_renderers(), kind, body.get("format"))
+    renderer_id_arg = renderer_id_for_gamut(
+        _renderers(), kind, (panel_overrides or {}).get("gamut")
+    ) or renderer_id_for_format(_renderers(), kind, body.get("format"))
     result = create_instance(
         devices=devices_registry,
         renderers=_renderers(),

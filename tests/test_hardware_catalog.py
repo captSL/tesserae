@@ -186,6 +186,38 @@ def test_ee03_is_its_own_kind_sharing_the_e1003_gray_wire_contract(
     assert e1003.manifest.get("touch") is True
 
 
+def test_kobo_colour_readers_take_the_kaleido_png_renderer_first(
+    tmp_path: Path, hardware_schema_path: Path, device_schema_path: Path
+) -> None:
+    """The Kobo Libra Colour and Clara Colour are Kaleido 3 panels on the
+    KOReader protocol: same pairing and polling as the grey Kobos, but
+    the gamut is ``kaleido3`` and the renderer list puts ``kaleido_png``
+    first so a device created from the SKU kind gets the colour PNG by
+    default, with the grey packers still offered."""
+    registry = device_loader.discover(
+        REPO_ROOT / "devices",
+        schema_path=device_schema_path,
+        data_root=tmp_path,
+        hardware_dir=REPO_ROOT / "hardware",
+        hardware_schema_path=hardware_schema_path,
+    )
+    assert registry.errors == []
+    expected_dims = {"kobo_libra_colour": (1264, 1680), "kobo_clara_colour": (1072, 1448)}
+    for kind_id, dims in expected_dims.items():
+        kind = registry.devices[kind_id]
+        assert kind.kind_of is None
+        assert kind.manifest["_catalog_entry"]["protocol"] == "koreader_client"
+        assert kind.renderer_ids[0] == "kaleido_png"
+        assert "esp32_gray_bin" in kind.renderer_ids
+        assert kind.panel is not None
+        assert (kind.panel["w"], kind.panel["h"]) == dims
+        assert kind.panel["orientation"] == "portrait"
+        assert kind.panel["gamut"] == "kaleido3"
+        assert kind.manifest["image_format"] == "png"
+    # The grey siblings are untouched.
+    assert registry.devices["kobo_clara_hd"].renderer_ids[0] == "esp32_gray_bin"
+
+
 def test_papermono_is_its_own_kind_sharing_the_sticky_wire_contract(
     tmp_path: Path, device_schema_path: Path, hardware_schema_path: Path
 ) -> None:

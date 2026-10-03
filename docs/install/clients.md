@@ -17,7 +17,7 @@ device-registration flow described in [Set up a device](devices.md).
 | `tesserae-device-pi-bin` | MQTT | `pi_bin` | Plugged-in Pimoroni Inky Impression (fastest path) |
 | `tesserae-device-pi-png` | REST / MQTT | `pi_png` | Any inky-supported panel (2/3/6/7 colour) |
 | `tesserae-device-pico-bin` | MQTT | `pico_bin` | Pimoroni Pico-driven Inky Impression (4-bpp Spectra 6) |
-| [`tesserae-koreader`](https://github.com/dmellok/tesserae-koreader) | REST | `koreader_client` | Jailbroken Kindles, Kobo, and other e-readers running KOReader; 16-level greyscale, sleeps between refreshes |
+| [`tesserae-koreader`](https://github.com/dmellok/tesserae-koreader) | REST | `koreader_client` | Jailbroken Kindles, Kobo, and other e-readers running KOReader; 16-level greyscale, or colour on a Kaleido 3 reader (Kobo Libra Colour, Clara Colour), sleeps between refreshes |
 | [TRMNL stock firmware](https://github.com/usetrmnl/trmnl-firmware) or [KOReader plugin](https://github.com/koreader/koreader) | HTTP-pull (BYOS) | `trmnl` | TRMNL devices + KOReader-on-Kindle |
 
 See [Screens & compatibility](../compatibility.md) for which renderer feeds each
@@ -94,7 +94,7 @@ wire-compatible with the inky-dash v3/v4 listener protocol.
 ## tesserae-koreader (Kindle, Kobo, any KOReader e-reader)
 
 [:material-github: dmellok/tesserae-koreader](https://github.com/dmellok/tesserae-koreader)
-· pairs with the `esp32_gray_bin` renderer · default id `koreader_client`
+· pairs with the `esp32_gray_bin` renderer (`kaleido_png` on a colour reader) · default id `koreader_client`
 
 A KOReader plugin that makes an e-reader a Tesserae panel over the REST device
 protocol, the same one the ESP32 firmware speaks. Kindles need a jailbreak to
@@ -108,7 +108,11 @@ run KOReader; Kobo, PocketBook and reMarkable do not.
 The plugin reports the reader's real screen size when it pairs, so one kind
 covers every model. Frames are packed at 4 bits per pixel (16 greys) and
 decoded on the reader; an unchanged dashboard answers `304` and costs no
-repaint. Where KOReader exposes the hardware alarm (Kobo, and Kindles on a
+repaint. A colour reader (E Ink Kaleido 3: Kobo Libra Colour, Clara Colour)
+pairs with the `kaleido3` gamut when KOReader's colour rendering is on, and
+receives a colour PNG dithered to 16 levels per channel (4096 colours)
+instead of the packed grey frame; with colour rendering off it pairs as a
+greyscale reader. Not yet confirmed on a colour reader. Where KOReader exposes the hardware alarm (Kobo, and Kindles on a
 recent KOReader build) the reader sleeps between refreshes and wakes for each
 one; elsewhere it stays awake on a timer with Wi-Fi off in between. The
 refresh interval is the panel's **Refresh interval** on the device card.

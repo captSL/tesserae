@@ -175,6 +175,16 @@ GRAY_4_PALETTE: tuple[tuple[int, int, int], ...] = (
 # emits the level index directly). Same rationale as GRAY_4 for the drift.
 GRAY_16_PALETTE: tuple[tuple[int, int, int], ...] = tuple((v, v, v) for v in range(0, 256, 17))
 
+# E Ink Kaleido 3 (``kaleido3``): a colour filter array over a 16-level
+# greyscale panel (Kobo Libra Colour / Clara Colour, and other colour
+# e-readers KOReader drives). Not a palette: each of R, G and B carries
+# the panel's 16 grey levels, so the frame is 24-bit RGB with every
+# channel snapped to 4 bits (4096 colours). The levels are the same even
+# 0..255/17 ramp the grey packers use; a Kaleido device receives a PNG
+# at this depth and paints it as-is, so the quantiser's job is per-channel
+# error diffusion onto this ramp rather than a nearest-ink match.
+KALEIDO3_CHANNEL_LEVELS: tuple[int, ...] = tuple(range(0, 256, 17))
+
 
 # Calibrated targets, what the panels actually reproduce under normal
 # viewing light. Used **only** when the per-device ``calibrated`` toggle
@@ -266,7 +276,9 @@ PANEL_GAMUTS: tuple[str, ...] = ("waveshare_e6", "inky_7colour", "bwry_4", "bwr_
 # LCD hybrids) without going through the .bin packer. ``bwr_3`` (tri-
 # colour B/W/Red) and ``gray_4`` (2-bit greyscale ramp) are the
 # CircuitPython "grayscale" 2-bit family the ``circuitpython_png``
-# renderer quantises to an indexed PNG.
+# renderer quantises to an indexed PNG. ``kaleido3`` (E Ink Kaleido 3
+# colour e-readers) is per-channel 4-bit RGB rather than a palette, see
+# :data:`KALEIDO3_CHANNEL_LEVELS`; it is served as a PNG, never a .bin.
 ACCEPTED_GAMUTS: frozenset[str] = frozenset(
     {
         "waveshare_e6",
@@ -280,6 +292,7 @@ ACCEPTED_GAMUTS: frozenset[str] = frozenset(
         "bwr_3",
         "gray_4",
         "gray_16",
+        "kaleido3",
     }
 )
 
@@ -299,9 +312,9 @@ def canonicalise_gamut(declared: str) -> str:
     Preserves ``waveshare_e6`` and ``inky_7colour`` verbatim (the .bin
     packer's targets); collapses semantic labels (``spectra_6``,
     ``acep_7colour``) onto their canonical equivalents; passes through
-    ``mono``, ``rgb24``, ``rgb16`` for renderers that key off panel
-    type without going through the packer. Unknown values fall back
-    to ``waveshare_e6`` so a corrupt payload can't strand the device
+    ``mono``, ``rgb24``, ``rgb16``, ``kaleido3`` for renderers that key
+    off panel type without going through the packer. Unknown values fall
+    back to ``waveshare_e6`` so a corrupt payload can't strand the device
     with a nonsense panel."""
     if declared in _GAMUT_ALIASES:
         return _GAMUT_ALIASES[declared]
@@ -385,7 +398,12 @@ def palette_for_gamut(gamut: str) -> tuple[tuple[int, int, int], ...]:
     table_entry = _GAMUT_TABLE.get(g)
     if table_entry is not None:
         return table_entry[0]
-    if g == "gray_16":
+    if g in ("gray_16", "kaleido3"):
+        # Kaleido 3 has no ink palette (per-channel 4-bit RGB, see
+        # ``quantize_kaleido3``); the grey ramp is its per-channel level
+        # set, the nearest single-palette description for callers that
+        # only want a swatch list. Previews go through
+        # ``quantize_for_gamut_to_png`` instead.
         return GRAY_16_PALETTE
     if g == "gray_4":
         return GRAY_4_PALETTE
@@ -921,6 +939,69 @@ def quantize_to_png(
     out = io.BytesIO()
     quantize(src, dither=dither, palette=palette).save(out, format="PNG", optimize=True)
     return out.getvalue()
+
+
+def quantize_kaleido3(
+    src: bytes | Image.Image,
+    *,
+    dither: DitherMode = "floyd-steinberg",
+) -> Image.Image:
+    """Quantise an image to the Kaleido 3 gamut: 24-bit RGB with each
+    channel snapped to 4 bits (the 16 levels in
+    :data:`KALEIDO3_CHANNEL_LEVELS`), dithered per channel.
+
+    A Kaleido panel is a colour filter over 16-grey glass, so its colour
+    space is the product of three independent 16-level channels rather
+    than a short list of inks. Each channel is therefore dithered on its
+    own against the grey ramp, with the same kernels :func:`quantize`
+    offers (Pillow's Floyd-Steinberg, the numpy diffusion and ordered
+    modes), and the three results are merged back into one RGB image.
+    Running the channels separately is exact here: there is no cross-
+    channel palette match to lose, and a channel's diffusion error has
+    nothing to say about the other two.
+
+    Returns a mode-RGB image at the source's size whose every channel
+    value is a multiple of 17.
+    """
+    img = src if isinstance(src, Image.Image) else Image.open(io.BytesIO(src))
+    rgb = img.convert("RGB")
+    channels: list[Image.Image] = []
+    for band in rgb.split():
+        # ``quantize`` wants an RGB source; a grey triple dithered against
+        # the grey ramp is exactly a single channel dithered to 16 levels.
+        quantised = quantize(
+            Image.merge("RGB", (band, band, band)), dither=dither, palette=GRAY_16_PALETTE
+        )
+        channels.append(quantised.split()[0])
+    return Image.merge("RGB", tuple(channels))
+
+
+def quantize_kaleido3_to_png(
+    src: bytes | Image.Image,
+    *,
+    dither: DitherMode = "floyd-steinberg",
+) -> bytes:
+    """:func:`quantize_kaleido3` saved as a 24-bit RGB PNG, the frame a
+    Kaleido 3 e-reader is served (the KOReader plugin decodes it with the
+    reader's own image stack and blits it in colour)."""
+    out = io.BytesIO()
+    quantize_kaleido3(src, dither=dither).save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
+def quantize_for_gamut_to_png(
+    src: bytes | Image.Image,
+    *,
+    gamut: str,
+    dither: DitherMode = "floyd-steinberg",
+) -> bytes:
+    """Preview quantisation for any gamut: the per-channel path for
+    ``kaleido3``, else a palette match against :func:`palette_for_gamut`.
+    Used by the editor's Panel view so one call covers every panel kind."""
+    g = canonicalise_gamut(gamut)
+    if g == "kaleido3":
+        return quantize_kaleido3_to_png(src, dither=dither)
+    return quantize_to_png(src, dither=dither, palette=palette_for_gamut(g))
 
 
 # --- CircuitPython client image pipeline ------------------------------

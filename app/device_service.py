@@ -309,6 +309,108 @@ def renderer_id_for_format(
     return None
 
 
+def _renderer_gamuts(renderers: RendererRegistry, renderer_id: Any) -> frozenset[str]:
+    """The gamuts a renderer's manifest says it exists for (``gamuts``), or
+    an empty set for the ordinary renderers that serve whatever gamut the
+    panel declares. ``kaleido_png`` declares ``["kaleido3"]``: it is the
+    only output a colour e-reader can paint, and useless for any other
+    panel."""
+    renderer = renderers.get(str(renderer_id or ""))
+    if renderer is None:
+        return frozenset()
+    raw = renderer.manifest.get("gamuts")
+    if not isinstance(raw, list):
+        return frozenset()
+    return frozenset(str(g) for g in raw if isinstance(g, str))
+
+
+def renderer_id_for_gamut(renderers: RendererRegistry, kind: Any, gamut: str | None) -> str | None:
+    """The renderer of ``kind`` dedicated to a declared panel gamut, or
+    ``None`` when the gamut is empty / unknown or no renderer of the kind
+    declares itself for it (the common case: the kind's default renderer
+    handles the gamut by reading it off the panel block).
+
+    A client that pairs as ``koreader_client`` with ``gamut: "kaleido3"``
+    (a Kobo Libra Colour / Clara Colour) lands on ``kaleido_png`` this way
+    rather than on the 4-bpp grey packer the kind defaults to, so its
+    ``/frame`` descriptor says ``format: "png"`` and carries colour."""
+    if not isinstance(gamut, str) or not gamut.strip():
+        return None
+    wanted = canonicalise_gamut(gamut.strip())
+    for rid in getattr(kind, "renderer_ids", []):
+        if wanted in _renderer_gamuts(renderers, rid):
+            return str(rid)
+    return None
+
+
+def update_instance_gamut(
+    *,
+    devices: DeviceRegistry,
+    renderers: RendererRegistry,
+    data_root: Path,
+    instance_id: str,
+    gamut: str | None,
+) -> tuple[InstanceResult, bool]:
+    """Move an already-registered instance to a gamut its client now
+    declares, when that gamut (or the one it leaves) has a dedicated
+    renderer on the kind.
+
+    The idempotent re-register path leaves a device's panel alone, which
+    is right for dims but strands a reader whose plugin has learned to
+    say ``kaleido3`` since it first paired as ``gray_16``: it would keep
+    receiving packed grey frames. So a declared gamut is honoured here
+    in exactly two cases: the kind has a renderer dedicated to it
+    (:func:`renderer_id_for_gamut`), which is pinned; or the instance is
+    pinned to a renderer dedicated to a gamut it no longer declares (a
+    colour reader whose owner turned KOReader's colour rendering off and
+    re-paired), which is unpinned back to the kind's default. Any other
+    redeclaration is ignored, as before, so a client restating a gamut
+    the default renderer already serves never rewrites the panel block.
+
+    Returns ``(result, changed)``; ``changed`` is True only when the
+    instance file was rewritten, so the caller can drop the device's
+    now-stale render (produced by the old renderer, in the old format)."""
+    device = devices.get(instance_id)
+    if device is None or device.kind_of is None:
+        return InstanceResult(None, f"Unknown device {instance_id!r}."), False
+    if not isinstance(gamut, str) or not gamut.strip():
+        return InstanceResult(device), False
+    kind = devices.get(device.kind_of)
+    wanted = canonicalise_gamut(gamut.strip())
+    current_renderer = device.manifest.get("renderer_id")
+    target = renderer_id_for_gamut(renderers, kind, wanted)
+    pinned_gamuts = _renderer_gamuts(renderers, current_renderer)
+    stored_gamut = str((device.manifest.get("panel") or {}).get("gamut") or "")
+    if target is not None:
+        if target == current_renderer and stored_gamut == wanted:
+            return InstanceResult(device), False
+    elif not pinned_gamuts or wanted in pinned_gamuts:
+        return InstanceResult(device), False  # nothing dedicated either side
+
+    inst_file = device.path
+    try:
+        raw = json.loads(inst_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as err:
+        return InstanceResult(None, f"Couldn't read {inst_file.name}: {err}"), False
+    panel_block = dict(raw.get("panel") or {})
+    panel_block["gamut"] = wanted
+    raw["panel"] = panel_block
+    if target is not None:
+        raw["renderer_id"] = target
+    else:
+        raw.pop("renderer_id", None)  # back to the kind default
+    inst_file.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+
+    devices.devices.pop(instance_id, None)
+    _drop_clones(renderers, instance_id)
+    reloaded = load_instance_file(devices, inst_file=inst_file, data_root=data_root)
+    if reloaded is None:
+        last_err = devices.errors[-1] if devices.errors else None
+        return InstanceResult(None, last_err.message if last_err else "unknown error"), False
+    clone_for_instances(renderers, devices)
+    return InstanceResult(reloaded), True
+
+
 VALID_ROTATIONS: tuple[int, ...] = (0, 90, 180, 270)
 
 
@@ -520,6 +622,7 @@ def create_instance(
 
     panel = dict(kind.panel or {})
     if panel_overrides:
+        _drop_foreign_native_stride(panel, panel_overrides)
         panel.update(panel_overrides)
     _apply_orientation(panel, orientation)
     if panel:
@@ -1392,6 +1495,36 @@ def delete_instance(
     devices.devices.pop(instance_id, None)
     _drop_clones(renderers, instance_id)
     return InstanceResult(device)
+
+
+def _drop_foreign_native_stride(panel: dict[str, Any], overrides: dict[str, Any]) -> None:
+    """Forget a kind's default ``native_w / native_h`` (and ``col_offset``)
+    when the overrides size a different panel and bring no stride of
+    their own.
+
+    A kind's panel block describes its default glass; the stride is a
+    fact about that glass. A client that reports another size (a Kobo
+    Clara pairing as ``koreader_client``, whose default panel is the
+    758x1024 Paperwhite 2) is a different panel, and inheriting the
+    default's stride made every renderer that packs at native dims
+    produce a 758x1024 frame for a 1072x1448 screen. With the stride
+    gone, ``device_panel`` falls back to the preset table or to the
+    composition dims, which for a client that reported its own screen is
+    the screen. Overrides that match the kind's dims in either axis order
+    keep the stride (same glass, possibly turned), as do overrides that
+    carry their own (a preset pick, or a declared ``rotation``).
+    """
+    if "native_w" in overrides or "native_h" in overrides:
+        return
+    try:
+        new_w, new_h = int(overrides["w"]), int(overrides["h"])
+        old_w, old_h = int(panel["w"]), int(panel["h"])
+    except (KeyError, TypeError, ValueError):
+        return
+    if {new_w, new_h} == {old_w, old_h}:
+        return
+    for key in ("native_w", "native_h", "col_offset"):
+        panel.pop(key, None)
 
 
 def _apply_orientation(panel: dict[str, Any], orientation: str | None) -> None:

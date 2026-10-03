@@ -48,6 +48,13 @@
       "type": "boolean",
       "description": "Whether the broker should retain the publish so a freshly-woken subscriber sees it on first wake."
     },
+    "gamuts": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "Panel gamuts this renderer is dedicated to (e.g. ['kaleido3'] on kaleido_png). A device that declares one of them at register / discover is pinned to this renderer ahead of the kind's default and of any wire format it asked for, and a registered device that re-declares such a gamut moves onto it (or back off it). Absent for ordinary renderers, which serve whatever gamut the panel block carries."
+    },
     "settings": {
       "type": "array",
       "items": {

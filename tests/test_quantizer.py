@@ -250,6 +250,103 @@ def test_canonicalise_gamut_passes_bwr3_and_gray4_through() -> None:
     assert canonicalise_gamut("gray_16") == "gray_16"
 
 
+def test_canonicalise_gamut_passes_kaleido3_through() -> None:
+    """``kaleido3`` (E Ink Kaleido 3 colour e-readers) is accepted and keeps
+    its exact id, the one the KOReader plugin and the cloud share; it is
+    not a .bin packer target and must not fall back to ``waveshare_e6``."""
+    assert canonicalise_gamut("kaleido3") == "kaleido3"
+    assert "kaleido3" in quantizer.ACCEPTED_GAMUTS
+
+
+# -- Kaleido 3: per-channel 4-bit RGB ------------------------------------
+
+
+def _kaleido_source() -> Image.Image:
+    """Red ramps left to right, green top to bottom, blue is a constant
+    128 (between the ramp's 119 and 136), so each channel exercises the
+    quantiser differently."""
+    arr = np.zeros((60, 120, 3), dtype=np.uint8)
+    arr[:, :, 0] = np.linspace(0, 255, 120, dtype=np.uint8)[None, :]
+    arr[:, :, 1] = np.linspace(0, 255, 60, dtype=np.uint8)[:, None]
+    arr[:, :, 2] = 128
+    return Image.fromarray(arr)
+
+
+def test_kaleido3_levels_are_the_16_step_ramp() -> None:
+    assert tuple(range(0, 256, 17)) == quantizer.KALEIDO3_CHANNEL_LEVELS
+    assert len(quantizer.KALEIDO3_CHANNEL_LEVELS) == 16
+    assert quantizer.KALEIDO3_CHANNEL_LEVELS[-1] == 255
+
+
+def test_quantize_kaleido3_snaps_every_channel_to_4_bits() -> None:
+    """Output is mode RGB at the source size; every channel value is one
+    of the 16 levels, and the channels are quantised independently (the
+    blue channel only ever lands on 128's two neighbours)."""
+    out = quantizer.quantize_kaleido3(_kaleido_source())
+    assert out.mode == "RGB"
+    assert out.size == (120, 60)
+    levels = set(quantizer.KALEIDO3_CHANNEL_LEVELS)
+    arr = np.asarray(out)
+    for channel in range(3):
+        assert set(np.unique(arr[:, :, channel]).tolist()) <= levels
+    assert set(np.unique(arr[:, :, 2]).tolist()) <= {119, 136}
+    # A full ramp dithered to 16 levels uses most of them.
+    assert len(np.unique(arr[:, :, 0])) >= 12
+    assert len(np.unique(arr[:, :, 1])) >= 12
+
+
+def test_quantize_kaleido3_error_diffusion_preserves_the_mean() -> None:
+    """Floyd-Steinberg on the constant-128 blue channel alternates between
+    119 and 136 so the average stays near 128; nearest-level alone
+    (``dither="none"``) snaps the whole channel to 136. That difference
+    is what makes the output a dither rather than a posterise."""
+    src = _kaleido_source()
+    fs = np.asarray(quantizer.quantize_kaleido3(src, dither="floyd-steinberg"), dtype=np.float64)
+    none = np.asarray(quantizer.quantize_kaleido3(src, dither="none"))
+    assert abs(fs[:, :, 2].mean() - 128.0) < 2.0
+    assert set(np.unique(none[:, :, 2]).tolist()) == {136}
+    # The red ramp is monotone in both, but the dithered one is not a
+    # staircase of 16 flat bands: neighbouring columns differ mid-band.
+    assert not np.array_equal(fs.astype(np.uint8), none)
+
+
+@pytest.mark.parametrize("dither", ["atkinson", "jarvis", "stucki", "bayer-8x8", "halftone"])
+def test_quantize_kaleido3_other_dithers_stay_on_ramp(dither: str) -> None:
+    out = np.asarray(quantizer.quantize_kaleido3(_kaleido_source(), dither=dither))
+    levels = set(quantizer.KALEIDO3_CHANNEL_LEVELS)
+    assert set(np.unique(out).tolist()) <= levels
+
+
+def test_quantize_kaleido3_keeps_on_ramp_colour_exact() -> None:
+    """A colour already on the ramp is reproduced exactly in colour: the
+    quantiser never takes luminance the way the grey packers do."""
+    src = Image.new("RGB", (32, 16), (221, 34, 170))
+    out = quantizer.quantize_kaleido3(src, dither="floyd-steinberg")
+    assert set(out.getdata()) == {(221, 34, 170)}
+
+
+def test_quantize_kaleido3_to_png_is_24bit_rgb_at_full_resolution() -> None:
+    png = quantizer.quantize_kaleido3_to_png(_png_bytes(_kaleido_source()))
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    decoded = Image.open(io.BytesIO(png))
+    assert decoded.mode == "RGB"
+    assert decoded.size == (120, 60)
+    levels = set(quantizer.KALEIDO3_CHANNEL_LEVELS)
+    assert set(np.unique(np.asarray(decoded)).tolist()) <= levels
+
+
+def test_quantize_for_gamut_to_png_dispatches_kaleido3_and_palettes() -> None:
+    """The editor's Panel view goes through one call: ``kaleido3`` gets the
+    per-channel path (an RGB PNG that is not limited to a short palette),
+    a palette gamut gets the palette match."""
+    src = _png_bytes(_kaleido_source())
+    kaleido = Image.open(io.BytesIO(quantizer.quantize_for_gamut_to_png(src, gamut="kaleido3")))
+    assert kaleido.mode == "RGB"
+    assert len(set(kaleido.getdata())) > 16
+    e6 = Image.open(io.BytesIO(quantizer.quantize_for_gamut_to_png(src, gamut="spectra_6")))
+    assert set(e6.convert("RGB").getdata()) <= set(WAVESHARE_E6_PALETTE)
+
+
 def test_pack_inky_7colour_red_nibble_differs_from_e6() -> None:
     """Red is index 3 on E6 (nibble 0x3) but index 4 on the 7-colour gamut
     (identity LUT → nibble 0x4): the index spaces genuinely differ.

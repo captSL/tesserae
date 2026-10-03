@@ -8,6 +8,17 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Added
 
+- **Colour e-readers (E Ink Kaleido 3).** A KOReader reader that pairs with
+  `gamut: "kaleido3"` (the plugin announces it for a Kobo Libra Colour or
+  Clara Colour with colour rendering on) is served a 24-bit RGB PNG with
+  every channel dithered to 16 levels, 4096 colours, through the new
+  `kaleido_png` renderer; `/frame` says `format: "png"` and the plugin
+  blits it in colour. The gamut is accepted at register and discover, the
+  editor's Panel view previews it, a reader that first paired as greyscale
+  moves over when its plugin re-pairs with the new gamut (and back when
+  colour rendering is turned off), and hardware entries for the Kobo Libra
+  Colour and Clara Colour list the renderer first. Not yet tested on a
+  colour reader.
 - Credits name esptool-js, which Tesserae Cloud's setup page uses to flash
   firmware over USB; docs/credits.md and the cloud's /credits are built from
   the same list.

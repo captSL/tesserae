@@ -786,8 +786,12 @@ def devices_register_discovered(discovered_id: str) -> Response:
     # CircuitPython client declares "bmp" so it gets the uncompressed-BMP
     # renderer and never runs zlib.decompress on-device. Resolved to a
     # concrete renderer of the chosen kind; None leaves the kind default.
+    # A gamut with a dedicated renderer (``kaleido3`` -> ``kaleido_png`` on
+    # the KOReader kind) wins over the wire format, same as /register.
     renderers_registry = renderers()
-    renderer_id_arg = device_service.renderer_id_for_format(
+    renderer_id_arg = device_service.renderer_id_for_gamut(
+        renderers_registry, devices().get(kind_id), panel_overrides.get("gamut")
+    ) or device_service.renderer_id_for_format(
         renderers_registry, devices().get(kind_id), entry.wire_format
     )
     # Display name: the form field wins when present (even cleared, the

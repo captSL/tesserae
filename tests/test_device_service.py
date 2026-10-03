@@ -91,6 +91,161 @@ def test_renderer_id_for_format_matches_extension(registries) -> None:
     assert device_service.renderer_id_for_format(renderers, kind, None) is None
 
 
+def test_renderer_id_for_gamut_finds_the_dedicated_renderer(registries) -> None:
+    """``kaleido_png`` declares ``gamuts: ["kaleido3"]`` on the KOReader
+    kind; every other gamut has no dedicated renderer and leaves the kind
+    default (None). Aliases canonicalise first, so a chemistry alias of a
+    dedicated gamut would still resolve."""
+    devices, renderers, _ = registries
+    kind = devices.get("koreader_client")
+    assert kind is not None
+    assert kind.renderer_ids[0] == "esp32_gray_bin"
+    assert "kaleido_png" in kind.renderer_ids
+    assert device_service.renderer_id_for_gamut(renderers, kind, "kaleido3") == "kaleido_png"
+    assert device_service.renderer_id_for_gamut(renderers, kind, " kaleido3 ") == "kaleido_png"
+    for gamut in ("gray_16", "gray_4", "mono", "nonsense", "", None):
+        assert device_service.renderer_id_for_gamut(renderers, kind, gamut) is None
+    # A kind without a dedicated renderer never matches.
+    cp = devices.get("circuitpython_generic")
+    assert device_service.renderer_id_for_gamut(renderers, cp, "kaleido3") is None
+
+
+def test_update_instance_gamut_moves_onto_and_off_the_dedicated_renderer(registries) -> None:
+    """A reader that paired as gray_16 and later declares kaleido3 is
+    re-pinned to kaleido_png with its panel gamut updated; declaring
+    gray_16 again (colour rendering turned off) unpins it back to the
+    kind default. Restating the active gamut is a no-op."""
+    devices, renderers, data_root = registries
+    created = device_service.create_instance(
+        devices=devices,
+        renderers=renderers,
+        data_root=data_root,
+        instance_id="kobo_c",
+        kind_id="koreader_client",
+        panel_overrides={"w": 1264, "h": 1680, "gamut": "gray_16"},
+        orientation="portrait",
+    )
+    assert created.ok and created.device.renderer_ids == ["esp32_gray_bin__kobo_c"]
+
+    result, changed = device_service.update_instance_gamut(
+        devices=devices,
+        renderers=renderers,
+        data_root=data_root,
+        instance_id="kobo_c",
+        gamut="kaleido3",
+    )
+    assert changed is True and result.ok
+    assert result.device.renderer_ids == ["kaleido_png__kobo_c"]
+    assert (result.device.panel or {}).get("gamut") == "kaleido3"
+    saved = json.loads((data_root / "kobo_c.json").read_text())
+    assert saved["renderer_id"] == "kaleido_png"
+    assert saved["panel"]["gamut"] == "kaleido3"
+    assert renderers.get("esp32_gray_bin__kobo_c") is None
+
+    # Restating it changes nothing.
+    result, changed = device_service.update_instance_gamut(
+        devices=devices,
+        renderers=renderers,
+        data_root=data_root,
+        instance_id="kobo_c",
+        gamut="kaleido3",
+    )
+    assert changed is False and result.device.renderer_ids == ["kaleido_png__kobo_c"]
+
+    # Back to grey: the pin is dropped and the kind default returns.
+    result, changed = device_service.update_instance_gamut(
+        devices=devices,
+        renderers=renderers,
+        data_root=data_root,
+        instance_id="kobo_c",
+        gamut="gray_16",
+    )
+    assert changed is True and result.ok
+    assert result.device.renderer_ids == ["esp32_gray_bin__kobo_c"]
+    assert (result.device.panel or {}).get("gamut") == "gray_16"
+    assert "renderer_id" not in json.loads((data_root / "kobo_c.json").read_text())
+
+
+def test_create_instance_drops_the_kind_stride_for_a_differently_sized_panel(registries) -> None:
+    """``koreader_client`` ships the Paperwhite 2's 758x1024 as its default
+    panel, stride included. A Kobo Clara (1072x1448) reporting its screen
+    without a ``rotation`` is a different panel: the default stride must
+    not follow it, or every native-packing renderer frames a 758x1024
+    buffer for a 1072x1448 screen. The same dims in either axis order keep
+    the stride, and overrides carrying their own stride are left alone."""
+    from app.panel import device_panel
+
+    devices, renderers, data_root = registries
+    clara = device_service.create_instance(
+        devices=devices,
+        renderers=renderers,
+        data_root=data_root,
+        instance_id="clara",
+        kind_id="koreader_client",
+        panel_overrides={"w": 1072, "h": 1448, "gamut": "gray_16"},
+        orientation="portrait",
+    )
+    assert clara.ok and clara.device is not None
+    block = clara.device.panel or {}
+    assert (block["w"], block["h"]) == (1072, 1448)
+    assert "native_w" not in block and "native_h" not in block
+    resolved = device_panel(clara.device)
+    assert resolved is not None
+    assert resolved.declared_native is None
+
+    pw2 = device_service.create_instance(
+        devices=devices,
+        renderers=renderers,
+        data_root=data_root,
+        instance_id="pw2_turned",
+        kind_id="koreader_client",
+        panel_overrides={"w": 1024, "h": 758},
+        orientation="landscape",
+    )
+    assert pw2.ok and pw2.device is not None
+    block = pw2.device.panel or {}
+    assert (block.get("native_w"), block.get("native_h")) == (758, 1024)
+
+    declared = device_service.create_instance(
+        devices=devices,
+        renderers=renderers,
+        data_root=data_root,
+        instance_id="declared",
+        kind_id="koreader_client",
+        panel_overrides={"w": 1448, "h": 1072, "native_w": 1072, "native_h": 1448},
+        orientation="landscape",
+    )
+    assert declared.ok and declared.device is not None
+    block = declared.device.panel or {}
+    assert (block.get("native_w"), block.get("native_h")) == (1072, 1448)
+
+
+def test_update_instance_gamut_ignores_ordinary_redeclarations(registries) -> None:
+    """Without a dedicated renderer on either side the re-register path
+    keeps its old contract: the panel block is left alone."""
+    devices, renderers, data_root = registries
+    device_service.create_instance(
+        devices=devices,
+        renderers=renderers,
+        data_root=data_root,
+        instance_id="pw2",
+        kind_id="koreader_client",
+        panel_overrides={"w": 758, "h": 1024, "gamut": "gray_16"},
+        orientation="portrait",
+    )
+    for gamut in ("gray_4", "mono", "", None):
+        result, changed = device_service.update_instance_gamut(
+            devices=devices,
+            renderers=renderers,
+            data_root=data_root,
+            instance_id="pw2",
+            gamut=gamut,
+        )
+        assert changed is False and result.ok
+        assert (result.device.panel or {}).get("gamut") == "gray_16"
+        assert result.device.renderer_ids == ["esp32_gray_bin__pw2"]
+
+
 def test_circuitpython_generic_defaults_to_png_clone_only(registries) -> None:
     # No format declared: the multi-renderer kind must clone only its
     # first renderer so the two never fight over the device's single

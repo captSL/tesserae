@@ -21,7 +21,8 @@ or a new widget is a contained change.
 │                    ├─ esp32_bw_bin (orientation: composition, 1-bit)│
 │                    ├─ pico_bin     (orientation: composition)       │
 │                    ├─ trmnl_png    (orientation: composition, 1-bit)│
-│                    └─ trmnl_png_gray16 (composition, 16-grey PNG)   │
+│                    ├─ trmnl_png_gray16 (composition, 16-grey PNG)   │
+│                    └─ kaleido_png  (composition, Kaleido 3 RGB PNG) │
 │                            ▼                                        │
 │                  (artifact bytes, payload, mime, topic, retain)     │
 ├─────────────────────────────────────────────────────────────────────┤

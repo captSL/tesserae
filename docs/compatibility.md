@@ -35,6 +35,7 @@ A renderer turns the composition PNG into the exact bytes a client wants. Each s
 | `esp32_bw_bin` | `.bin` | - | Composition PNG dithered to mono B/W and packed into a 1-bpp raw buffer the ESP32 firmware (e.g. |
 | `esp32_gray2_bin` | `.bin` | - | Composition PNG dithered to 4-level grayscale and packed into a 2-bpp raw buffer for UC8179-class mono panels driven in their 4-gray waveform mode. |
 | `esp32_gray_bin` | `.bin` | - | Composition PNG dithered to 16-level grayscale and packed into a 4-bpp raw buffer the ESP32 firmware streams straight to the IT8951 controller's image buffer. |
+| `kaleido_png` | `.png` | - | Composition PNG fitted to the e-reader's screen and quantised to the E Ink Kaleido 3 gamut: a 24-bit RGB PNG with every channel dithered to 16 levels (4096 colours), which is what a colour filter over 16-grey glass can show. |
 | `pi_bin` | `.bin` | [tesserae-device-pi-bin](https://github.com/dmellok/tesserae-device-pi-bin) | Composition PNG packed into the panel-native 4-bpp buffer the .bin Pi client consumes. |
 | `pi_png` | `.png` | [tesserae-device-pi-png](https://github.com/dmellok/tesserae-device-pi-png) | Composition PNG, rotated to the Pi client's landscape-native pixel grid. |
 | `pico_bin` | `.bin` | - | Composition PNG packed into the panel-native landscape 4-bpp buffer the battery-powered Pico Plus 2 firmware (tesserae-device-pico-bin) streams onto a Pimoroni Inky-style Spectra 6 panel over SPI. |
@@ -52,7 +53,7 @@ The bundled client kinds Tesserae knows how to talk to. A flashed client announc
 | `crosspoint_gray` | 480×800 | `circuitpython_bmp` | CrossPoint e-readers painting a Tesserae dashboard as their sleep screen, over the LAN with no cloud component. |
 | `esp32_bw_client` | 400×300 | `esp32_bw_bin` | Battery-powered ESP32 firmware for mono B/W e-paper panels (e.g. |
 | `esp32_client` | 800×480 | `esp32_bin` | Battery-powered ESP32 firmware that subscribes to tesserae/esp32/frame/bin (retained), paints the panel via SPI, and goes back to deep sleep. |
-| `koreader_client` | 758×1024 | `esp32_gray_bin`, `esp32_gray2_bin`, `esp32_bw_bin` | Jailbroken Kindle, Kobo, and other e-readers running KOReader with the Tesserae plugin (dmellok/tesserae-koreader). |
+| `koreader_client` | 758×1024 | `esp32_gray_bin`, `esp32_gray2_bin`, `esp32_bw_bin`, `kaleido_png` | Jailbroken Kindle, Kobo, and other e-readers running KOReader with the Tesserae plugin (dmellok/tesserae-koreader). |
 | `opendisplay` | 800×480 | `pi_png` | An OpenDisplay BLE e-paper tag, driven by the tesserae-opendisplay bridge. |
 | `opendisplay_ha` | 800×480 | `pi_png` | An OpenDisplay BLE e-paper tag driven through Home Assistant. |
 | `pi_bin_client` | 1424×1200 | `pi_bin` | Raspberry-Pi-side client that consumes the 4-bpp .bin frame. |
@@ -156,6 +157,7 @@ E-readers rather than dedicated dashboard panels. These run [CrossInk](https://g
 | [Xteink X4](https://www.xteink.com/) | 480×800 portrait_flipped | `mono` | `esp32_bw_client` (inherit) | `xteink_x4` |
 | [Xteink X4 (4-level grayscale)](https://www.xteink.com/) | 480×800 portrait_flipped | `gray_4` | `esp32_bw_client` <br> `esp32_gray2_bin` | `xteink_x4_gray` |
 | [Xteink X4 Pro](https://www.xteink.com/) | 480×800 portrait_flipped | `mono` | `esp32_bw_client` (inherit) | `xteink_x4_pro` |
+| [Xteink X4 Pro (4-level grayscale)](https://www.xteink.com/) | 480×800 portrait_flipped | `gray_4` | `esp32_bw_client` <br> `esp32_gray2_bin` | `xteink_x4_pro_gray` |
 
 ### [Amazon Kindle](https://www.amazon.com/kindle)
 
@@ -177,8 +179,10 @@ Kobo readers run KOReader without a jailbreak. The same [Tesserae KOReader plugi
 | SKU | Panel | Gamut | Protocol / Renderer | Kind id |
 |---|---|---|---|---|
 | [Kobo Aura (Edition 2) / Nia](https://www.kobo.com/ereaders) | 758×1024 portrait | `gray_16` | `koreader_client` (inherit) | `kobo_aura_edition_2` |
+| [Kobo Clara Colour](https://www.kobo.com/ereaders) | 1072×1448 portrait | `kaleido3` | `koreader_client` <br> `kaleido_png`, `esp32_gray_bin`, `esp32_gray2_bin`, `esp32_bw_bin` | `kobo_clara_colour` |
 | [Kobo Clara HD / Clara 2E](https://www.kobo.com/ereaders) | 1072×1448 portrait | `gray_16` | `koreader_client` (inherit) | `kobo_clara_hd` |
 | [Kobo Libra 2 / Libra H2O](https://www.kobo.com/ereaders) | 1264×1680 portrait | `gray_16` | `koreader_client` (inherit) | `kobo_libra_2` |
+| [Kobo Libra Colour](https://www.kobo.com/ereaders) | 1264×1680 portrait | `kaleido3` | `koreader_client` <br> `kaleido_png`, `esp32_gray_bin`, `esp32_gray2_bin`, `esp32_bw_bin` | `kobo_libra_colour` |
 | [Kobo Sage](https://www.kobo.com/ereaders) | 1440×1920 portrait | `gray_16` | `koreader_client` (inherit) | `kobo_sage` |
 
 ### Community
@@ -207,9 +211,10 @@ Honest status from the maintainer's own bench. Untested doesn't mean broken, it 
 | `esp32_bw_bin` | Xteink X4 (GDEQ0426T82 / SSD1677, 800x480 mono) running CrossInk with Tesserae client support + Seeed reTerminal E1001 (800x480 mono) running tesserae-device-firmware | :material-check-circle: Tested | 1-bpp packing confirmed end-to-end: a 48000-byte frame fetched and painted on the panel with no on-device decode, upright in the portrait_flipped composition. The X4 is an e-reader, so the dashboard is its sleep screen rather than a wake-cycle refresh. The remaining Seeed 800x480 mono SKUs (XIAO ePaper 7.5", EE04 7.5") and the Waveshare 4.2" share this renderer but are still unconfirmed. |
 | `esp32_gray2_bin` | Xteink X4 (SSD1677, 800x480) and Xteink X3 (UC8279d, 792x528), both running CrossInk with Tesserae client support + Seeed reTerminal E1001 (4-gray mode) running tesserae-device-firmware + Seeed reTerminal Sticky (SSD1677, 480x800 portrait) running tesserae-device-firmware + M5Stack PaperMono (SSD1677, 480x800 portrait) running tesserae-device-firmware | :material-check-circle: Tested | 4-level grayscale confirmed end-to-end: the 2-bpp frame is fetched and composited as a base frame plus LSB/MSB planes, with distinct grey levels. Packing is byte-identical to the firmware's own 2-bpp bitmap reader, so no decode step is involved. Notable that this works on the X3's UC8253/UC8279d silicon as well as the UC8179-class panels the renderer was written for. The Sticky packs the same 96000 bytes at a portrait 120-byte stride because its firmware transposes on the device; only the stride distinguishes it from the E1001. The PaperMono is the Sticky's controller family on M5Stack's board and packs the same portrait stride; confirmed end-to-end on the bench 2026-09-12 (portal, register, dashboard frame, PMIC battery) once the firmware selected the glass's own four-grey OTP waveform. |
 | `esp32_gray_bin` | Seeed reTerminal E1003 (10.3" 1872x1404, 16-level grayscale) running tesserae-device-firmware; also the original M5Stack M5Paper (4.7" 960x540 via an IT8951 controller, classic ESP32-D0WDQ6-V3) running tesserae-device-firmware, plus the Seeed XIAO ePaper EE03 (same 10.3" panel on the XIAO driver board) and the M5Stack PaperS3 (4.7" 960x540, raw parallel glass), both not yet tested + reMarkable 2 (10.3" 1404x1872, 16-level greyscale) via the community tesserae.remarkable AppLoad app | :material-check-circle: Tested | Confirmed end-to-end on the bench, including GT911 touch input round-tripping through the tap pipeline. The 4-bpp nibble-packed frame (1314144 bytes) is fetched over REST and painted with no on-device decode. The original M5Paper is also confirmed end-to-end (2026-09-10): the same it8951_gray driver on classic-ESP32 silicon at the PaperS3's 960x540 geometry, plus battery telemetry, the three side buttons, the SHT30 sensor and GT911 touch. Touch reports in the 540x960 composition space and needs the panel kept awake -- the classic ESP32 cannot wake from deep sleep on the touch INT. The EE03 paints a byte-identical frame to the E1003 (same ED103TC2 glass behind the same IT8951 controller); the PaperS3 shares this renderer at a different geometry. Those two are awaiting a first bring-up on real hardware. |
+| `kaleido_png` | - | :material-circle-outline: Not yet tested | - |
 | `pi_bin` | Pimoroni Inky Impression (Spectra 6 / Waveshare E6) | :material-check-circle: Tested | Fastest Pi path, packed buffer written straight to inky's _buf. |
 | `pi_png` | Pimoroni Inky Impression (via inky set_image) | :material-check-circle: Tested | Works on every inky-supported panel; quantises on the Pi each frame. |
 | `pico_bin` | - | :material-circle-outline: Not yet tested | - |
-| `trmnl_png` | Amazon Kindle Paperwhite 2 (jailbroken) via KOReader trmnl-display plugin + Seeed TRMNL 7.5" OG DIY Kit (XIAO 7.5" panel running the TRMNL firmware) + TRMNL X (stock firmware, 1872x1404) | :material-check-circle: Tested | 1-bit greyscale PNG fitted to the device's reported buffer (rotated onto it when the composition is mounted at 90°) + dithered server-side. |
+| `trmnl_png` | Amazon Kindle Paperwhite 2 (jailbroken) via KOReader trmnl-display plugin + Seeed TRMNL 7.5" OG DIY Kit (XIAO 7.5" panel running the TRMNL firmware) + TRMNL X (stock firmware, 1872x1404) | :material-check-circle: Tested | 1-bit greyscale PNG fitted to the panel + dithered server-side. |
 | `trmnl_png_color` | - | :material-circle-outline: Not yet tested | - |
 | `trmnl_png_gray16` | - | :material-circle-outline: Not yet tested | - |

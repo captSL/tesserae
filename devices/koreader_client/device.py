@@ -12,7 +12,10 @@ wake.
 The plugin decodes the same packed layouts the ESP32 firmware paints, so this
 kind reuses the ``esp32_gray_bin`` (16-level, 4 bpp) renderer by default and
 falls back to the 4-level and 1-bit packers for screens whose width does not
-divide evenly for 4 bpp.
+divide evenly for 4 bpp. A colour reader (E Ink Kaleido 3: Kobo Libra Colour,
+Clara Colour) pairs with ``gamut: "kaleido3"`` and is pinned to ``kaleido_png``
+instead (``app.device_service.renderer_id_for_gamut``), a 24-bit RGB PNG
+dithered to 16 levels per channel that the plugin blits in colour.
 
 ``parse_status`` is only reached through the REST status POST: the plugin
 sends a small JSON object, and whatever it sends is surfaced on the device

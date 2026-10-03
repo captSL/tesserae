@@ -1893,7 +1893,7 @@ def compose_panel_preview(page_id: str) -> Response:
     from typing import cast, get_args
 
     from app.panel import device_panel
-    from app.quantizer import DitherMode, canonicalise_gamut, palette_for_gamut, quantize_to_png
+    from app.quantizer import DitherMode, canonicalise_gamut, quantize_for_gamut_to_png
 
     preview_pages: dict[str, Page] = current_app.config.get("PREVIEW_CACHE", {}) or {}
     page = preview_pages.get(page_id) or current_app.config["PAGE_STORE"].get(page_id)
@@ -1946,10 +1946,13 @@ def compose_panel_preview(page_id: str) -> Response:
 
     panel_path = cache_dir / f"{page_id}__{token}__{gamut}__{dither}.png"
     if not panel_path.exists():
-        quantised = quantize_to_png(
+        # ``kaleido3`` (colour e-readers) has no ink palette: it is dithered
+        # per channel to 16 levels, which this dispatches to; every other
+        # gamut is a palette match.
+        quantised = quantize_for_gamut_to_png(
             comp_path.read_bytes(),
+            gamut=gamut,
             dither=cast(DitherMode, dither),
-            palette=palette_for_gamut(gamut),
         )
         panel_path.write_bytes(quantised)
 

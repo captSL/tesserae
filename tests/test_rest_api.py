@@ -318,6 +318,137 @@ def test_reregister_switches_wire_format_and_invalidates_render(app: Flask) -> N
     assert push_mgr.latest_render_for("cp_fmt") is None
 
 
+def _register_koreader(client, app, device_id: str, *, gamut: str, w: int = 1264, h: int = 1680):
+    code = _issue_pairing(app)
+    return client.post(
+        "/api/v1/device/register",
+        headers={"X-Pairing-Code": code, "Content-Type": "application/json"},
+        data=json.dumps(
+            {
+                "device_id": device_id,
+                "kind": "koreader_client",
+                "panel_w": w,
+                "panel_h": h,
+                "gamut": gamut,
+                "fw_version": "0.3.0",
+                "client": "koreader",
+            }
+        ),
+    )
+
+
+def _solid_png(w: int, h: int, colour: tuple[int, int, int]) -> bytes:
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (w, h), colour).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_register_kaleido3_pins_colour_png_and_frame_says_png(app: Flask) -> None:
+    """A Kobo Libra Colour pairs as ``koreader_client`` with
+    ``gamut: "kaleido3"``: the instance lands on ``kaleido_png`` rather
+    than the kind's 4-bpp grey default, a real push renders a 24-bit RGB
+    PNG at the reader's resolution with every channel on the 16-level
+    ramp, and ``/frame`` describes it as ``format: "png"``."""
+    import io
+
+    from PIL import Image
+
+    from app.quantizer import KALEIDO3_CHANNEL_LEVELS
+
+    client = app.test_client()
+    _sign_in(client)
+    resp = _register_koreader(client, app, "kobo_libra", gamut="kaleido3", w=126, h=168)
+    assert resp.status_code == 201, resp.get_data(as_text=True)
+    token = resp.get_json()["device_token"]
+    devices = app.config["DEVICE_REGISTRY"]
+    instance = devices.get("kobo_libra")
+    assert instance is not None
+    assert instance.renderer_ids == ["kaleido_png__kobo_libra"]
+    assert (instance.panel or {}).get("gamut") == "kaleido3"
+
+    push_mgr = app.config["PUSH_MANAGER"]
+    result = push_mgr.push_image(
+        _solid_png(126, 168, (200, 40, 90)), source_label="file", device_id="kobo_libra"
+    )
+    assert result.status == "sent", result
+
+    resp = client.get(
+        "/api/v1/device/kobo_libra/frame", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    body = resp.get_json()
+    assert body["format"] == "png"
+    assert body["renderer_id"] == "kaleido_png__kobo_libra"
+    assert (body["panel_w"], body["panel_h"]) == (126, 168)
+    # Signed artefact URL: the path names a .png, the query is the signature.
+    assert body["url"].split("?", 1)[0].endswith(".png")
+
+    frame = client.get(body["url"], headers={"Authorization": f"Bearer {token}"})
+    assert frame.status_code == 200
+    frame_bytes = frame.data
+    frame.close()  # send_file's handle; left open it is a ResourceWarning
+    img = Image.open(io.BytesIO(frame_bytes))
+    assert img.mode == "RGB"
+    assert img.size == (126, 168)
+    levels = set(KALEIDO3_CHANNEL_LEVELS)
+    pixels = set(img.getdata())
+    assert all(set(px) <= levels for px in pixels)
+    # (200, 40, 90) sits between ramp levels in every channel, so the dither
+    # mixes neighbours: still colour, not a grey, and never a flat posterise.
+    assert len(pixels) > 1
+    assert all(not (r == g == b) for r, g, b in pixels)
+
+
+def test_reregister_with_kaleido3_moves_grey_reader_to_colour_png(app: Flask) -> None:
+    """A reader that first paired as gray_16 (an older plugin) and re-pairs
+    declaring kaleido3 moves to the colour renderer and drops its stale
+    grey render; re-pairing as gray_16 again (colour rendering turned off
+    in KOReader) moves it back."""
+    client = app.test_client()
+    _sign_in(client)
+    devices = app.config["DEVICE_REGISTRY"]
+    first = _register_koreader(client, app, "kobo_clara", gamut="gray_16", w=1072, h=1448)
+    assert first.status_code == 201
+    assert devices.get("kobo_clara").renderer_ids == ["esp32_gray_bin__kobo_clara"]
+
+    push_mgr = app.config["PUSH_MANAGER"]
+    push_mgr._latest_renders["kobo_clara"] = {"digest": "old", "ext": "bin", "filename": "old.bin"}
+
+    second = _register_koreader(client, app, "kobo_clara", gamut="kaleido3", w=1072, h=1448)
+    assert second.status_code == 200
+    assert second.get_json()["reused_existing"] is True
+    moved = devices.get("kobo_clara")
+    assert moved.renderer_ids == ["kaleido_png__kobo_clara"]
+    assert (moved.panel or {}).get("gamut") == "kaleido3"
+    assert push_mgr.latest_render_for("kobo_clara") is None
+
+    third = _register_koreader(client, app, "kobo_clara", gamut="gray_16", w=1072, h=1448)
+    assert third.status_code == 200
+    back = devices.get("kobo_clara")
+    assert back.renderer_ids == ["esp32_gray_bin__kobo_clara"]
+    assert (back.panel or {}).get("gamut") == "gray_16"
+
+
+def test_reregister_restating_grey_gamut_leaves_panel_alone(app: Flask) -> None:
+    """The idempotent re-register contract holds for gamuts without a
+    dedicated renderer: a grey reader restating (or changing between)
+    grey gamuts keeps the panel block and renderer it had."""
+    client = app.test_client()
+    _sign_in(client)
+    devices = app.config["DEVICE_REGISTRY"]
+    assert (
+        _register_koreader(client, app, "pw3", gamut="gray_16", w=1072, h=1448).status_code == 201
+    )
+    assert _register_koreader(client, app, "pw3", gamut="gray_4", w=1072, h=1448).status_code == 200
+    kept = devices.get("pw3")
+    assert (kept.panel or {}).get("gamut") == "gray_16"
+    assert kept.renderer_ids == ["esp32_gray_bin__pw3"]
+
+
 def test_reregister_heals_generic_kind_to_declared_sku(app: Flask) -> None:
     """A device that first paired under the generic esp32_client kind
     later re-registers running a board build that declares its hardware

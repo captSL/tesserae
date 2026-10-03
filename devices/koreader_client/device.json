@@ -3,8 +3,8 @@
   "name": "KOReader e-reader",
   "icon": "book-open",
   "version": "0.1.0",
-  "description": "Jailbroken Kindle, Kobo, and other e-readers running KOReader with the Tesserae plugin (dmellok/tesserae-koreader). The plugin pairs with a claim code, polls GET /api/v1/device/<id>/frame on the configured cadence, decodes the packed 16-level greyscale frame on the device, and sleeps between refreshes. The e-reader reports its own screen size at pairing, so one kind covers every model.",
-  "renderers": ["esp32_gray_bin", "esp32_gray2_bin", "esp32_bw_bin"],
+  "description": "Jailbroken Kindle, Kobo, and other e-readers running KOReader with the Tesserae plugin (dmellok/tesserae-koreader). The plugin pairs with a claim code, polls GET /api/v1/device/<id>/frame on the configured cadence, decodes the packed 16-level greyscale frame on the device, and sleeps between refreshes. A colour reader (E Ink Kaleido 3: Kobo Libra Colour, Clara Colour) pairs with gamut kaleido3 and is served a colour PNG instead. The e-reader reports its own screen size at pairing, so one kind covers every model.",
+  "renderers": ["esp32_gray_bin", "esp32_gray2_bin", "esp32_bw_bin", "kaleido_png"],
   "status_topic": "tesserae/koreader/status",
   "panel": { "w": 758, "h": 1024, "orientation": "portrait", "name": "Kindle Paperwhite 2", "gamut": "gray_16", "native_w": 758, "native_h": 1024 },
   "config_schema": {

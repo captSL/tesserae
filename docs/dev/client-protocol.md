@@ -208,9 +208,22 @@ server URL.
    | `bwry_4` | 4-colour B/W/Red/Yellow (PicPak-class 4.2" panels) | `bwry_4` |
    | `rgb24` | Full 24-bit colour (LCD-hybrid) | `rgb24` |
    | `rgb16` | 16-bit colour (RGB565) | `rgb16` |
+   | `kaleido3` | E Ink Kaleido 3 colour e-reader (Kobo Libra Colour, Clara Colour): 24-bit RGB with 16 levels per channel, 4096 colours | `kaleido3` |
 
    Anything else falls back to `waveshare_e6` at persistence time so a
    corrupt payload can't strand the device with a nonsense panel.
+
+   `kaleido3` also picks the renderer. A kind can mark a renderer as
+   dedicated to a gamut (`"gamuts": ["kaleido3"]` on its manifest, as
+   `kaleido_png` does on `koreader_client`); a device declaring that
+   gamut is pinned to it ahead of any `format` it sent, so its `/frame`
+   descriptor says `format: "png"` and the artifact is a full-resolution
+   24-bit RGB PNG with every channel dithered to the 16 Kaleido levels
+   (0, 17, ..., 255). Re-declaring the gamut on a later `/register` moves
+   an existing device onto that renderer, or back off it when the gamut
+   it leaves was the dedicated one (a colour reader whose owner turned
+   KOReader's colour rendering off); any other gamut re-declaration still
+   leaves the panel block alone.
 
    ??? note "Why do `waveshare_e6` and `inky_7colour` carry manufacturer
        names?"
