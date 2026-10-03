@@ -25,10 +25,12 @@ account and never has to talk to us: the only outbound contact is
 daily aggregate heartbeat, off by default and opt-in (you're asked once at
 first-run setup; toggle in Settings → System → Online features).
 
-A hosted version, Tesserae Cloud, is on its way for people who would rather
-not run a server. The self-hosted server stays the full product and stays
-free; a dashboard made in the cloud can be exported to a server of your own.
-Waitlist at [tesserae.ink](https://tesserae.ink/#cloud).
+[Tesserae Cloud](https://cloud.tesserae.ink/) is a separate hosted Tesserae
+for people who would rather not run a server: sign in, create a dashboard, and
+connect your display. This self-hosted server stays the full product and stays
+free, and a supported panel is not tied to the cloud: it can be pointed at a
+server of your own at any time, though dashboards made in the cloud are
+specific to it and would need recreating here.
 
 **📖 [Full documentation](https://docs.tesserae.ink/):**
 install guides, [hardware quickstarts](https://docs.tesserae.ink/quickstart/),

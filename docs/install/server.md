@@ -192,10 +192,10 @@ Two related features under **Settings → System**, both admin-only:
 
 **Backups** (`Settings → System → Backups`) snapshot your full Tesserae state into a ZIP on disk under `data/core/backups/`. Use it for periodic local safety copies and rollback after a bad change. Endpoints: `/settings/system/backup/{create,restore,delete,download}`.
 
-**Data export / import** (`Settings → System → Data`) is the one-shot migration ZIP. Use it when moving to another install, not for routine snapshots. The ZIP includes every page JSON, theme definition, font pick, device registration, and per-plugin settings (with secrets embedded, treat the file like a credential).
+**Data export / import** (`Settings → System → Data`) is the one-shot migration ZIP. Use it when moving to another self-hosted Tesserae Server, not for routine snapshots. The ZIP includes every page JSON, theme definition, font pick, device registration, and per-plugin settings (with secrets embedded, treat the file like a credential).
 
 - **Export:** clicks straight to a `tesserae-export-<timestamp>.zip` download.
-- **Import:** upload a ZIP from another install. The server validates every file against the matching JSON Schema before writing, then replaces state atomically. On Docker / HA App installs the in-place restart happens automatically; on a venv install the page flashes a "stop and restart" hint so nothing is left mid-flight.
+- **Import:** upload a ZIP from another self-hosted install. The server validates every file against the matching JSON Schema before writing, then replaces state atomically. On Docker / HA App installs the in-place restart happens automatically; on a venv install the page flashes a "stop and restart" hint so nothing is left mid-flight.
 
 Endpoints: `/settings/system/data/export` and `/settings/system/data/import`.
 
