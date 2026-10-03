@@ -639,6 +639,21 @@
     color: var(--t-fg);
     font-weight: 600;
   }
+  /* The page's entry slide (Motion, below) transforms <main>, and a
+     transformed ancestor is the containing block for fixed descendants:
+     for its 360ms the column would sit inside the page content, then
+     jump to the viewport's left edge when the transform cleared. So
+     here the slide moves <main>'s children instead, the column
+     excepted, and <main> itself stays put. :where() keeps the rule at
+     zero specificity so a child with its own entrance (flashes, the
+     save bar) keeps it. */
+  :root[data-ui="paper"] body.admin:has(.settings-nav) main.page { animation: none; }
+  :where(:root[data-ui="paper"] body.admin:has(.settings-nav) main.page > :not(.settings-nav)) {
+    animation: paper-enter 360ms var(--p-ease) backwards;
+  }
+}
+@media (min-width: 1100px) and (prefers-reduced-motion: reduce) {
+  :where(:root[data-ui="paper"] body.admin:has(.settings-nav) main.page > :not(.settings-nav)) { animation: none; }
 }
 
 /* ----- Raised sheets --------------------------------------------- */
