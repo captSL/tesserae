@@ -120,7 +120,7 @@
    "version": "0.1.0",
    "licence": "MIT",
    "url": "https://github.com/dmellok/tesserae-mosaic",
-   "used_for": "The opt-in design system for code elements and the cloud's starters"
+   "used_for": "The Looks design system for code elements and the cloud's starters"
   },
   {
    "name": "esptool-js",

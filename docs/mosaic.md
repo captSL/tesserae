@@ -1,8 +1,11 @@
-# Mosaic
+# Looks
 
-[Mosaic](https://github.com/dmellok/tesserae-mosaic) is an open design system for e-ink
-dashboards. A code element built from its components takes one of five complete looks from a
-single attribute, and reads at every panel size, in colour and on one-bit panels.
+Looks is an open design system for e-ink dashboards: five complete page styles for code
+elements. A code element built from its components takes one look from a single attribute, and
+reads at every panel size, in colour and on one-bit panels. In code the library keeps its original
+name, Mosaic: the global is `Mosaic`, the classes start with `m-`, and the source lives at
+[dmellok/tesserae-mosaic](https://github.com/dmellok/tesserae-mosaic). (A Mosaic layout, in the
+cloud editor, is a dashboard made of widget tiles; the two are unrelated.)
 
 | Look | What it is |
 |---|---|

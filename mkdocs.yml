@@ -126,7 +126,7 @@ nav:
       - Publish a theme: dev/publishing-a-theme.md
       - Widget contract: widgets.md
       - Cross-widget design system: widget-design-system.md
-      - "Mosaic: looks for code elements": mosaic.md
+      - "Looks: five page styles for code elements": mosaic.md
       - Design brief template: widget-design-brief.md
   - Client development:
       - Add hardware support: dev/adding-hardware.md
