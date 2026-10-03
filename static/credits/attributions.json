@@ -121,6 +121,16 @@
    "licence": "MIT",
    "url": "https://github.com/dmellok/tesserae-mosaic",
    "used_for": "The opt-in design system for code elements and the cloud's starters"
+  },
+  {
+   "name": "esptool-js",
+   "files": [
+    "public/vendor/esptool-js/bundle.js (Tesserae Cloud)"
+   ],
+   "version": "0.5.4",
+   "licence": "Apache-2.0",
+   "url": "https://github.com/espressif/esptool-js",
+   "used_for": "Flashing Tesserae firmware to a panel over USB from the cloud console's setup page"
   }
  ],
  "icons": [

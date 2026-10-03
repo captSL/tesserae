@@ -24,6 +24,7 @@ Bundled with Tesserae and served to render pages and the editor; each file keeps
 | [CodeMirror](https://codemirror.net/5) | The code editor (never loaded into a render) | 5.65 | MIT |
 | [js-beautify](https://beautifier.io) | Tidy in the code editor (never loaded into a render) | 1.x | MIT |
 | [Mosaic](https://github.com/dmellok/tesserae-mosaic) | The opt-in design system for code elements and the cloud's starters | 0.1.0 | MIT |
+| [esptool-js](https://github.com/espressif/esptool-js) | Flashing Tesserae firmware to a panel over USB from the cloud console's setup page | 0.5.4 | Apache-2.0 |
 | [Phosphor Icons](https://phosphoricons.com) | Icons in the interface, widgets and dashboards, six weights | 2.x | MIT |
 
 ## Fonts
