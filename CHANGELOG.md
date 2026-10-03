@@ -8,6 +8,9 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Added
 
+- Credits name esptool-js, which Tesserae Cloud's setup page uses to flash
+  firmware over USB; docs/credits.md and the cloud's /credits are built from
+  the same list.
 - **Search, filters and sorting on every list.** One shared toolbar (a
   search box, one or two filters, a count) now heads Settings › Devices,
   Dashboards, History, Events, Lineups, Widgets › Installed, the Themes
