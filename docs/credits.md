@@ -97,6 +97,7 @@ Data a widget fetches stays under its provider's terms. Where a provider asks to
 | [NASA APOD](https://apod.nasa.gov) | Astronomy picture of the day | Mostly public domain; per-image credits | Image credits as given by NASA APOD |
 | [The Metropolitan Museum of Art Collection API](https://metmuseum.github.io) | Artworks | CC0 (Open Access) |  |
 | [iNaturalist](https://www.inaturalist.org) | Nature observations | Per-observation Creative Commons licences | Observations and photos by iNaturalist contributors |
+| [Nominatim](https://nominatim.openstreetmap.org) | Turning a photo's GPS position into a place name for Tesserae Cloud's photo-frame captions | ODbL 1.0 (OpenStreetMap data) | Place names © OpenStreetMap contributors, via Nominatim |
 
 ## Protocols and reference clients
 

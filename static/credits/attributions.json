@@ -227,6 +227,13 @@
    "url": "https://www.inaturalist.org",
    "used_for": "Nature observations",
    "credit": "Observations and photos by iNaturalist contributors"
+  },
+  {
+   "name": "Nominatim",
+   "licence": "ODbL 1.0 (OpenStreetMap data)",
+   "url": "https://nominatim.openstreetmap.org",
+   "used_for": "Turning a photo's GPS position into a place name for Tesserae Cloud's photo-frame captions",
+   "credit": "Place names © OpenStreetMap contributors, via Nominatim"
   }
  ],
  "protocols": [
