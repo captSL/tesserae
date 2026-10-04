@@ -50,6 +50,8 @@ def refresh_fonts(doc: dict[str, Any]) -> None:
                 "licence_url": "https://openfontlicense.org",
             }
         )
+    # Families bundled by Tesserae Cloud rather than fonts_core stay as written.
+    out += [f for f in doc["fonts"] if not f["dir"].startswith("plugins/fonts_core/static/")]
     doc["fonts"] = out
 
 
@@ -166,7 +168,7 @@ def render(doc: dict[str, Any], py: list[dict[str, str]]) -> str:
         "",
         "## Fonts",
         "",
-        f"All {len(doc['fonts'])} bundled families are published under the [SIL Open Font License 1.1](https://openfontlicense.org).",
+        f"All {len(doc['fonts'])} families bundled with Tesserae Server or Tesserae Cloud are published under the [SIL Open Font License 1.1](https://openfontlicense.org).",
         "Each font file carries its own copyright and licence; the notices are reproduced here.",
         "",
         "| Family | Copyright |",

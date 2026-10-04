@@ -16,7 +16,10 @@ DOC = json.loads((ROOT / "static/credits/attributions.json").read_text(encoding=
 
 def test_every_bundled_font_is_credited_with_its_copyright() -> None:
     folders = {d.name for d in (ROOT / "plugins/fonts_core/static").iterdir() if d.is_dir()}
-    credited = {Path(f["dir"]).name for f in DOC["fonts"]}
+    # A family whose dir is elsewhere is bundled by Tesserae Cloud, which builds its Credits page
+    # from this same file; it is credited here but need not be in fonts_core.
+    local = [f for f in DOC["fonts"] if f["dir"].startswith("plugins/fonts_core/static/")]
+    credited = {Path(f["dir"]).name for f in local}
     assert folders == credited, (
         f"add these to attributions.json (scripts/gen_credits.py --fonts): {sorted(folders - credited)}"
     )

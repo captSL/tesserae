@@ -29,7 +29,7 @@ Bundled with Tesserae and served to render pages and the editor; each file keeps
 
 ## Fonts
 
-All 40 bundled families are published under the [SIL Open Font License 1.1](https://openfontlicense.org).
+All 40 families bundled with Tesserae Server or Tesserae Cloud are published under the [SIL Open Font License 1.1](https://openfontlicense.org).
 Each font file carries its own copyright and licence; the notices are reproduced here.
 
 | Family | Copyright |
