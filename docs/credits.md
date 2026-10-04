@@ -25,11 +25,11 @@ Bundled with Tesserae and served to render pages and the editor; each file keeps
 | [js-beautify](https://beautifier.io) | Tidy in the code editor (never loaded into a render) | 1.x | MIT |
 | [Mosaic](https://github.com/dmellok/tesserae-mosaic) | The Looks design system for code elements and the cloud's starters | 0.1.0 | MIT |
 | [esptool-js](https://github.com/espressif/esptool-js) | Flashing Tesserae firmware to a panel over USB from the cloud console's setup page | 0.5.4 | Apache-2.0 |
-| [Phosphor Icons](https://phosphoricons.com) | Icons in the interface, widgets and dashboards, six weights | 2.x | MIT |
+| [Phosphor Icons](https://phosphoricons.com) | Icons in the interface, widgets and dashboards, six weights; the bold outlines baked as paths for Tesserae Cloud's Ink pages | 2.x | MIT |
 
 ## Fonts
 
-All 39 bundled families are published under the [SIL Open Font License 1.1](https://openfontlicense.org).
+All 40 bundled families are published under the [SIL Open Font License 1.1](https://openfontlicense.org).
 Each font file carries its own copyright and licence; the notices are reproduced here.
 
 | Family | Copyright |
@@ -73,6 +73,7 @@ Each font file carries its own copyright and licence; the notices are reproduced
 | TRMNL12 | Copyright © 2026 Heavyweight Digital Type Foundry s.r.o. All rights reserved. |
 | TRMNL16 | Copyright © 2026 Heavyweight Digital Type Foundry s.r.o. All rights reserved. |
 | TRMNL21 | Copyright © 2026 Heavyweight Digital Type Foundry s.r.o. All rights reserved. |
+| Fraunces | Copyright 2020 The Fraunces Project Authors (https://github.com/undercasetype/Fraunces) |
 
 ## Data
 

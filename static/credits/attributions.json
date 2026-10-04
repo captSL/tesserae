@@ -137,12 +137,13 @@
   {
    "name": "Phosphor Icons",
    "files": [
-    "static/vendor/phosphor"
+    "static/vendor/phosphor",
+    "src/ink/icons/phosphor_bold.json"
    ],
    "version": "2.x",
    "licence": "MIT",
    "url": "https://phosphoricons.com",
-   "used_for": "Icons in the interface, widgets and dashboards, six weights"
+   "used_for": "Icons in the interface, widgets and dashboards, six weights; the bold outlines baked as paths for Tesserae Cloud's Ink pages"
   }
  ],
  "data": [
@@ -524,6 +525,13 @@
    "family": "TRMNL21",
    "dir": "plugins/fonts_core/static/trmnl21",
    "copyright": "Copyright © 2026 Heavyweight Digital Type Foundry s.r.o. All rights reserved.",
+   "licence": "OFL-1.1",
+   "licence_url": "https://openfontlicense.org"
+  },
+  {
+   "family": "Fraunces",
+   "dir": "public/fonts/fraunces",
+   "copyright": "Copyright 2020 The Fraunces Project Authors (https://github.com/undercasetype/Fraunces)",
    "licence": "OFL-1.1",
    "licence_url": "https://openfontlicense.org"
   }
