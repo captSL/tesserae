@@ -153,7 +153,7 @@ def fetch(
     # midnight. Prefer the solar entity (it has a clear day-shaped curve);
     # fall back to house consumption when solar's not configured.
     now = datetime.now(app_timezone())
-    if today_entity and options.get("show_solar_yesterday", True) is not False:
+    if today_entity and options.get("show_solar_yesterday") is True:
         try:
             energy_samples = core.history(today_entity, hours=48)
         except Exception:

@@ -326,7 +326,7 @@ export default function render(shadow, ctx) {
 
   const chips = [];
   const options = ctx?.cell?.options ?? {};
-  const showYesterday = options.show_solar_yesterday !== false;
+  const showYesterday = options.show_solar_yesterday === true;
   if (soc != null) {
     chips.push(`<span class="energy-soc"><i class="ph-bold ph-battery-charging"></i>${Math.round(Number(soc))}%</span>`);
   }

@@ -173,7 +173,7 @@ def test_yesterday_solar_total_uses_latest_local_day_sample() -> None:
         patch.object(server, "app_timezone", return_value=zone),
     ):
         result = server.fetch(
-            options={"solar_today_entity": "sensor.solar_today"},
+            options={"solar_today_entity": "sensor.solar_today", "show_solar_yesterday": True},
             settings={},
             ctx={},
         )
@@ -203,7 +203,7 @@ def test_yesterday_solar_total_respects_toggle_and_missing_history() -> None:
         patch.object(server, "app_timezone", return_value=zone),
     ):
         result = server.fetch(
-            options={"solar_today_entity": "sensor.solar_today"},
+            options={"solar_today_entity": "sensor.solar_today", "show_solar_yesterday": True},
             settings={},
             ctx={},
         )
@@ -212,7 +212,7 @@ def test_yesterday_solar_total_respects_toggle_and_missing_history() -> None:
 
         core.history.reset_mock()
         result = server.fetch(
-            options={"solar_today_entity": "sensor.solar_today", "show_solar_yesterday": False},
+            options={"solar_today_entity": "sensor.solar_today"},
             settings={},
             ctx={},
         )
