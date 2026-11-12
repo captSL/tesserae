@@ -759,6 +759,11 @@ in v1; the manifest forces the reviewer to notice the claim.
 | `settings:app` | Read top-level app settings (lat/lon, timezone, etc.). | Review-only |
 | `filesystem:write:<path>` | Write outside the plugin's `data_dir`. Reads of `data_dir` and the plugin folder are implicit. | Review-only |
 
+Widgets that declare `plugin:ha_core` may use the Home Assistant client
+through that delegate. Tesserae grants only the hostname in the current
+Home Assistant Core `base_url`; it does not grant access to other hosts or
+require a direct `network:` declaration on the widget.
+
 ### How the network enforcement works
 
 The host installs a hook over `socket.create_connection` (the bottom

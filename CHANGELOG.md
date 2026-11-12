@@ -168,6 +168,8 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 - Dashboard editor: dynamic widget configuration choices now run under the
   widget's capability scope, preserving delegated access such as `plugin:ha_core`.
+- Widgets delegating to `ha_core` can reach only the hostname in the current
+  Home Assistant Core URL, without a direct network grant or access to other hosts.
 - Visionect frames: a saved Wi-Fi password now reaches the frame, is masked on the device page instead of sent back to the browser, and is hidden in the frame log if the frame echoes it.
 - History: 12-hour times no longer overlap the thumbnail.
 - A link now always sits left of a button, and the primary action is rightmost,
