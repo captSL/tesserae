@@ -8,6 +8,182 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Added
 
+- OpenDisplay tags: **Panel → Colour palette** on the tag's page sets which colours the panel has (black and white, red, red and yellow, six colours, or greys), since the tag does not report it. Previews are drawn in those colours. Applies to the Home Assistant and bridge kinds.
+- Device kinds can list the palettes an operator may pick (`palettes`) and mark a replaced config field (`retired`) so it shows only on devices that still use it.
+- OpenDisplay via Home Assistant works from any install, not only the HA add-on. With the Home Assistant Core plugin configured, **Add device → OpenDisplay** shows the tag form, and Tesserae uploads each frame to HA's media folder through its API. The token must belong to an HA administrator. The add-on still writes to the shared `/media`, and now uploads instead when that folder is not writable.
+- Fraimic: the Large Canvas (31.5") and the Standard Canvas (13.3") are in the hardware catalog, so **Add device → Fraimic** has a **Model** choice that sets the panel size, and both are listed on the compatibility page. A frame added before this keeps working as it is.
+- Device kinds can place a config field in a named group (`group`) and show it only for some values (`show_if`).
+- Lineups: a + beside each display's chevron starts a new lineup for that display.
+- Lineups: a day tile you click shows a check (runs) or an x (off) for a moment, and a small one until the change is saved.
+- Lineups: click a lineup's name to rename it in place; Enter or clicking away saves, Escape cancels.
+- Lineups: a daily push can take an end time ("06:00-18:00"); with several dashboards it then steps through them in that window. Remove the end to go back to a single push.
+- Lineups: drag a lineup's dashboards left or right to reorder them, or press Alt+Left / Alt+Right on one; it saves on drop.
+- Lineup editor: rebuilt as When it runs, Dashboards and Timing, under what is on screen and the display's day bar.
+- Lineup editor: each dashboard says what it is ("Gallery · 412 photos") and opens to its items in a searchable grid, its first eight in the display's own shape.
+- Lineup editor: only the options that apply are shown; Priority when lineups overlap, Min hold when something can cut a dashboard short.
+- Lineup editor: Push now and a ... menu (Move to another display, Delete) sit top right by the On switch; a move applies on Save.
+- Lineup editor: drag or arrow-key this lineup's block on the day bar to set its time, click another lineup's block to open it, and Show all puts every day's bar in the header.
+- Lineup editor: a gear by a dashboard's name opens it in the dashboard editor; its arrows pick the item Push now sends, and the item control reads Rotate items or Show chosen.
+- Lineups: New lineup, and the + beside each display, open a three-step new-lineup page.
+- Lineups: album widgets that draw a random photo show as a stack badged "random" (or x N), with a Recent photos strip in the editor.
+- Widgets: item hooks can return a preview `thumb` per item and take a `ctx` (cell size, display); see the widget guide.
+
+### Changed
+
+- OpenDisplay via Home Assistant: **Panel → Rotation** now turns the frame, so it is the only rotation setting and 180° and 270° work; **Underscan** applies too. The tag's page no longer shows the client rotation, scale and letterbox options, which never reached Home Assistant. A tag that used the old Home Assistant rotation keeps working as it was and shows it as **Turn in Home Assistant (older setup)** until it is set to None.
+- Devices: the messages for the numbered orientation card now call it that, not a calibration card, so it is not mistaken for colour calibration.
+- Docs: the Fraimic quickstart and the compatibility page carry Fraimic's discount code for Tesserae readers (TESSERAE10, 10% off at fraimic.com), with a disclosure that Fraimic supplied the Large Canvas free and that sales made with the code pay the project a commission.
+- Docs: plainer wording across the wiki, and corrected facts that no longer matched the app.
+- Docs: docs.tesserae.ink takes the Paper design of the app and tesserae.ink (warm paper, red ink, Archivo and Martian Mono) in place of the teal Material theme, in light and dark. The fonts are served from the docs site, so its pages no longer load anything from Google Fonts.
+- Fix contextual help buttons in the canvas editor.
+- Keep selection marks and reorder handles visible for selected list items.
+- Samsung The Frame: its Power and Art Mode settings sit in groups of their own, and the Home Assistant switch field shows only when Power control is a Home Assistant switch.
+- Samsung The Frame: the TV's own slideshow setting reads "Managed by Tesserae" or "Managed by the TV".
+- Let gallery widgets preview matches for the current editor options.
+
+### Fixed
+
+- Calendar: events with a floating time (no `TZID` and no `Z`, e.g. `DTSTART:20261116T090000`) show at their local time. They were read as UTC, so a 9:00 event showed at 04:00 in New York. To-do due times get the same fix.
+- Blank pictures on a frame: a render whose images fail to load is retried once, and a scheduled, lineup or refresh send that still has broken images keeps the previous frame. A manual send goes out with a warning in History.
+- Device page: dashboard schedules have their own list instead of sitting in the Lineups list.
+- Lineups: a greyed row says why in a small tag (Not today, Done for today, Off, Not playing), so grey pictures aren't mistaken for black and white.
+- Lineups: a long day tag such as "Mon Tue Wed Sat Sun" no longer runs under the lineup's title.
+- Lineups: the time editor shows AM or PM in full.
+- Lineups: a display's day bar stays when you fold it; only its lineup rows fold.
+- Lineups: the day picker's calendar icon sits level with the middle of the day bar, at any width.
+- Lineups: reordering a live rotation sends the dashboard now in its slot.
+- Thumbnails fill their frame-shaped box on every page, so no thin light line shows along an edge.
+- Dashboards: a dashboard shared by displays of different shapes shows, under each display, that display's own ratio, picture and size.
+- Lineups: a dashboard bound to displays of different shapes shows each display its own ratio and picture, not the largest panel's.
+- A lineup send that failed is retried on the next tick instead of being counted as done, so a failed 06:00 send no longer misses its whole slot. It is tried three times, then left until the next slot.
+- Smart sync waits for the displays a lineup sends to, not every display its dashboards are bound to.
+- A timer-only lineup ("Taps also flip" off) no longer follows its page links or touch zones, on the server or on a display that navigates from its own cache.
+- The lineup's current step follows its conditions and priority mode, and reads as held when every rule fails, instead of showing the clock's slot.
+- The Lineups Next pill, tick and countdown follow what the scheduler will send: minimum hold, rules, priority mode and a sleeping display's check-in.
+- "Next update" counts a dashboard's own Updates refresh, not only the next lineup change. A battery display still sleeps to its own interval and does not wake early for these.
+- Lineups: the quiet-hours warning says what happens and only shows when a save changes the times, days or display.
+- Lineups: widget preview images (e.g. Immich) load under Home Assistant ingress instead of showing "?".
+- Lineups and the lineup editor: a short block on the day bar is a sliver of its own, 1px from its neighbours, never under them.
+- Lineup editor: a daily or interval lineup edits its own time, a window with several dashboards takes them in turn, and cut to one it keeps its pace.
+- Lineup editor: Smart sync can be switched off again, and a daily or interval lineup set to also take taps now runs.
+- Lineup editor: saving keeps a lineup's other displays and the settings it doesn't show, and a save from a stale tab is refused instead of undoing newer edits.
+- Lineup editor: Timing follows each dashboard's own time and quiet hours count only on their days.
+
+### Security
+
+- Widgets: a widget's lineup item hooks (`lineup_items`, `lineup_item_count`) run inside its declared network allowlist, like its data fetch; a listing is capped at 5000 entries and its `lineups.noun` is letters only.
+
+## [0.511.0], 2026-11-13
+
+### Added
+
+- Fraimic: wakes closer than an hour and more than four a day. **Wake every** goes down to 5 minutes with a **Counted from** anchor, and **At set times each day** takes any number of times. The frame's own schedule can't express these, so Tesserae leads the frame along: at each wake it writes the next four wake times, the first being the wake it wants and the rest a fallback if one is missed. Hourly-or-slower intervals from midnight and up to four times still use the frame's own schedule.
+- Fraimic: a **When the picture is due to change** wake schedule, which wakes the frame for the next lineup step, schedule or page refresh rather than on a fixed interval, with a ceiling (6 hours by default) between wakes.
+- Fraimic: wakes skip quiet hours, follow a wake interval the page on the glass declares (down to 15 minutes), and with **Wake less often on a low battery** stretch to twice the gap below 20% and four times below 10%.
+- Fraimic: the frame's next wake feeds smart sync, the device page's next check-in and Home Assistant's online flag. A frame that wakes on time three times is trusted, and schedules and rotations with smart sync then render just before its wake. A tap doesn't count against it.
+- Fraimic: **On a tap** can step the display to its next page, **Redraw a picture that hasn't changed** redraws after a day or a week to clear ghosting, and a wake the frame doesn't answer is logged and counted (`missed_wakes` in its status).
+
+### Changed
+
+- Fraimic: wake times are in the app's timezone and converted to the frame's own clock, which keeps a fixed offset with no daylight saving. They were sent as typed, so in summer a frame an hour behind woke an hour late. Intervals longer than an hour are kept on the app's midnight the same way.
+- Fraimic: a frame on charge counts as awake (always on) for smart sync, so nothing waits for a wake it can already reach.
+
+### Fixed
+
+- Fraimic: a scheduled wake with nothing new to send put the frame back to sleep within a few seconds of waking, which can stop it setting its next alarm (seen on firmware 0.2.31 with wakes minutes apart: the frame then slept until tapped). It is now left up for 40 seconds first.
+
+## [0.510.1], 2026-11-11
+
+### Fixed
+
+- Home Assistant Ingress over plain HTTP: forms work again. Since the cross-site request checks arrived, every form in the admin UI (starting with the first onboarding step) was refused with "Forbidden: cross-origin admin request blocked (CSRF)" and `Origin: null`. Home Assistant sets `Referrer-Policy: no-referrer` on everything it serves, which makes a browser send `Origin: null` with a form, and over HTTP there is nothing else to tell the request is same-origin. Pages now ask for a `same-origin` referrer policy themselves, so their own forms carry their real origin; nothing is sent to other sites and no check is relaxed. The 403 message also names a proxy-set referrer policy as a cause. Reload any open Tesserae tab after updating. Diagnosed and fixed by @G2Dolphin. (#497)
+
+## [0.510.0], 2026-11-10
+
+### Added
+
+- Fraimic: a `fraimic` kind for Fraimic colour e-paper canvases (31.5" Large Canvas and 13.3"), over the frame's local REST API with no app, cloud or firmware change. Tesserae sets the frame's own wake schedule (hourly to daily, or up to four set times), uploads the latest frame at each wake as the `.bin` the frame takes, in the panel controllers' byte order (a new `fraimic_bin` renderer), and puts it back to sleep. A frame that is awake anyway gets new frames within seconds. The device card shows its battery, Wi-Fi and next wake. See `docs/quickstart/fraimic.md`.
+- Samsung The Frame: the TV goes to standby for quiet hours that sleep through and wakes for new frames, with its own power (Wake-on-LAN) or a Home Assistant switch, and the device card shows what the screen is doing.
+- Samsung The Frame: a `samsung_frame` kind that shows pages through the TV's own Art Mode, uploading each frame as a 4K JPEG over the local network and deleting its older uploads.
+- GTFS: every arrival carries `wheelchair_accessible` from trips.txt (1 accessible, 2 not, 0 no information), so a board can mark the trips a wheelchair user can or can't take. A timetable cached by an earlier version reads 0 until its 12-hour rebuild.
+- GTFS: Stop ID takes stop names as well as ids ("Canal St"). An entry that matches no stop_id in the feed is read as a name, ignoring case and spacing, and brings every stop of that name with its platforms; ids and names mix in one list. This keeps working on feeds whose station ids change between releases, such as KORDIS JMK (Brno).
+- GTFS: an advanced "Arrivals" option (`limit`) sets how many arrivals the widget hands over: 12 by default as before, at most 60, for a code element that lays out a longer list.
+
+### Changed
+
+- The Pimoroni Inky Frame 7.3" (Spectra 6, Pico 2 W) and Inky Impression (4", 7.3", 13.3" Spectra 6) product links are now Tesserae affiliate links, in their catalog entries, the README and the compatibility matrix. The affiliate disclosures name them alongside the Seeed links and claim a checkout discount for Seeed only, since none is known for Pimoroni. The docs count clicks on them with the other store links. The ACeP Frame, the legacy ACeP 4" Impression and the 5.7" Impression keep plain product links.
+- Docs: the Inky Frame install steps, the README and the compatibility matrix point to the in-browser flasher at tesserae.ink/flash/inky-frame, with PlatformIO as the build-it-yourself route.
+
+### Fixed
+
+- M5Stack PaperS3: touch follows the orientation set on the device page. Firmware 1.65.0 reports taps in its 960x540 framebuffer with `touch_space=fb`, and the server turns them onto the canvas it composed, so landscape and both flipped orientations hit the right controls (on 1.63.0 and 1.64.0 taps were pinned to the portrait canvas). The one-time move to portrait now applies only to those two firmware versions, so an owner who keeps a PaperS3 in landscape is left in landscape. (tesserae-device-firmware#21)
+
+## [0.509.0], 2026-11-10
+
+### Added
+
+- OTA logs: a panel that installs updates sends the log of each attempt on its own, and the device page lists it under OTA logs in the Logs group, apart from routine uploads. The newest 10 are kept, up to 512 KB, so routine uploads never push out the log of the update that went wrong. A client that can't collect logs on request (the Pi client, the Inky Frame) still gets the group for its OTA logs. The Events row names the target version and phase. Clients send them from ESP32 firmware 1.64.0, Pi client 0.10.0 and Inky Frame 0.4.0. See "OTA logs" in `docs/ota/contract.md`.
+
+### Fixed
+
+- Device page: a log list's "Show all" button expands its own list, not the first one on the page.
+
+## [0.508.0], 2026-11-09
+
+### Fixed
+
+- Lineups: a step's peek you opened stays open when a picture you asked for finishes drawing. The redraw used to close it.
+- Settings → System: on a Docker or non-git install, opening the page asked GitHub for the newest release even with Online features off. The check now waits for Online features like every other outbound call; with it off, the Updates card links to the releases page instead. Privacy notes list the check.
+- Docs: an audit of every page against the code. Menu paths, button labels and pairing steps match the current UI; the E1002 is Spectra 6, not ACeP; Online features is off by default; the MCP page lists all 39 tools; protocol docs carry the real keepalive, pairing-code lifetime, retained topics and `/tap` outcomes; widget and theme counts are current.
+- Setup wizard: the device step lists a panel that has announced itself, with a name field and a Register button, and fills in on its own as one arrives. On REST, the default for new installs, it used to offer only pairing codes, so a freshly flashed panel sat unseen while the sidebar said a new device was waiting. Pairing codes are still there under "Pair with a code instead" for clients that ask for one.
+- Setup wizard: a REST panel registered from the device step collects its token on its next check-in. Registering there skipped the panel's MAC, so it waited for approval indefinitely. The wizard now registers through the same steps as Settings → Devices, which also runs the device-added steps it used to miss.
+
+### Security
+
+- Relay: the relay no longer keeps a paired panel's plaintext token. It held the token in the pairing record until the record expired or the panel was revoked; it now deletes that record on the panel's first authenticated poll and keeps only the token's hash. A pairing code also belongs to the first panel key that claims it, so someone who saw the code can no longer swap in their own key before home completes the pairing (409 `conflict`).
+
+## [0.507.0], 2026-11-09
+
+### Added
+
+- Lineups: the arrows on a Gallery step draw another image.
+
+### Changed
+
+- Start-up: plugin, device, renderer, transport and hardware manifests are checked against a validator built once per schema, instead of re-checking the schema itself for each of the ~150 manifests. The app starts about 8x faster (0.8 s to 0.1 s), and the test suite runs in about a third of the time.
+- Gallery: a photo bigger than its cell is sent at the cell's size, not as the whole upload; one already the cell's size (pre-dithered artwork) is sent untouched.
+
+### Fixed
+
+- M5Stack PaperS3: a PaperS3 paired before firmware 1.63.0 was given a 960x540 landscape canvas for a panel held portrait. The first time it checks in on 1.63.0 or later, Tesserae moves it to the 540x960 portrait canvas that firmware's touch mapping expects, and repaints. It happens once, so choosing landscape again on the device page sticks (firmware #21).
+- Custom layout: dragging an edge that one tall cell shares with two stacked cells moves the whole line, so the tall cell narrows as the stacked cells widen (#434). It used to move only the dragged cell, which grew over the tall one. The tall cell kept its old width underneath, so a calendar in it drew its events past the visible edge. A cell growing into a gap now stops at the next cell. An overlap made before this fix stays until that edge is dragged back.
+- Devices: the pairing code pop-up gives the address a device reaches Tesserae on, not the browser's. Under Home Assistant ingress it showed Home Assistant's own address (#460). The Companion pairing pop-up does the same.
+- Lineups and history thumbnails keep the display's exact shape, so a dark picture no longer shows a thin light line along one edge.
+- Devices: a device's card shows an 800 px thumbnail of its latest picture rather than the full composition, which for a 4K display was about 10 MB.
+
+## [0.506.0], 2026-11-09
+
+### Added
+
+- Settings → Logs: the server's own log as it's written. Pick a watch level (debug, info, warning or error and up), filter by text, follow live, download or clear. The record level can be lowered for the running server, so debug lines can be watched without a restart. It returns to the configured level on restart. Device tokens and pairing codes in a line are masked.
+- Hardware: Pimoroni Badger 2040 W (296x128 black and white) and Badger 2350 (264x176, four greys), driven by the new tesserae-device-badger app inside each badge's stock launcher. Both pair from the Discovered strip, and A/B/C/up/down arrive as button wakes with their own keys. The Badger 2350 is confirmed on hardware; the 2040 W is not yet.
+- Update badge on edge: an edge Docker image (and a source checkout on main) shows the topbar update badge when main has moved on, with how many new commits there are, like stable does for a new release. Edge images now carry the commit they were built from; one built before this change has none to compare, so its badge starts with the next edge image.
+- Docs: the README, the client install page and the compatibility matrix list the Inky Frame firmware (tesserae-device-inkyframe, Spectra 6 confirmed) and the Badger app.
+
+### Fixed
+
+- Firmware: when automatic updates cannot use the newest release (the descriptor did not download or verify), the server logs a warning naming the kind and the reason, once an hour, instead of only at debug level, where it looked like the update was simply not being offered.
+
+## [0.505.0], 2026-11-08
+
+### Added
+
+- Buttons: a press can name its physical button (`button_key`) beside its action, and the device's button map binds that key first, so the four buttons on an Inky Impression can each show their own dashboard (`{"a": "page:Calendar", …, "d": "page:Family"}`) with tesserae-device-pi 0.9.3. Maps keyed by `left` / `right` / `refresh` work as before.
+- Raspberry Pi: one `pi_client` kind for the unified tesserae-device-pi client. A Spectra 6 Impression gets the packed .bin, every other Inky panel the PNG, from the panel the Pi reports when it pairs; it stays awake by default.
+- Device batteries: each chart has a 6h range too, and the second switch at the top of the page is gone.
+- Device batteries: a gear next to each frame's name opens its settings.
+- Lineups: a block that runs all day and carries on into tomorrow no longer counts down to an end; it says when quiet hours pause it.
+- Device page: no Next picture when the next step is the dashboard already showing, since its next picture isn't drawn yet.
 - Visionect frames: update firmware from the Firmware page, more frame settings and connection health on the device page, and a sleeping frame keeps its old picture with newer ones Queued.
 - Visionect firmware: the builds tested on a frame are checked against a known SHA-256 when downloaded or read from the cache, and a list entry whose checksum isn't plain hex is skipped.
 - Device page: summary tiles and the next picture in the left column, a Lineups link, accent group titles, Troubleshooting's buttons at its foot, and devices listed under Settings in the sidebar.
@@ -28,6 +204,9 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 - Device batteries: Visionect frames get drain and Reaches predictions too, and a short chart range predicts from at least a week of readings.
 - Device page: six collapsible sections instead of eleven, and the top tiles jump to their section.
 - Lineups: next update times are right for a display asleep in quiet hours, such as no more ~6:31 PM after a 9 AM wake.
+- Lineups: a display's top thumbnail always shows what is on the frame; what waits for it, from a lineup or a manual send, is a small tagged thumbnail on its corner.
+- Lineups: pushing a step from a lineup marks that lineup live, even one that does not run today; sending something by hand marks none.
+- Lineups: zoom a thumbnail into a larger view with Push now, and use previous and next arrows on a step to pick a photo or draw another picture before pushing it.
 - Quiet hours: a lineup step or interval skipped overnight now lands as quiet hours end, and a sleeping display wakes for it.
 - A widget that paints with GPT Image can ask for the quality (low, medium
   or high) and the exact size of the picture, so a poster can be painted
@@ -119,6 +298,7 @@ All notable changes to Tesserae are recorded here. Format loosely follows
 
 ### Changed
 
+- Raspberry Pi: the docs, README and issue templates point to the unified [tesserae-device-pi](https://github.com/dmellok/tesserae-device-pi) client; the pi-png and pi-bin repos are archived. The Pi cloud-init (`scripts/pi-client-cloud-init.yaml`) installs it from PyPI with its update rollback guard, needs only `server_url` in meta-data (`device_id` optional, no panel model), and reboots itself once so SPI and I²C take effect.
 - Lineups redesign, part 2 of 3: the Lineups page is rebuilt on the view model
   from part 1. Each display gets a header that says what is on screen (the
   picture itself), what is queued and when it lands, and when the frame next
@@ -170,6 +350,7 @@ All notable changes to Tesserae are recorded here. Format loosely follows
   widget's capability scope, preserving delegated access such as `plugin:ha_core`.
 - Widgets delegating to `ha_core` can reach only the hostname in the current
   Home Assistant Core URL, without a direct network grant or access to other hosts.
+- Home Assistant, Entities: a door, window or motion sensor reads Closed / Open / Clear the way Home Assistant words it, instead of Off / On.
 - Visionect frames: a saved Wi-Fi password now reaches the frame, is masked on the device page instead of sent back to the browser, and is hidden in the frame log if the frame echoes it.
 - History: 12-hour times no longer overlap the thumbnail.
 - A link now always sits left of a button, and the primary action is rightmost,
@@ -6643,7 +6824,6 @@ per-version sections below carry the detail.
   stable per-device filename overwritten in place (no media-folder growth), and orphaned files are
   swept on startup and when a device is removed. Best when Tesserae runs as the Home Assistant
   add-on with a shared `/media`; requires the Home Assistant Core plugin.
-
 
 - **Touch interactions guide (#49).** A new docs page covers enabling touch, attaching tap / swipe /
   slider / hotspot / code-element actions in the editor, verifying with the touch monitor, and

@@ -245,11 +245,19 @@
     return wanted.includes(showIfText(actual));
   }
 
+  // Widget options are submitted as ``opt_<name>``; a device kind's config
+  // fields (``data-show-if-plain`` on the wrap) under their own name.
+  function showIfInputName(name, plain) {
+    return plain ? name : `opt_${name}`;
+  }
+
   // Current value of option ``name`` in ``scope``, or undefined when the
   // scope has no such field. Switches read as true/false, a multiselect
   // as the list of ticked values.
-  function showIfValue(scope, name) {
-    const inputs = Array.from(scope.querySelectorAll(`[name="opt_${CSS.escape(name)}"]`));
+  function showIfValue(scope, name, plain) {
+    const inputs = Array.from(
+      scope.querySelectorAll(`[name="${CSS.escape(showIfInputName(name, plain))}"]`)
+    );
     if (!inputs.length) return undefined;
     const boxes = inputs.filter((el) => el.type === "checkbox");
     if (boxes.length && boxes.length === inputs.length) {
@@ -264,8 +272,10 @@
 
   function applyShowIf(scope) {
     const wraps = Array.from(scope.querySelectorAll("[data-show-if]"));
-    const fieldOf = (name) =>
-      scope.querySelector(`[name="opt_${CSS.escape(name)}"]`)?.closest("[data-show-if]") || null;
+    const fieldOf = (name, plain) =>
+      scope
+        .querySelector(`[name="${CSS.escape(showIfInputName(name, plain))}"]`)
+        ?.closest("[data-show-if]") || null;
     // Settle chains: a field whose controller is hidden hides too, so a few
     // passes let a change ripple down (bounded, a cycle just stays hidden).
     for (let pass = 0; pass < 8; pass++) {
@@ -277,11 +287,12 @@
         } catch {
           return;
         }
+        const plain = "showIfPlain" in wrap.dataset;
         let show = true;
         for (const [name, expected] of Object.entries(cond || {})) {
-          const actual = showIfValue(scope, name);
+          const actual = showIfValue(scope, name, plain);
           if (actual === undefined) continue;
-          const controller = fieldOf(name);
+          const controller = fieldOf(name, plain);
           if ((controller && controller.hidden) || !showIfMatches(actual, expected)) {
             show = false;
             break;
@@ -511,10 +522,15 @@
         emitOrderChange(row);
       }
 
-      function updateCount() {
-        if (!countEl) return;
-        const n = opts.filter((o) => o.querySelector("input").checked).length;
-        countEl.textContent = n ? `${n} selected` : "";
+      function updateSelection() {
+        let count = 0;
+        opts.forEach((row) => {
+          const checked = inputFor(row).checked;
+          // Chromium can leave :has(input:checked) stale when moveBefore moves the row.
+          row.classList.toggle("is-selected", checked);
+          if (checked) count += 1;
+        });
+        if (countEl) countEl.textContent = count ? `${count} selected` : "";
       }
       function applyFilter() {
         const q = (filter ? filter.value : "").trim().toLowerCase();
@@ -604,10 +620,11 @@
       }
 
       ms.addEventListener("change", (ev) => {
-        if (ev.target.matches?.('input[type="checkbox"]')) partitionSelection();
-        updateCount();
+        if (!ev.target.matches?.('input[type="checkbox"]')) return;
+        partitionSelection();
+        updateSelection();
       });
-      updateCount();
+      updateSelection();
     });
   }
 

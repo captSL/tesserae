@@ -171,6 +171,61 @@ def test_status_tags_ordering_and_day_sets() -> None:
     assert all(lu.folded for lu in frame.lineups if lu.status == "not_today")
 
 
+def _why(view: Any, display_id: str, lineup_id: str) -> tuple[str, str] | None:
+    why = _lineup(_display(view, display_id), lineup_id).off_why
+    return None if why is None else (why.label, why.title)
+
+
+def test_grey_rows_say_why_they_are_grey() -> None:
+    """Wednesday 18:12: dinner is live and night is later today (both colour);
+    breakfast ran this morning, weekend and monday are not due today."""
+    view = sample_view_model()
+    assert _why(view, "frame", "dinner") is None and _why(view, "frame", "night") is None
+    assert _why(view, "frame", "breakfast") is not None
+    assert _why(view, "frame", "breakfast")[0] == "Done for today"  # type: ignore[index]
+    assert _why(view, "frame", "weekend")[0] == "Not today"  # type: ignore[index]
+    assert _why(view, "frame", "monday")[0] == "Not today"  # type: ignore[index]
+    title = _why(view, "frame", "weekend")[1]  # type: ignore[index]
+    assert "grey" in title and "colour" in title
+    # Exactly the rows the page draws grey carry one.
+    for d in view.displays:
+        for lu in d.lineups:
+            assert (lu.off_why is not None) == (lu.status in ("not_today", "off"))
+    assert _lineup(_display(view, "frame"), "weekend").to_dict()["off_why"]["label"] == "Not today"
+
+
+def test_a_lineup_whose_window_has_ended_is_done_for_today() -> None:
+    displays, dashboards = sample_inputs()
+    late = SAMPLE_NOW.replace(hour=22, minute=50)
+    frame = _display(build_view(displays, dashboards, now=late), "frame")
+    dinner = _lineup(frame, "dinner")  # 17:00-20:00 on Mon-Wed, today is Wednesday
+    assert dinner.status == "not_today"
+    assert dinner.off_why is not None and dinner.off_why.label == "Done for today"
+    night = _lineup(frame, "night")  # a daily push at 22:00, sent
+    assert night.status == "not_today" and night.off_why is not None
+    assert night.off_why.label == "Done for today"
+    # Tomorrow's breakfast is the next run, but the lineup is not due *today*.
+    assert _lineup(frame, "monday").off_why.label == "Not today"  # type: ignore[union-attr]
+
+
+def test_off_and_by_hand_rows_name_their_reason() -> None:
+    displays, dashboards = sample_inputs()
+    frame_in = displays[0]
+    lineups = tuple(
+        replace(lu, enabled=False)
+        if lu.id == "night"
+        else replace(lu, kind="manual", start=None, end=None)
+        if lu.id == "weekend"
+        else lu
+        for lu in frame_in.lineups
+    )
+    displays[0] = replace(frame_in, lineups=lineups)
+    view = build_view(displays, dashboards, now=SAMPLE_NOW)
+    assert _why(view, "frame", "night")[0] == "Off"  # type: ignore[index]
+    assert _why(view, "frame", "weekend")[0] == "Not playing"  # type: ignore[index]
+    assert _lineup(_display(view, "frame"), "weekend").status_label == "By hand"
+
+
 def test_pause_overlap_flag_and_held_next_run() -> None:
     frame = _display(sample_view_model(), "frame")
     monday = _lineup(frame, "monday")
@@ -814,7 +869,7 @@ def test_pause_overlap_is_a_warning(client: Any, app: Flask) -> None:
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["pause_overlap"] is True
-    assert "Quiet hours (23:00–06:30)" in data["warnings"][0]
+    assert data["warnings"][0].startswith("Starts at 06:30: 05:00–06:30 is in ")
     assert _deck(app, "morning").advance_anchor == "05:00"
 
 
@@ -1186,7 +1241,7 @@ def test_display_filter_builds_only_that_display(
 def test_gallery_items_are_cached_by_folder_mtime(
     app: Flask, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import app.deck_routes as routes
+    import app.step_items as routes
     from app.state.page_store import Cell, Page
 
     module = app.config["PLUGIN_REGISTRY"].get("picture_gallery").server_module
@@ -1211,16 +1266,16 @@ def test_gallery_items_are_cached_by_folder_mtime(
         ],
     )
     with app.test_request_context():
-        count, items = routes._step_items(page)
+        count, items = routes.step_items(page)
         assert count == 500 and len(items) == routes.MAX_STEP_ITEMS
-        routes._step_items(page)
+        routes.step_items(page)
         assert calls == ["photos"]
         (folder / "new.jpg").write_bytes(b"x")
         import os
 
         st = folder.stat()
         os.utime(folder, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
-        routes._step_items(page)
+        routes.step_items(page)
         assert calls == ["photos", "photos"]
 
 
@@ -1238,6 +1293,48 @@ def test_pause_flag_needs_a_real_overlap() -> None:
     assert window_overlaps_pause(pause, replace(push, start="06:29"))
     kitchen = _lineup(_display(sample_view_model(), "kitchen"), "kitchen")
     assert kitchen.window is not None and not kitchen.window.overlaps_pause
+
+
+def test_pause_note_says_what_quiet_hours_do() -> None:
+    from app.lineups_view import pause_note, using_time_cycle
+
+    where = "TV's quiet hours"
+    pause = PauseInput(1 * 60, 8 * 60)
+    steps = (StepInput("x", 30),)
+    win = LineupInput("a", "A", "cycle", steps, start="06:00", end="18:30", days=(0, 1, 2, 3, 4))
+    with using_time_cycle("h12"):
+        nb = "\u202f"
+        assert (
+            pause_note(pause, win, where) == f"Starts at 8{nb}AM: 6–8{nb}AM is in TV's quiet hours."
+        )
+        inside = replace(win, start="02:00", end="05:00")
+        assert (
+            pause_note(pause, inside, where) == "Sends nothing: all of it is in TV's quiet hours."
+        )
+        tail = replace(win, start="00:00", end="03:00")
+        assert pause_note(pause, tail, where) == (
+            f"Stops at 1{nb}AM: 1–3{nb}AM is in TV's quiet hours."
+        )
+        stops = replace(win, start="20:00", end="23:00")
+        assert pause_note(PauseInput(22 * 60, 23 * 60 + 59), stops, where) == (
+            f"Stops at 10{nb}PM: 10–11{nb}PM is in TV's quiet hours."
+        )
+        mid = pause_note(PauseInput(12 * 60, 13 * 60), win, where)
+        assert mid == f"Pauses 12–1{nb}PM for TV's quiet hours."
+        push = LineupInput("p", "P", "daily", steps, start="06:00", days=(0,))
+        assert pause_note(pause, push, where) == f"Skipped: 6{nb}AM is in TV's quiet hours."
+        assert pause_note(pause, replace(push, start="09:00"), where) is None
+    with using_time_cycle("h23"):
+        assert (
+            pause_note(pause, win, where) == "Starts at 08:00: 06:00–08:00 is in TV's quiet hours."
+        )
+    # Weekday and all-day masks: a weekend-only pause leaves a weekday window alone,
+    # an all-day Monday swallows a Monday-only one.
+    with using_time_cycle("h23"):
+        assert pause_note(PauseInput(1 * 60, 8 * 60, days=(5, 6)), win, where) is None
+        monday = replace(win, days=(0,))
+        note = pause_note(PauseInput(0, 0, days=(), all_day=(0,)), monday, where)
+        assert note == "Sends nothing: all of it is in TV's quiet hours."
 
 
 # ---------------------------------------------------------------------------
@@ -2239,9 +2336,14 @@ def test_push_step_logs_same_composition_and_keeps_thumbnail(
             "/decks/morning/push-step", json={"page_id": "news", "composition_digest": digest}
         )
     assert response.status_code == 200 and response.get_json()["fresh"] is False
-    row = app.config["EVENT_LOG"].list(type="push", target="news", limit=1)[0]
+    # The resend's own row: the view.json read above can start a background
+    # deck warm for "news", which may hit the patched renderer and log a
+    # failed row of its own in the meantime.
+    rows = app.config["EVENT_LOG"].list(type="push", source="resend", target="news", limit=1)
+    assert rows, "the resend logged no push row"
+    row = rows[0]
     assert row.status == "sent", row.error
-    assert row.source == "resend" and row.digest == digest
+    assert row.digest == digest
     after = client.get("/decks/view.json").get_json()
 
     def step(data: Any) -> Any:
@@ -2451,22 +2553,30 @@ def test_heard_display_with_unknown_cadence_is_not_offline() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_queued_delivery_placeholder_names_the_next_check_in() -> None:
+def test_queued_delivery_is_a_tagged_thumb_and_the_glass_placeholder_stays_honest() -> None:
     d = _unexplained(pending=True)
-    assert d.placeholder is not None and d.queued_badge is None
-    assert d.placeholder.state == "queued" and d.placeholder.label == "Queued"
-    assert d.placeholder.sub.startswith("Frame picks it up at its next check-in ~")
-    assert d.placeholder.sub.split("check-in ")[1] in d.placeholder.title
-    assert "?" not in d.placeholder.label + d.placeholder.sub
+    # The header thumb says what is on the glass (nothing known), never "Queued".
+    assert d.placeholder is not None and d.placeholder.state == "none"
+    assert d.placeholder.label == "No image yet" and "queued" not in d.placeholder.title.lower()
+    q = d.queued_thumb
+    assert q is not None and q.label == "Queued" and q.name == "A new frame"
+    assert "next check-in ~" in q.title and q.thumb_url == ""
+    assert "?" not in q.label
 
 
-def test_queued_placeholder_with_unknown_reach_still_estimates() -> None:
+def test_a_render_waiting_for_a_sleeper_shows_its_own_thumbnail() -> None:
+    d = _unexplained(pending=True, pending_thumb_url="/compose/thumbs/v1/sent/abc123.webp")
+    assert d.queued_thumb is not None
+    assert d.queued_thumb.thumb_url == "/compose/thumbs/v1/sent/abc123.webp"
+    assert d.queued_thumb.aspect == "800/480" and d.queued_thumb.orientation == "l"
+
+
+def test_queued_thumb_with_unknown_reach_still_estimates() -> None:
     from app.next_update import Reach
 
     d = _unexplained(pending=True, reach=Reach("unknown"))
-    assert d.placeholder is not None and d.placeholder.state == "queued"
-    assert d.placeholder.sub.startswith("Frame picks it up at its next check-in")
-    assert d.placeholder.title.endswith(".")
+    assert d.queued_thumb is not None and d.queued_thumb.title.endswith(".")
+    assert "next check-in" in d.queued_thumb.title or "next checks in" in d.queued_thumb.title
 
 
 def test_no_render_is_nothing_sent_placeholder() -> None:
@@ -2497,19 +2607,84 @@ def test_live_device_being_delivered_says_delivering() -> None:
     )
     d = _display(build_view([kitchen], dashboards, now=SAMPLE_NOW), "kitchen")
     assert d.placeholder is not None and d.placeholder.label == "Delivering"
-    assert d.queued_badge is None
+    assert d.queued_thumb is None
 
 
-def test_served_image_stays_and_a_queued_badge_appears() -> None:
+def test_served_image_stays_and_a_queued_thumb_appears_beside_it() -> None:
     from app.lineups_view import FrameInput
 
-    d = _unexplained(frame=FrameInput("a frame sent by hand", "/x.webp"), pending=True)
-    assert d.frame is not None and d.frame.thumb_url == "/x.webp"
+    d = _unexplained(
+        frame=FrameInput("a frame sent by hand", "/x.webp"),
+        pending=True,
+        pending_thumb_url="/q.webp",
+    )
+    assert d.frame is not None and d.frame.thumb_url == "/x.webp"  # the glass, untouched
     assert d.placeholder is None
-    assert d.queued_badge is not None and d.queued_badge.label == "Queued"
-    assert "next check-in" in d.queued_badge.title
+    assert d.queued_thumb is not None and d.queued_thumb.thumb_url == "/q.webp"
+    assert d.queued_thumb.label == "Queued" and "next check-in" in d.queued_thumb.title
     calm = _unexplained(frame=FrameInput("a frame sent by hand", "/x.webp"))
-    assert calm.queued_badge is None and calm.placeholder is None
+    assert calm.queued_thumb is None and calm.placeholder is None
+
+
+def test_the_header_shows_the_frame_taken_not_the_dashboards_newest_render() -> None:
+    # An album's next photo is rendered and waiting: the dashboard's thumbnail is
+    # that new photo, so the header must show what the frame actually took.
+    displays, dashboards = sample_inputs()
+    kitchen = replace(
+        displays[1],
+        pending=True,
+        pending_thumb_url="/compose/thumbs/v1/sent/new.webp",
+        glass_thumb_url="/compose/thumbs/v1/sent/old.webp",
+    )
+    d = _display(build_view([kitchen], dashboards, now=SAMPLE_NOW), "kitchen")
+    assert d.on_screen is not None
+    assert d.on_screen.thumb_url == "/compose/thumbs/v1/sent/old.webp"
+    assert d.queued_thumb is not None
+    assert d.queued_thumb.thumb_url == "/compose/thumbs/v1/sent/new.webp"
+
+
+def test_a_lineups_queued_step_is_the_small_thumb_and_the_glass_stays_the_header() -> None:
+    from app.lineups_view import DashboardInfo
+
+    displays, dashboards = sample_inputs()
+    dashboards = {
+        **dashboards,
+        "weather": replace(dashboards["weather"], thumb_url="/w.webp"),
+        "family": replace(dashboards["family"], thumb_url="/f.webp"),
+    }
+    view = build_view(displays, dashboards, now=SAMPLE_NOW)
+    kitchen = _display(view, "kitchen")  # asleep, with a scheduled step it has not picked up
+    assert kitchen.queued is not None
+    q = kitchen.queued_thumb
+    assert q is not None and q.name == kitchen.queued.name and q.label == "Queued"
+    assert q.thumb_url == dashboards[kitchen.queued.dashboard_id].thumb_url
+    # What is on the glass is the header thumb, and it carries no tag.
+    assert (
+        kitchen.on_screen is not None
+        and kitchen.on_screen.dashboard_id != kitchen.queued.dashboard_id
+    )
+    frame = _display(view, "frame")  # connected and in sync: nothing waits
+    assert frame.queued is None and frame.queued_thumb is None
+    assert isinstance(dashboards["art"], DashboardInfo)
+
+
+def test_a_manual_send_to_a_sleeping_display_is_queued_too() -> None:
+    """A dashboard sent by hand from the Send page (no lineup behind it) waits for the
+    sleeper like a scheduled step does, so it is the small thumbnail as well."""
+    from app.lineups_view import PublishedInput
+
+    displays, dashboards = sample_inputs()
+    kitchen = replace(displays[1], lineups=())
+    kitchen = replace(
+        kitchen,
+        published=PublishedInput("recipes", SAMPLE_NOW.timestamp() - 60),
+        published_known=True,
+    )
+    dashboards = {**dashboards, "recipes": replace(dashboards["recipes"], thumb_url="/r.webp")}
+    d = _display(build_view([kitchen], dashboards, now=SAMPLE_NOW), "kitchen")
+    assert d.queued is not None and d.queued.dashboard_id == "recipes"
+    assert d.queued_thumb is not None and d.queued_thumb.thumb_url == "/r.webp"
+    assert d.queued_thumb.name == "Recipes" and d.queued_thumb.label == "Queued"
 
 
 def test_pending_needs_a_render_the_display_has_not_fetched(app: Flask) -> None:
@@ -2559,3 +2734,1426 @@ def test_link_label_without_a_future_wake_time() -> None:
     assert _link(next_checkin_at=now - 60, gap_s=1200.0, cadence_stable=True).label == (
         "Wakes every 20 min"
     )
+
+
+# -- what counts as live: a step pushed from a lineup, a hand-sent frame ----------------
+
+
+def _status_of(client: Any, deck_id: str) -> str:
+    data = client.get("/decks/view.json").get_json()
+    return str(
+        next(lu for d in data["displays"] for lu in d["lineups"] if lu["id"] == deck_id)["status"]
+    )
+
+
+@pytest.fixture
+def other_day(client: Any, app: Flask) -> Any:
+    """A lineup that does not run today at all."""
+    from app.state.deck_model import Deck, DeckPage
+    from app.tz_resolve import app_timezone
+
+    today = datetime.now(app_timezone()).weekday()
+    app.config["DECK_STORE"].upsert(
+        Deck(
+            id="elsewhen",
+            name="Elsewhen",
+            device_ids=["panel"],
+            pages=[DeckPage(page_id="news"), DeckPage(page_id="art")],
+            advance="timer",
+            advance_interval_minutes=30,
+            advance_anchor="00:00",
+            advance_end_at="23:00",
+            advance_days_of_week=[(today + 3) % 7],
+        )
+    )
+    return client
+
+
+def test_a_lineup_the_display_is_playing_is_live_whatever_its_schedule() -> None:
+    from app.lineups_view import SAMPLE_NOW
+
+    displays, dashboards = sample_inputs()
+    d = displays[1]
+    night = next(lu for lu in d.lineups if lu.kind == "cycle")
+    idle = replace(
+        night, days=tuple(i for i in range(7) if i != SAMPLE_NOW.weekday()), playing=False
+    )
+    off_day = build_view([replace(d, lineups=(idle,))], dashboards, now=SAMPLE_NOW).displays[0]
+    assert off_day.lineups[0].status == "not_today"
+    forced = replace(idle, playing=True)
+    view = build_view([replace(d, lineups=(forced,))], dashboards, now=SAMPLE_NOW).displays[0]
+    assert view.lineups[0].status == "live" and view.lineups[0].status_label == "Live"
+    # A switched-off lineup stays off.
+    off = replace(forced, enabled=False)
+    assert (
+        build_view([replace(d, lineups=(off,))], dashboards, now=SAMPLE_NOW)
+        .displays[0]
+        .lineups[0]
+        .status
+        == "off"
+    )
+
+
+def test_pushing_a_step_from_a_lineup_marks_that_lineup_live_even_from_another_day(
+    other_day: Any, app: Flask
+) -> None:
+    fake = _FakePush()
+    app.config["PUSH_MANAGER"] = fake
+
+    def lineups() -> dict[str, str]:
+        return {
+            lu["id"]: lu["status"]
+            for d in other_day.get("/decks/view.json").get_json()["displays"]
+            for lu in d["lineups"]
+        }
+
+    # The seeded weekend / night lineups follow the real clock and may be
+    # live by schedule; what matters is that the push changes none of them.
+    before = lineups()
+    assert before["elsewhen"] != "live"
+    resp = other_day.post("/decks/elsewhen/push-step", json={"index": 1, "display_id": "panel"})
+    assert resp.status_code == 200, resp.get_json()
+    rec = app.config["DECK_NAV_STORE"].get("panel")
+    assert rec and rec["deck_id"] == "elsewhen" and rec["page_id"] == "art"
+    assert _status_of(other_day, "elsewhen") == "live"
+    # ... and only that lineup.
+    after = lineups()
+    assert after["elsewhen"] == "live"
+    assert {k: v for k, v in after.items() if k != "elsewhen"} == {
+        k: v for k, v in before.items() if k != "elsewhen"
+    }
+
+
+def test_a_failed_step_push_marks_nothing(other_day: Any, app: Flask) -> None:
+    class _Failing(_FakePush):
+        def push(self, page_id: str, **kw: Any) -> Any:
+            return type("R", (), {"status": "failed"})()
+
+    app.config["PUSH_MANAGER"] = _Failing()
+    other_day.post("/decks/elsewhen/push-step", json={"index": 0})
+    assert app.config["DECK_NAV_STORE"].get("panel") is None
+    assert _status_of(other_day, "elsewhen") != "live"
+
+
+def test_sending_something_by_hand_marks_no_lineup_live_and_ends_a_forced_turn(
+    other_day: Any, app: Flask
+) -> None:
+    app.config["PUSH_MANAGER"] = _FakePush()
+    # A send from the Send page on a quiet display: no lineup is live because of it.
+    app.config["EVENT_LOG"].record(
+        type="push", source="page", target="sky", status="sent", extra={"device_ids": ["panel"]}
+    )
+    assert _status_of(other_day, "elsewhen") != "live"
+    other_day.post("/decks/elsewhen/push-step", json={"index": 1, "display_id": "panel"})
+    assert _status_of(other_day, "elsewhen") == "live"
+    time.sleep(0.02)
+    # The Send page sends something else to the same display afterwards.
+    app.config["EVENT_LOG"].record(
+        type="push", source="page", target="sky", status="sent", extra={"device_ids": ["panel"]}
+    )
+    assert _status_of(other_day, "elsewhen") != "live"
+    # A hand-sent frame to a different display does not touch this one.
+    other_day.post("/decks/elsewhen/push-step", json={"index": 0, "display_id": "panel"})
+    time.sleep(0.02)
+    app.config["EVENT_LOG"].record(
+        type="push",
+        source="file",
+        target="x.png",
+        status="sent",
+        extra={"device_ids": ["elsewhere"]},
+    )
+    assert _status_of(other_day, "elsewhen") == "live"
+    # A failed hand-send did not reach the glass, so it ends nothing.
+    app.config["EVENT_LOG"].record(
+        type="push", source="page", target="sky", status="failed", extra={"device_ids": ["panel"]}
+    )
+    assert _status_of(other_day, "elsewhen") == "live"
+
+
+def test_a_stale_by_hand_record_no_longer_reads_as_playing_after_a_manual_send(
+    client: Any, app: Flask
+) -> None:
+    """The same rule covers by-hand decks, which used to stay "playing" after a Send page push."""
+    app.config["DECK_NAV_STORE"].set("panel", "night", "news")
+    assert _status_of(client, "night") == "live"
+    time.sleep(0.02)
+    app.config["EVENT_LOG"].record(
+        type="push", source="note", target="n", status="sent", extra={"device_ids": ["panel"]}
+    )
+    assert _status_of(client, "night") != "live"
+
+
+def test_the_next_scheduled_step_takes_the_display_back_from_a_forced_lineup(
+    other_day: Any, app: Flask
+) -> None:
+    """The scheduler records the lineup it fires on the display (the same nav
+    record), so when its next step lands the forced lineup stops being live and
+    the scheduled one is: the force holds until then, and only then."""
+    app.config["PUSH_MANAGER"] = _FakePush()
+    other_day.post("/decks/elsewhen/push-step", json={"index": 1, "display_id": "panel"})
+    assert _status_of(other_day, "elsewhen") == "live"
+    app.config["DECK_NAV_STORE"].set("panel", "morning", "news")  # what a scheduled advance writes
+    assert _status_of(other_day, "elsewhen") != "live"
+    assert _status_of(other_day, "morning") == "live"
+
+
+# -- an all-day block never reaches an end ---------------------------------------------
+
+
+def _live_progress(
+    *,
+    start: str = "00:00",
+    end: str | None = None,
+    kind: str = "cycle",
+    days: tuple[int, ...] = (0, 1, 2, 3, 4, 5, 6),
+    at: tuple[int, int] = (18, 12),
+    pause: Any = "keep",
+    interval: int = 30,
+    weekday: int | None = None,
+) -> Any:
+    from app.lineups_view import SAMPLE_NOW
+
+    displays, dashboards = sample_inputs()
+    d = displays[0]
+    lineup = replace(
+        d.lineups[0],
+        kind=kind,
+        start=start,
+        end=end,
+        days=days,
+        interval_minutes=interval if kind == "interval" else 0,
+        steps=tuple(StepInput(x.dashboard_id, 30) for x in d.lineups[0].steps),
+    )
+    d = replace(d, lineups=(lineup,), pause=d.pause if pause == "keep" else pause)
+    now = SAMPLE_NOW.replace(hour=at[0], minute=at[1])
+    if weekday is not None:
+        now = now + __import__("datetime").timedelta(days=weekday - now.weekday())
+    out = build_view([d], dashboards, now=now).displays[0].lineups[0]
+    return out
+
+
+def test_an_all_day_block_has_no_end_and_says_when_quiet_hours_pause_it() -> None:
+    lu = _live_progress()  # Wednesday 18:12, quiet hours 23:00-06:30
+    assert lu.status == "live" and lu.window is not None and lu.window.label == "00:00–24:00"
+    p = lu.progress
+    assert p is not None and p.always_on
+    assert p.window_pct is None and p.ends_in_label is None and p.ends_in_minutes is None
+    assert p.pauses_in_minutes == 4 * 60 + 48 and p.pauses_in_label == "4h 48m"
+    assert "ends" not in p.title and "through this window" not in p.title
+
+
+def test_an_all_day_block_inside_quiet_hours_says_when_they_end() -> None:
+    lu = _live_progress(at=(1, 0))
+    p = lu.progress
+    assert p is not None and p.always_on and p.pauses_in_label is None
+    assert (
+        p.paused_until_label == "06:30"
+    )  # the page's own quiet hours end, as the day bar draws it
+
+
+def test_an_all_day_block_without_quiet_hours_says_nothing_about_an_end() -> None:
+    p = _live_progress(pause=None).progress
+    assert p is not None and p.always_on
+    assert p.pauses_in_label is None and p.paused_until_label is None and p.ends_in_label is None
+
+
+def test_an_all_day_interval_lineup_is_always_on_too() -> None:
+    p = _live_progress(kind="interval", end=None).progress
+    assert p is not None and p.always_on
+
+
+def test_a_whole_day_quiet_day_pauses_it_at_midnight() -> None:
+    from app.lineups_view import PauseInput
+
+    # Quiet hours "all day Thursday": Wednesday's block is paused when Thursday begins.
+    pause = PauseInput(23 * 60, 6 * 60 + 30, days=(), all_day=(3,))
+    p = _live_progress(pause=pause, weekday=2).progress
+    assert p is not None and p.always_on
+    assert p.pauses_in_minutes == 24 * 60 - (18 * 60 + 12) and p.pauses_in_label == "5h 48m"
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "why"),
+    [
+        ({"start": "06:00", "end": "00:00"}, "ends at midnight, is not 24 hours"),
+        ({"start": "00:00", "end": "23:00"}, "stops at 23:00"),
+        (
+            {"kind": "interval", "start": "22:00", "end": "06:00", "at": (23, 30)},
+            "runs overnight, not all day",
+        ),
+        ({"days": (2,), "weekday": 2}, "Wednesday only: it really stops at Wednesday's midnight"),
+        ({"days": (0, 1, 2), "weekday": 2}, "the last day of a run stops at its midnight"),
+    ],
+)
+def test_a_block_that_really_ends_keeps_its_countdown_and_bar(
+    kwargs: dict[str, Any], why: str
+) -> None:
+    lu = _live_progress(**kwargs)
+    assert lu.status == "live", why
+    p = lu.progress
+    assert p is not None and not p.always_on, why
+    assert p.ends_in_label and p.window_pct is not None, why
+
+
+def test_a_block_that_carries_on_into_tomorrow_is_always_on_until_its_last_day() -> None:
+    mon_wed = (0, 1, 2)
+    assert _live_progress(days=mon_wed, weekday=1).progress.always_on  # type: ignore[union-attr]
+    last = _live_progress(days=mon_wed, weekday=2).progress
+    assert last is not None and not last.always_on and last.ends_in_label == "5h 48m"
+
+
+# ---------------------------------------------------------------------------
+# Choosing an item of a multi-item step (arrows, lightbox, per-item push)
+# ---------------------------------------------------------------------------
+
+
+def test_only_pinnable_items_can_be_chosen() -> None:
+    """Items with a key can be previewed and pushed; the rest (a widget that
+    cannot be pinned) show a count but offer no arrows."""
+    data = sample_view_model().to_dict()
+    steps = {
+        s["dashboard_id"]: s for d in data["displays"] for lu in d["lineups"] for s in lu["steps"]
+    }
+    assert steps["art"]["pick_items"] is True
+    assert steps["art"]["items"][2]["key"] == "art-3.jpg"
+    assert steps["quotes"]["item_count"] == 20 and steps["quotes"]["pick_items"] is False
+    assert steps["family"]["pick_items"] is False
+    dinner = next(lu for d in data["displays"] for lu in d["lineups"] if lu["id"] == "dinner")
+    assert dinner["actions"]["step_item_url"] == "/decks/dinner/step-item"
+
+
+def _gallery_page(app: Flask, names: list[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    import app.step_items as items
+    from app.state.page_store import Cell, Page
+
+    module = app.config["PLUGIN_REGISTRY"].get("picture_gallery").server_module
+    monkeypatch.setattr(module, "list_folder_files", lambda folder: list(names))
+    monkeypatch.setattr(module, "_folder_path", lambda name, data_dir: tmp_path)
+    monkeypatch.setattr(items, "_GALLERY_CACHE", {})
+    page = Page(
+        id="photos",
+        name="Photos",
+        device_ids=["panel"],
+        cells=[
+            Cell(
+                id="c1", plugin="picture_gallery", x=0, y=0, w=10, h=10, options={"folder": "trip"}
+            )
+        ],
+    )
+    app.config["PAGE_STORE"].save(page)
+    return page
+
+
+def test_gallery_items_carry_the_file_name_as_their_key(
+    app: Flask, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.step_items import find_item, pin_item, step_choices
+
+    page = _gallery_page(app, ["a.jpg", "b.jpg", "c.jpg"], monkeypatch, tmp_path)
+    with app.test_request_context():
+        found = step_choices(page)
+        assert found is not None and found.option == "file" and found.cell_id == "c1"
+        assert [it.key for it in found.items] == ["a.jpg", "b.jpg", "c.jpg"]
+        assert find_item(page, "b.jpg") is not None and find_item(page, "zzz.jpg") is None
+        pinned = pin_item(page, page.model_dump(mode="json"), "b.jpg")
+        assert pinned is not None and pinned["cells"][0]["options"]["file"] == "b.jpg"
+        assert pinned["cells"][0]["options"]["folder"] == "trip"
+        assert pin_item(page, page.model_dump(mode="json"), "../etc/passwd") is None
+
+
+def _install_widgets(
+    app: Flask, monkeypatch: pytest.MonkeyPatch, **widgets: dict[str, Any]
+) -> None:
+    """Make widgets that are not in this repository look installed: each keyword is a
+    plugin id, its value the ``manifest`` and ``module`` attributes of a stand-in."""
+    from types import SimpleNamespace
+
+    reg = app.config["PLUGIN_REGISTRY"]
+    real = reg.get
+
+    def get(plugin_id: str) -> Any:
+        if plugin_id in widgets:
+            spec = widgets[plugin_id]
+            return SimpleNamespace(
+                manifest=spec.get("manifest", {}),
+                server_module=spec.get("module"),
+                data_dir=Path("/nonexistent"),
+            )
+        return real(plugin_id)
+
+    monkeypatch.setattr(reg, "get", get)
+
+
+ALBUMS = ("picture_google_album", "picture_apple_album")
+
+
+def _canvas_page(app: Flask, widget: str, options: dict[str, Any], page_id: str = "wall"):
+    from app.state.page_store import Page
+    from app.state.panel_store import CanvasLayout, Element
+
+    els = [Element(id="e1", widget=widget, x=0, y=0, w=100, h=100, options=options)]
+    page = Page(
+        id=page_id,
+        name=page_id,
+        device_ids=["panel"],
+        layout_kind="canvas",
+        cells=[],
+        canvas=CanvasLayout(w=800, h=480, els=els),
+    )
+    app.config["PAGE_STORE"].save(page)
+    return page
+
+
+def test_a_gallery_on_a_canvas_offers_its_photos_and_pins_the_element(
+    app: Flask, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.step_items import find_item, pin_item, step_choices
+
+    _gallery_page(app, ["a.jpg", "b.jpg"], monkeypatch, tmp_path)  # stubs the folder
+    page = _canvas_page(app, "picture_gallery", {"folder": "art"})
+    with app.test_request_context():
+        found = step_choices(page)
+        assert found is not None and found.option == "file" and found.cell_id == "e1"
+        assert find_item(page, "b.jpg") is not None
+        pinned = pin_item(page, page.model_dump(mode="json"), "b.jpg")
+        assert pinned is not None
+        options = pinned["canvas"]["els"][0]["options"]
+        assert options == {"folder": "art", "file": "b.jpg"}
+        assert page.canvas.els[0].options == {"folder": "art"}  # the saved page is untouched
+
+
+def test_a_widget_that_declares_a_pin_option_offers_its_items_on_a_canvas(
+    app: Flask, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    from app.step_items import step_choices
+
+    _install_widgets(
+        app,
+        monkeypatch,
+        papers={
+            "manifest": {"lineups": {"pin_option": "paper"}},
+            "module": SimpleNamespace(lineup_items=lambda options: [{"key": "A"}, {"key": "B"}]),
+        },
+    )
+    with app.test_request_context():
+        found = step_choices(_canvas_page(app, "papers", {"paper": ""}))
+        assert found is not None and found.option == "paper"
+        assert step_choices(_canvas_page(app, "papers", {"paper": "A"}, "one")) is None
+
+
+def test_compose_item_reaches_a_canvas_widget(
+    app: Flask, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _gallery_page(app, ["a.jpg", "b.jpg"], monkeypatch, tmp_path)
+    _canvas_page(app, "picture_gallery", {"folder": "art"})
+    seen: list[dict[str, Any]] = []
+    module = app.config["PLUGIN_REGISTRY"].get("picture_gallery").server_module
+    monkeypatch.setattr(
+        module,
+        "fetch",
+        lambda options, settings, ctx: (
+            seen.append(dict(options)) or {"url": "/x.jpg", "filename": options.get("file", "")}
+        ),
+    )
+    c = app.test_client()
+    assert c.get("/compose/wall?item=b.jpg&w=800&h=480").status_code == 200
+    assert seen and seen[-1].get("file") == "b.jpg"
+    assert c.get("/compose/wall?item=nope.jpg&w=800&h=480").status_code == 404
+    seen.clear()
+    assert c.get("/compose/wall?w=800&h=480").status_code == 200
+    assert seen and "file" not in seen[-1]
+
+
+def test_a_single_photo_or_two_list_widgets_offer_no_choice(
+    app: Flask, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.state.page_store import Cell
+    from app.step_items import step_choices, step_items
+
+    page = _gallery_page(app, ["only.jpg"], monkeypatch, tmp_path)
+    with app.test_request_context():
+        assert step_choices(page) is None and step_items(page) == (1, ())
+    page = _gallery_page(app, ["a.jpg", "b.jpg"], monkeypatch, tmp_path)
+    twin = page.model_copy(
+        update={
+            "cells": [
+                *page.cells,
+                Cell(id="c2", plugin="picture_gallery", x=0, y=10, w=10, h=10),
+            ]
+        }
+    )
+    with app.test_request_context():
+        assert step_choices(page) is not None
+        assert step_choices(twin) is None  # which cell would a pin apply to?
+
+
+def test_plain_widgets_report_one_item_and_no_draw(app: Flask) -> None:
+    from app.state.page_store import Cell, Page
+    from app.step_items import step_draws, step_items
+
+    page = Page(
+        id="clock", name="Clock", cells=[Cell(id="c", plugin="clock_analog", x=0, y=0, w=10, h=10)]
+    )
+    with app.test_request_context():
+        assert step_items(page) == (1, ()) and step_draws(page) is False
+
+
+def _declared_page(app: Flask, paper: str = "") -> Any:
+    from app.state.page_store import Cell, Page
+
+    page = Page(
+        id="paper",
+        name="Papers",
+        device_ids=["panel"],
+        cells=[Cell(id="n", plugin="papers", x=0, y=0, w=10, h=10, options={"paper": paper})],
+    )
+    app.config["PAGE_STORE"].save(page)
+    return page
+
+
+def test_a_declared_widget_lists_its_items_and_is_pinned_through_its_option(
+    app: Flask, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    from app.step_items import find_item, pin_item, step_choices
+
+    listed = [
+        {"key": "NYT", "label": "New York Times", "version": "2026-11-04"},
+        {"key": "WSJ", "label": "WSJ", "version": "2026-11-04"},
+    ]
+    _install_widgets(
+        app,
+        monkeypatch,
+        papers={
+            "manifest": {"lineups": {"pin_option": "paper"}},
+            "module": SimpleNamespace(lineup_items=lambda options: listed),
+        },
+    )
+    page = _declared_page(app)
+    with app.test_request_context():
+        found = step_choices(page)
+        assert found is not None and found.option == "paper"
+        assert [it.key for it in found.items] == ["NYT", "WSJ"]
+        assert found.items[0].label == "New York Times" and found.items[0].version == "2026-11-04"
+        assert find_item(page, "WSJ") is not None and find_item(page, "FT") is None
+        pinned = pin_item(page, page.model_dump(mode="json"), "WSJ")
+        assert pinned is not None and pinned["cells"][0]["options"]["paper"] == "WSJ"
+        # A cell already pinned to one entry has one item to choose.
+        assert step_choices(_declared_page(app, "WSJ")) is None
+
+
+def test_a_declared_widget_with_nothing_to_list_offers_no_arrows(
+    app: Flask, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    from app.step_items import step_choices
+
+    def boom(options: dict[str, Any]) -> list[dict[str, str]]:
+        raise RuntimeError("no list")
+
+    for lister, empty in (
+        (lambda o: [], True),
+        (lambda o: [{"key": "only"}], False),
+        (boom, False),
+    ):
+        _install_widgets(
+            app,
+            monkeypatch,
+            papers={
+                "manifest": {"lineups": {"pin_option": "paper"}},
+                "module": SimpleNamespace(lineup_items=lister),
+            },
+        )
+        with app.test_request_context():
+            found = step_choices(_declared_page(app))
+            # An empty list is flagged (no arrows, not a plain tile); the rest offer nothing.
+            assert (found is not None and found.mode == "empty") if empty else found is None
+    # Declared, but the module has no lineup_items: nothing to offer either.
+    _install_widgets(app, monkeypatch, papers={"manifest": {"lineups": {"pin_option": "paper"}}})
+    with app.test_request_context():
+        assert step_choices(_declared_page(app)) is None
+
+
+def test_compose_item_pins_the_widget_and_refuses_an_unlisted_item(
+    app: Flask, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _gallery_page(app, ["a.jpg", "b.jpg"], monkeypatch, tmp_path)
+    seen: list[dict[str, Any]] = []
+    module = app.config["PLUGIN_REGISTRY"].get("picture_gallery").server_module
+    monkeypatch.setattr(
+        module,
+        "fetch",
+        lambda options, settings, ctx: (
+            seen.append(dict(options)) or {"url": "/x.jpg", "filename": options.get("file", "")}
+        ),
+    )
+    c = app.test_client()
+    assert c.get("/compose/photos?item=b.jpg&w=800&h=480").status_code == 200
+    assert seen and seen[-1].get("file") == "b.jpg"
+    assert c.get("/compose/photos?item=nope.jpg&w=800&h=480").status_code == 404
+    assert c.get("/compose/photos?w=800&h=480").status_code == 200
+    assert "file" not in seen[-1]
+
+
+def test_gallery_fetch_shows_the_pinned_photo_and_leaves_the_cursor(tmp_path: Path) -> None:
+    import importlib.util
+
+    from PIL import Image
+
+    spec = importlib.util.spec_from_file_location(
+        "gallery_pin", Path(__file__).resolve().parents[1] / "plugins/picture_gallery/server.py"
+    )
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    for n in ("a.jpg", "b.jpg", "c.jpg"):
+        Image.new("RGB", (40, 30), "red").save(tmp_path / n)
+    ctx = {"data_dir": str(tmp_path), "preview": False, "target_device_id": "panel"}
+    opts = {"folder": "", "mode": "sequential", "file": "c.jpg"}
+    out = mod.fetch(opts, {}, ctx=ctx)
+    assert out["filename"] == "c.jpg"
+    assert not list(tmp_path.glob(".sequential_index*")), "a pinned render must not move the album"
+    # An unknown name falls back to the normal choice rather than failing the render.
+    assert mod.fetch({**opts, "file": "gone.jpg"}, {}, ctx=ctx)["filename"] in (
+        "a.jpg",
+        "b.jpg",
+        "c.jpg",
+    )
+
+
+@pytest.fixture
+def album(client: Any, app: Flask, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Any:
+    from app.state.deck_model import Deck, DeckPage
+
+    _gallery_page(app, [f"p{i}.jpg" for i in range(5)], monkeypatch, tmp_path)
+    app.config["DECK_STORE"].upsert(
+        Deck(
+            id="album",
+            name="Album",
+            device_ids=["panel"],
+            pages=[DeckPage(page_id="photos"), DeckPage(page_id="news")],
+        )
+    )
+    return client
+
+
+def test_view_marks_gallery_steps_as_choosable(album: Any) -> None:
+    data = album.get("/decks/view.json").get_json()
+    lineup = next(lu for d in data["displays"] for lu in d["lineups"] if lu["id"] == "album")
+    photos, news = lineup["steps"]
+    assert photos["pick_items"] is True and photos["item_count"] == 5
+    assert [it["key"] for it in photos["items"]] == [f"p{i}.jpg" for i in range(5)]
+    assert news["pick_items"] is False and news["item_count"] == 1
+    assert lineup["actions"]["step_item_url"] == "/decks/album/step-item"
+
+
+def test_step_item_asks_for_a_render_once_then_reports_ready(
+    album: Any, app: Flask, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app import preview_cache
+
+    submitted: list[dict[str, Any]] = []
+    monkeypatch.setattr(preview_cache, "submit", lambda **kw: submitted.append(kw))
+    monkeypatch.setattr(preview_cache, "backlog", lambda: 0)
+    monkeypatch.setattr(preview_cache, "is_pending", lambda p: False)
+    url = "/decks/album/step-item?index=0&item=p2.jpg&display_id=panel"
+    resp = album.get(url)
+    assert resp.status_code == 202 and resp.get_json()["state"] == "pending"
+    assert len(submitted) == 1
+    job = submitted[0]
+    assert job["page_id"] == "photos" and "item=p2.jpg" in job["query"]
+    assert "device_id=panel" in job["query"] and job.get("thumb_max") is None  # full size
+    job["cache_path"].parent.mkdir(parents=True, exist_ok=True)
+    job["cache_path"].write_bytes(b"\x89PNG\r\n")
+    ready = album.get(url)
+    assert ready.status_code == 200
+    body = ready.get_json()
+    assert body["state"] == "ready" and body["item"] == "p2.jpg"
+    assert body["large_url"] == body["thumb_url"] + "?lg=1"
+    assert job["cache_path"].stem in body["thumb_url"]
+    # A different item is a different picture.
+    other = album.get("/decks/album/step-item?index=0&item=p3.jpg&display_id=panel")
+    assert other.status_code == 202 and submitted[-1]["cache_path"] != job["cache_path"]
+
+
+def test_step_item_is_refused_when_too_many_renders_wait(
+    album: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app import preview_cache
+
+    submitted: list[Any] = []
+    monkeypatch.setattr(preview_cache, "submit", lambda **kw: submitted.append(kw))
+    monkeypatch.setattr(preview_cache, "backlog", lambda: preview_cache.ITEM_BACKLOG_MAX)
+    monkeypatch.setattr(preview_cache, "is_pending", lambda p: False)
+    resp = album.get("/decks/album/step-item?index=0&item=p1.jpg&display_id=panel")
+    assert resp.status_code == 503 and resp.get_json()["state"] == "busy"
+    assert resp.headers["Retry-After"] and not submitted
+    # One already in flight is not a new render.
+    monkeypatch.setattr(preview_cache, "is_pending", lambda p: True)
+    assert (
+        album.get("/decks/album/step-item?index=0&item=p1.jpg&display_id=panel").status_code == 202
+    )
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "index=0&item=nope.jpg&display_id=panel",
+        "index=0&item=&display_id=panel",
+        "index=1&item=p1.jpg&display_id=panel",  # the second step has no items
+        "index=0&item=p1.jpg&display_id=other",
+        "index=9&item=p1.jpg&display_id=panel",
+        "item=p1.jpg&display_id=panel",
+    ],
+)
+def test_step_item_refuses_what_is_not_an_item_of_that_step(album: Any, query: str) -> None:
+    resp = album.get(f"/decks/album/step-item?{query}")
+    assert resp.status_code in (400, 404) and resp.get_json()["ok"] is False
+    assert album.get("/decks/nope/step-item?index=0&item=p1.jpg").status_code == 404
+
+
+def test_push_step_sends_the_chosen_item_as_drawn(
+    album: Any, app: Flask, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app import preview_cache
+
+    fake = _FakePush()
+    app.config["PUSH_MANAGER"] = fake
+    drawn: list[dict[str, Any]] = []
+
+    def render_now(**kw: Any) -> None:
+        drawn.append(kw)
+        kw["cache_path"].parent.mkdir(parents=True, exist_ok=True)
+        kw["cache_path"].write_bytes(b"PNG-OF-P3")
+
+    monkeypatch.setattr(preview_cache, "render_now", render_now)
+    resp = album.post(
+        "/decks/album/push-step", json={"index": 0, "item": "p3.jpg", "display_id": "panel"}
+    )
+    assert resp.status_code == 200, resp.get_json()
+    data = resp.get_json()
+    assert data["name"] == "Photos (p3.jpg)" and data["fresh"] is False
+    assert data["lands"].startswith("lands ") and "Photos (p3.jpg)" in data["message"]
+    assert fake.calls == []
+    assert fake.stored_calls == [(b"PNG-OF-P3", {"page_id": "photos", "device_ids": {"panel"}})]
+    assert len(drawn) == 1 and "item=p3.jpg" in drawn[0]["query"]
+    # The picture the preview already drew is sent as it is, not drawn again.
+    resp = album.post("/decks/album/push-step", json={"index": 0, "item": "p3.jpg"})
+    assert resp.status_code == 200 and len(drawn) == 1
+    assert fake.stored_calls[-1][0] == b"PNG-OF-P3"
+
+
+def test_a_stale_item_render_is_drawn_again_before_it_is_pushed(
+    album: Any, app: Flask, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+
+    from app import deck_routes, preview_cache
+
+    fake = _FakePush()
+    app.config["PUSH_MANAGER"] = fake
+    drawn: list[Any] = []
+
+    def render_now(**kw: Any) -> None:
+        drawn.append(kw)
+        kw["cache_path"].parent.mkdir(parents=True, exist_ok=True)
+        kw["cache_path"].write_bytes(b"P3-TODAY" if len(drawn) > 1 else b"P3-THEN")
+
+    monkeypatch.setattr(preview_cache, "render_now", render_now)
+    body = {"index": 0, "item": "p3.jpg", "display_id": "panel"}
+    assert album.post("/decks/album/push-step", json=body).status_code == 200
+    path = drawn[0]["cache_path"]
+    # Hours later the stored picture carries hours-old clock and weather cells.
+    old = path.stat().st_mtime - deck_routes.ITEM_PUSH_FRESH_S - 60
+    os.utime(path, (old, old))
+    assert album.post("/decks/album/push-step", json=body).status_code == 200
+    assert len(drawn) == 2 and fake.stored_calls[-1][0] == b"P3-TODAY"
+
+
+def test_a_draw_is_read_when_the_push_is_accepted_not_when_it_is_sent(
+    drawn: Any, app: Flask, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app import preview_cache, send_routes
+
+    fake = _FakePush()
+    app.config["PUSH_MANAGER"] = fake
+    submitted: list[dict[str, Any]] = []
+    monkeypatch.setattr(preview_cache, "submit", lambda **kw: submitted.append(kw))
+    monkeypatch.setattr(preview_cache, "backlog", lambda: 0)
+    monkeypatch.setattr(preview_cache, "is_pending", lambda p: False)
+    drew: list[Any] = []
+    monkeypatch.setattr(preview_cache, "render_now", lambda **kw: drew.append(kw))
+    later: list[Any] = []
+    monkeypatch.setattr(send_routes, "_run_in_background", lambda work, label: later.append(work))
+    key = "draw:0123456789ab:2"
+    assert (
+        drawn.get(f"/decks/draws/step-item?index=0&display_id=panel&item={key}").status_code == 202
+    )
+    path = submitted[0]["cache_path"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"THE-PIXELS")
+    resp = drawn.post(
+        "/decks/draws/push-step", json={"index": 0, "item": key, "display_id": "panel"}
+    )
+    assert resp.status_code == 200 and len(later) == 1
+    # Evicted by other previews between the click and the background send.
+    path.unlink()
+    with app.app_context():  # as the real background runner does
+        later[0]()
+    assert fake.stored_calls == [(b"THE-PIXELS", {"page_id": "drawn", "device_ids": {"panel"}})]
+    assert not drew, "a draw is never drawn again"
+
+
+def test_pushing_an_item_marks_its_lineup_live(
+    album: Any, app: Flask, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app import preview_cache
+
+    app.config["PUSH_MANAGER"] = _FakePush()
+
+    def render_now(**kw: Any) -> None:
+        kw["cache_path"].parent.mkdir(parents=True, exist_ok=True)
+        kw["cache_path"].write_bytes(b"PNG")
+
+    monkeypatch.setattr(preview_cache, "render_now", render_now)
+    body = {"index": 0, "item": "p3.jpg", "display_id": "panel"}
+    assert album.post("/decks/album/push-step", json=body).status_code == 200
+    rec = app.config["DECK_NAV_STORE"].get("panel")
+    assert rec and rec["deck_id"] == "album" and rec["page_id"] == "photos"
+
+
+@pytest.mark.parametrize(
+    ("body", "status"),
+    [
+        ({"index": 0, "item": "gone.jpg"}, 409),
+        ({"index": 1, "item": "p1.jpg"}, 409),  # a step that has no choosable items
+        ({"index": 0, "item": "p1.jpg", "composition_digest": "abc123"}, 400),
+        ({"index": 0, "item": 5}, 400),
+        ({"index": 0, "item": ""}, 400),
+    ],
+)
+def test_push_step_item_is_checked(
+    album: Any, app: Flask, body: dict[str, Any], status: int
+) -> None:
+    fake = _FakePush()
+    app.config["PUSH_MANAGER"] = fake
+    resp = album.post("/decks/album/push-step", json=body)
+    assert resp.status_code == status, resp.get_json()
+    assert not fake.calls and not fake.stored_calls
+
+
+def test_item_renders_are_capped_and_bounded(tmp_path: Path) -> None:
+    from app import preview_cache
+
+    keep = preview_cache.ITEM_KEEP
+    names = [f"pg-i{i:010x}__{i:016x}.png" for i in range(keep + 6)]
+    for i, n in enumerate(names):
+        f = tmp_path / n
+        f.write_bytes(b"x")
+        import os
+
+        os.utime(f, (1000 + i, 1000 + i))
+    (tmp_path / "plain__0123456789abcdef.png").write_bytes(b"x")  # a dashboard's own preview
+    newest = tmp_path / f"pg-i{99:010x}__{99:016x}.png"
+    preview_cache.PreviewRenderQueue._evict_stale(newest)
+    left = sorted(p.name for p in tmp_path.glob("pg-i*.png"))
+    assert len(left) == keep - 1  # room for the one being written
+    assert names[-1] in left and names[0] not in left
+    assert (tmp_path / "plain__0123456789abcdef.png").exists()
+
+
+# -- "draw next": widgets with no way to name an item ---------------------------------
+
+
+def _draw_page(plugin: str, options: dict[str, Any] | None = None, pid: str = "drawn") -> Any:
+    from app.state.page_store import Page
+
+    return Page.model_validate(
+        {
+            "id": pid,
+            "name": "Drawn",
+            "device_ids": ["panel"],
+            "layout_kind": "canvas",
+            "canvas": {
+                "w": 800,
+                "h": 480,
+                "els": [
+                    {
+                        "id": "w1",
+                        "kind": "widget",
+                        "widget": plugin,
+                        "x": 0,
+                        "y": 0,
+                        "w": 800,
+                        "h": 480,
+                        "options": options or {},
+                    }
+                ],
+            },
+        }
+    )
+
+
+@pytest.mark.parametrize("plugin", [*ALBUMS, "shuffler"])
+def test_widgets_that_differ_per_render_get_draw_arrows(
+    app: Flask, monkeypatch: pytest.MonkeyPatch, plugin: str
+) -> None:
+    from app.step_items import find_item, step_choices, step_draws, step_items
+
+    # The albums are known by id (they live in their own repositories); any other
+    # widget declares it in its manifest.
+    _install_widgets(app, monkeypatch, **{plugin: {"manifest": {"lineups": {"draw": True}}}})
+    page = _draw_page(plugin)
+    with app.test_request_context():
+        found = step_choices(page)
+        assert found is not None and found.mode == "draw" and found.cell_id == "w1"
+        assert step_draws(page) is True
+        assert step_items(page) == (1, ())  # no list, no count, no stack
+        assert find_item(page, "draw:0123456789ab:1") is not None
+        for bad in ("draw:xyz:1", "draw:0123456789ab", "draw:0123456789ab:100", "file.jpg", ""):
+            assert find_item(page, bad) is None
+
+
+def test_a_draw_pins_nothing_but_hidden_options_and_never_a_sequential_cursor(
+    app: Flask, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.step_items import pin_item
+
+    _install_widgets(app, monkeypatch, **{a: {} for a in ALBUMS})
+
+    page = _draw_page("picture_google_album", {"mode": "sequential", "album": "x"})
+    with app.test_request_context():
+        out = pin_item(page, page.model_dump(mode="json"), "draw:0123456789ab:3")
+        assert out is not None
+        opts = out["canvas"]["els"][0]["options"]
+        assert opts["_draw"] == "0123456789ab" and opts["_browse"] == 3
+        assert opts["mode"] == "random", "a preview would move the frame's own album cursor"
+        assert opts["album"] == "x"
+        # Random stays random; the stored page is untouched.
+        rnd = _draw_page("picture_apple_album", {"mode": "random"})
+        again = pin_item(rnd, rnd.model_dump(mode="json"), "draw:0123456789ab:1")
+        assert again is not None and again["canvas"]["els"][0]["options"]["mode"] == "random"
+        assert page.canvas.els[0].options["mode"] == "sequential"
+
+
+def test_a_widget_that_is_not_installed_or_declares_nothing_offers_no_arrows(
+    app: Flask, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.step_items import step_choices, step_draws
+
+    # Named by the page, absent from the install: nothing happens.
+    with app.test_request_context():
+        assert step_choices(_draw_page("picture_google_album")) is None
+        assert step_choices(_draw_page("shuffler")) is None
+    # Installed but declaring nothing (and not a known album): one item, no arrows.
+    _install_widgets(
+        app, monkeypatch, shuffler={"manifest": {}}, other={"manifest": {"lineups": 5}}
+    )
+    with app.test_request_context():
+        assert step_draws(_draw_page("shuffler")) is False
+        assert step_draws(_draw_page("other")) is False
+
+
+def test_two_list_widgets_still_offer_no_arrows_even_when_one_draws(
+    app: Flask, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.step_items import step_choices
+
+    _install_widgets(
+        app,
+        monkeypatch,
+        shuffler={"manifest": {"lineups": {"draw": True}}},
+        **{a: {} for a in ALBUMS},
+    )
+    page = _draw_page("shuffler")
+    els = page.model_dump(mode="json")["canvas"]["els"]
+    twin = {**els[0], "id": "w2", "widget": "picture_google_album"}
+    both = page.model_validate(
+        {
+            **page.model_dump(mode="json"),
+            "canvas": {**page.model_dump(mode="json")["canvas"], "els": [els[0], twin]},
+        }
+    )
+    with app.test_request_context():
+        assert step_choices(both) is None
+
+
+@pytest.fixture
+def drawn(client: Any, app: Flask, monkeypatch: pytest.MonkeyPatch) -> Any:
+    from app.state.deck_model import Deck, DeckPage
+
+    _install_widgets(app, monkeypatch, **{a: {} for a in ALBUMS})
+    app.config["PAGE_STORE"].save(_draw_page("picture_google_album"))
+    app.config["DECK_STORE"].upsert(
+        Deck(
+            id="draws",
+            name="Draws",
+            device_ids=["panel"],
+            pages=[DeckPage(page_id="drawn"), DeckPage(page_id="news")],
+        )
+    )
+    return client
+
+
+def test_view_marks_a_drawing_step_without_a_list(drawn: Any) -> None:
+    data = drawn.get("/decks/view.json").get_json()
+    lineup = next(lu for d in data["displays"] for lu in d["lineups"] if lu["id"] == "draws")
+    step, other = lineup["steps"]
+    assert step["draw_items"] is True and step["pick_items"] is False
+    assert step["item_count"] == 1 and step["items"] == []
+    assert other["draw_items"] is False
+
+
+def test_step_item_reports_a_signature_and_push_sends_exactly_the_drawn_pixels(
+    drawn: Any, app: Flask, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app import preview_cache
+
+    fake = _FakePush()
+    app.config["PUSH_MANAGER"] = fake
+    submitted: list[dict[str, Any]] = []
+    monkeypatch.setattr(preview_cache, "submit", lambda **kw: submitted.append(kw))
+    monkeypatch.setattr(preview_cache, "backlog", lambda: 0)
+    monkeypatch.setattr(preview_cache, "is_pending", lambda p: False)
+    drew: list[Any] = []
+    monkeypatch.setattr(preview_cache, "render_now", lambda **kw: drew.append(kw))
+    key = "draw:0123456789ab:2"
+    url = f"/decks/draws/step-item?index=0&display_id=panel&item={key}"
+    assert drawn.get(url).status_code == 202
+    job = submitted[0]
+    assert job["page_id"] == "drawn" and "item=draw%3A0123456789ab%3A2" in job["query"]
+    # Pushing before it is drawn must not draw a different picture instead.
+    resp = drawn.post(
+        "/decks/draws/push-step", json={"index": 0, "item": key, "display_id": "panel"}
+    )
+    assert resp.status_code == 409 and "Draw another" in resp.get_json()["error"]
+    assert not fake.stored_calls and not drew
+    job["cache_path"].parent.mkdir(parents=True, exist_ok=True)
+    job["cache_path"].write_bytes(b"THE-PIXELS")
+    ready = drawn.get(url).get_json()
+    assert ready["state"] == "ready" and len(ready["sig"]) == 16
+    resp = drawn.post(
+        "/decks/draws/push-step", json={"index": 0, "item": key, "display_id": "panel"}
+    )
+    assert resp.status_code == 200, resp.get_json()
+    assert resp.get_json()["name"] == "Drawn" and resp.get_json()["fresh"] is False
+    assert fake.stored_calls == [(b"THE-PIXELS", {"page_id": "drawn", "device_ids": {"panel"}})]
+    assert not drew, "the picture shown is sent, never drawn again"
+    # A different nonce is a different picture, with its own file and signature.
+    other = drawn.get(url.replace("0123456789ab", "ba9876543210"))
+    assert other.status_code == 202 and submitted[-1]["cache_path"] != job["cache_path"]
+
+
+def test_edit_name_renames_in_place_and_redraws(client: Any, app: Flask) -> None:
+    before = _deck(app, "morning")
+    resp = client.post("/decks/morning/name", json={"name": "  Early   news "})
+    assert resp.status_code == 200, resp.get_json()
+    data = resp.get_json()
+    assert data["ok"] and data["ids"] == ["morning"]
+    deck = _deck(app, "morning")
+    assert deck.name == "Early news"
+    # Only the name changed.
+    assert deck.model_copy(update={"name": before.name}) == before
+    panel = next(d for d in data["displays"] if d["id"] == "panel")
+    assert next(lu for lu in panel["lineups"] if lu["id"] == "morning")["name"] == "Early news"
+    # The view-model names the route.
+    view = client.get("/decks/view.json").get_json()
+    lineup = next(lu for lu in view["displays"][0]["lineups"] if lu["id"] == "morning")
+    assert lineup["actions"]["name_url"] == "/decks/morning/name"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{}, {"name": ""}, {"name": "   "}, {"name": 5}, {"name": None}, {"name": "x" * 81}],
+)
+def test_edit_name_refuses_bad_names(client: Any, app: Flask, body: dict[str, Any]) -> None:
+    resp = client.post("/decks/morning/name", json=body)
+    assert resp.status_code == 400
+    assert resp.get_json()["ok"] is False and resp.get_json()["id"] == "morning"
+    assert _deck(app, "morning").name == "Morning"
+
+
+def test_edit_name_unknown_lineup_and_no_change(client: Any, app: Flask) -> None:
+    assert client.post("/decks/nope/name", json={"name": "X"}).status_code == 404
+    resp = client.post("/decks/morning/name", json={"name": "Morning"})
+    assert resp.status_code == 200 and _deck(app, "morning").name == "Morning"
+
+
+def test_edit_name_needs_a_signed_in_session(app: Flask) -> None:
+    _seed(app)
+    anon = app.test_client()
+    resp = anon.post("/decks/morning/name", json={"name": "Hacked"})
+    assert resp.status_code in (302, 401, 403)
+    assert _deck(app, "morning").name == "Morning"
+
+
+def test_a_daily_push_given_an_end_becomes_a_window_and_back(client: Any, app: Flask) -> None:
+    before = _deck(app, "night")
+    assert before.advance_trigger == "daily"
+    resp = client.post("/decks/night/window", json={"start": "22:00", "end": "23:30"})
+    assert resp.status_code == 200, resp.get_json()
+    deck = _deck(app, "night")
+    # The model's start-end shape for one dashboard: an interval window.
+    assert deck.advance_trigger == "interval"
+    assert (deck.advance_window_start, deck.advance_window_end) == ("22:00", "23:30")
+    assert deck.advance_fires_at is None and deck.advance_end_at is None
+    assert [p.page_id for p in deck.pages] == ["sky"]
+    assert deck.advance_interval_minutes == before.advance_interval_minutes
+    assert deck.advance == "timer" and deck.device_ids == before.device_ids
+    assert resp.get_json()["lineups"][0]["window"] == "22:00–23:30"
+    view = client.get("/decks/view.json").get_json()
+    night = next(lu for lu in view["displays"][0]["lineups"] if lu["id"] == "night")
+    assert night["window"]["label"] == "22:00–23:30" and night["window"]["is_point"] is False
+    # And back to a push at the start time.
+    resp = client.post("/decks/night/window", json={"push": True})
+    assert resp.status_code == 200, resp.get_json()
+    deck = _deck(app, "night")
+    assert deck.advance_trigger == "daily" and deck.advance_fires_at == "22:00"
+    assert deck.advance_window_start is None and deck.advance_window_end is None
+    assert resp.get_json()["lineups"][0]["window"] == "at 22:00"
+
+
+def test_adding_an_end_runs_to_midnight_when_it_is_24_00(client: Any, app: Flask) -> None:
+    resp = client.post("/decks/night/window", json={"start": "21:30", "end": "24:00"})
+    assert resp.status_code == 200, resp.get_json()
+    deck = _deck(app, "night")
+    assert (deck.advance_window_start, deck.advance_window_end) == ("21:30", None)
+    assert resp.get_json()["lineups"][0]["window"] == "21:30–24:00"
+
+
+def test_the_end_goes_in_through_the_batch_save_too(client: Any, app: Flask) -> None:
+    resp = client.post(
+        "/decks/edits", json={"edits": [{"id": "night", "start": "22:15", "end": "23:45"}]}
+    )
+    assert resp.status_code == 200, resp.get_json()
+    assert _deck(app, "night").advance_window_end == "23:45"
+    resp = client.post("/decks/edits", json={"edits": [{"id": "night", "push": True}]})
+    assert resp.status_code == 200
+    assert _deck(app, "night").advance_fires_at == "22:15"
+
+
+def test_a_daily_push_with_no_end_still_ignores_one_left_null(client: Any, app: Flask) -> None:
+    resp = client.post("/decks/night/window", json={"start": "21:30", "end": None})
+    assert resp.status_code == 200
+    deck = _deck(app, "night")
+    assert deck.advance_trigger == "daily" and deck.advance_fires_at == "21:30"
+
+
+@pytest.mark.parametrize(
+    ("body", "text"),
+    [
+        ({"start": "22:00", "end": "22:00"}, "after start"),
+        ({"start": "22:00", "end": "21:00"}, "after start"),
+        ({"start": "22:00", "end": "late"}, "End must be a time"),
+        ({"start": "24:00", "end": "24:00"}, "before 24:00"),
+    ],
+)
+def test_a_bad_end_on_a_push_changes_nothing(
+    client: Any, app: Flask, body: dict[str, Any], text: str
+) -> None:
+    before = _deck(app, "night")
+    resp = client.post("/decks/night/window", json=body)
+    assert resp.status_code == 400 and text in resp.get_json()["error"]
+    assert _deck(app, "night") == before
+
+
+def test_an_end_that_meets_another_lineup_is_refused(client: Any, app: Flask) -> None:
+    before = _deck(app, "night")
+    # 17:30 to 23:00 on every day meets Evening (17:00-20:00 on weekdays).
+    resp = client.post("/decks/night/window", json={"start": "17:30", "end": "23:00"})
+    assert resp.status_code == 409 and "Evening" in resp.get_json()["error"]
+    assert _deck(app, "night") == before
+
+
+def test_push_only_applies_to_one_dashboard_windows_and_rotations(client: Any, app: Flask) -> None:
+    from app.state.deck_model import Deck, DeckPage
+
+    # An interval lineup of several dashboards is not a push in waiting.
+    app.config["DECK_STORE"].upsert(
+        Deck(
+            id="multi", name="Multi", device_ids=["panel"],
+            pages=[DeckPage(page_id="news"), DeckPage(page_id="art")],
+            advance="timer", advance_trigger="interval",
+            advance_window_start="10:00", advance_window_end="11:00",
+        )
+    )  # fmt: skip
+    assert client.post("/decks/multi/window", json={"push": True}).status_code == 400
+    # Nor is a cycle that also moves on taps: only its cycle trigger runs it.
+    both = _deck(app, "weekend").model_copy(update={"advance": "both"})
+    app.config["DECK_STORE"].upsert(both)
+    assert client.post("/decks/weekend/window", json={"push": True}).status_code == 400
+    assert _deck(app, "weekend").advance_trigger == "cycle"
+    # A daily push has nothing to turn back.
+    assert client.post("/decks/night/window", json={"push": True}).status_code == 400
+    # push is a flag, not text, and cannot carry an end.
+    assert client.post("/decks/night/window", json={"push": "yes"}).status_code == 400
+    client.post("/decks/night/window", json={"start": "22:00", "end": "23:00"})
+    resp = client.post("/decks/night/window", json={"push": True, "end": "23:30"})
+    assert resp.status_code == 400 and "no end" in resp.get_json()["error"]
+    assert _deck(app, "night").advance_trigger == "interval"
+
+
+def test_scheduler_runs_the_converted_lineup_as_a_window(client: Any, app: Flask) -> None:
+    """The scheduler reads an interval lineup's window (and never a daily's end),
+    so the converted deck is what makes the end real."""
+    from app.state.deck_migration import deck_to_schedule
+
+    client.post("/decks/night/window", json={"start": "22:00", "end": "23:30"})
+    sched = deck_to_schedule(_deck(app, "night"))
+    assert sched.type == "interval"
+    assert (sched.time_of_day_start, sched.time_of_day_end) == ("22:00", "23:30")
+
+
+def _three_steps(app: Flask) -> Any:
+    """Morning with three dashboards, the middle one given its own dwell."""
+    from app.state.deck_model import DeckPage
+
+    deck = _deck(app, "morning")
+    pages = [
+        DeckPage(page_id="news"),
+        DeckPage(page_id="art", dwell_minutes=45),
+        DeckPage(page_id="sky"),
+    ]
+    app.config["DECK_STORE"].upsert(deck.model_copy(update={"pages": pages}))
+    return _deck(app, "morning")
+
+
+def test_edit_order_moves_a_step_and_redraws(client: Any, app: Flask) -> None:
+    before = _three_steps(app)
+    resp = client.post(
+        "/decks/morning/order", json={"from": 2, "to": 0, "pages": ["news", "art", "sky"]}
+    )
+    assert resp.status_code == 200, resp.get_json()
+    deck = _deck(app, "morning")
+    assert deck.page_ids == ["sky", "news", "art"]
+    # Each step keeps its own dwell, and nothing else about the lineup changes.
+    assert next(p for p in deck.pages if p.page_id == "art").dwell_minutes == 45
+    assert deck.model_copy(update={"pages": before.pages}) == before
+    panel = next(d for d in resp.get_json()["displays"] if d["id"] == "panel")
+    morning = next(lu for lu in panel["lineups"] if lu["id"] == "morning")
+    assert [s["dashboard_id"] for s in morning["steps"]] == ["sky", "news", "art"]
+    assert [s["index"] for s in morning["steps"]] == [0, 1, 2]
+    assert [s["position"] for s in morning["steps"]] == ["1/3", "2/3", "3/3"]
+    assert morning["actions"]["order_url"] == "/decks/morning/order"
+    # Forward too: first step to the end.
+    resp = client.post("/decks/morning/order", json={"from": 0, "to": 2})
+    assert resp.status_code == 200
+    assert _deck(app, "morning").page_ids == ["news", "art", "sky"]
+
+
+def test_edit_order_same_place_changes_nothing(client: Any, app: Flask) -> None:
+    before = _three_steps(app)
+    resp = client.post("/decks/morning/order", json={"from": 1, "to": 1})
+    assert resp.status_code == 200 and _deck(app, "morning") == before
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"from": 0},
+        {"from": "0", "to": 1},
+        {"from": 0, "to": True},
+        {"from": 0, "to": 3},
+        {"from": -1, "to": 1},
+        {"from": 0, "to": 1, "pages": "news"},
+        {"from": 0, "to": 1, "pages": [1, 2, 3]},
+    ],
+)
+def test_edit_order_refuses_bad_input(client: Any, app: Flask, body: dict[str, Any]) -> None:
+    before = _three_steps(app)
+    resp = client.post("/decks/morning/order", json=body)
+    assert resp.status_code == 400 and resp.get_json()["ok"] is False
+    assert _deck(app, "morning") == before
+
+
+def test_edit_order_refuses_a_lineup_that_changed_elsewhere(client: Any, app: Flask) -> None:
+    before = _three_steps(app)
+    resp = client.post(
+        "/decks/morning/order", json={"from": 0, "to": 1, "pages": ["art", "news", "sky"]}
+    )
+    assert resp.status_code == 409 and "reload" in resp.get_json()["error"]
+    assert _deck(app, "morning") == before
+    assert client.post("/decks/nope/order", json={"from": 0, "to": 1}).status_code == 404
+
+
+def test_edit_order_keeps_a_navigable_deck_valid(client: Any, app: Flask) -> None:
+    """Links and the entry page address pages by id, so moving a step is safe."""
+    from app.state.deck_model import Deck, DeckLink, DeckPage
+
+    app.config["DECK_STORE"].upsert(
+        Deck(
+            id="nav",
+            name="Nav",
+            device_ids=["panel"],
+            pages=[
+                DeckPage(page_id="news", links=[DeckLink(target_page_id="art", button="right")]),
+                DeckPage(page_id="art"),
+            ],
+            entry_page_id="news",
+        )
+    )
+    resp = client.post("/decks/nav/order", json={"from": 0, "to": 1})
+    assert resp.status_code == 200, resp.get_json()
+    deck = _deck(app, "nav")
+    assert deck.page_ids == ["art", "news"] and deck.entry_page_id == "news"
+    assert deck.pages[1].links[0].target_page_id == "art"
+
+
+# -- an end time on a push of several dashboards (a rotation over the window) -------
+
+
+def _frame_art(app: Flask, client: Any) -> None:
+    """Alex's "Frame Modern Art (day)": a daily push of four dashboards at 06:00 on
+    Mon, Tue, Wed, Sat and Sun, with an 18:30 end the scheduler never reads, on a
+    display of its own beside a night push at 18:00 (every day)."""
+    from app.state.deck_model import Deck, DeckPage
+    from app.state.page_store import Page
+
+    pages = ("monet", "kahlo", "hopper", "klee")
+    for pid in pages:
+        app.config["PAGE_STORE"].save(Page(id=pid, name=pid.title(), device_ids=["tv"]))
+    code = app.config["PAIRING_STORE"].issue(note="tv").code
+    resp = client.post(
+        "/api/v1/device/register",
+        headers={"X-Pairing-Code": code, "Content-Type": "application/json"},
+        data=json.dumps({"device_id": "tv", "kind": "esp32_client"}),
+    )
+    assert resp.status_code == 201
+    store = app.config["DECK_STORE"]
+    store.upsert(
+        Deck(
+            id="fma_day", name="Frame Modern Art (day)", device_ids=["tv"],
+            pages=[DeckPage(page_id=p) for p in pages],
+            advance="timer", advance_trigger="daily", advance_fires_at="06:00",
+            advance_end_at="18:30", advance_anchor="00:00",
+            advance_interval_minutes=30, refresh_interval_minutes=30,
+            advance_days_of_week=[0, 1, 2, 5, 6], advance_mode="scheduled",
+        )
+    )  # fmt: skip
+    store.upsert(
+        Deck(
+            id="fma_night", name="Frame Old Art (night)", device_ids=["tv"],
+            pages=[DeckPage(page_id="klee")],
+            advance="timer", advance_trigger="daily", advance_fires_at="18:00",
+        )
+    )  # fmt: skip
+
+
+def _tv_lineup(client: Any, deck_id: str) -> dict[str, Any]:
+    view = client.get("/decks/view.json").get_json()
+    tv = next(d for d in view["displays"] if d["id"] == "tv")
+    return cast(dict[str, Any], next(lu for lu in tv["lineups"] if lu["id"] == deck_id))
+
+
+def test_a_push_of_several_dashboards_given_an_end_becomes_a_rotation(
+    client: Any, app: Flask
+) -> None:
+    _frame_art(app, client)
+    before = _deck(app, "fma_day")
+    lu = _tv_lineup(client, "fma_day")
+    # The push remembers an end it never used; the editor offers it first.
+    assert lu["window"]["label"] == "at 06:00" and lu["window"]["end_hint"] == "18:30"
+    resp = client.post("/decks/fma_day/window", json={"start": "06:00", "end": "18:00"})
+    assert resp.status_code == 200, resp.get_json()
+    deck = _deck(app, "fma_day")
+    assert deck.advance_trigger == "cycle"
+    assert (deck.advance_anchor, deck.advance_end_at) == ("06:00", "18:00")
+    assert deck.advance_fires_at is None
+    assert deck.advance_window_start is None and deck.advance_window_end is None
+    # Everything else is the lineup it was.
+    assert deck.page_ids == before.page_ids
+    assert deck.advance_days_of_week == [0, 1, 2, 5, 6]
+    assert deck.advance_interval_minutes == 30 and deck.refresh_interval_minutes == 30
+    assert deck.advance == "timer" and deck.advance_mode == "scheduled"
+    assert deck.device_ids == ["tv"] and deck.name == before.name
+    assert resp.get_json()["lineups"][0]["window"] == "06:00–18:00"
+    lu = _tv_lineup(client, "fma_day")
+    assert lu["kind"] == "cycle" and lu["window"]["label"] == "06:00–18:00"
+    assert lu["window"]["is_point"] is False and lu["window"]["end_hint"] is None
+    assert [s["dashboard_id"] for s in lu["steps"]] == list(before.page_ids)
+
+
+def test_the_rotation_steps_through_every_dashboard_inside_the_window(
+    client: Any, app: Flask
+) -> None:
+    """What the scheduler does with it: from the start, a new dashboard every
+    ``advance_interval_minutes``, round again, nothing outside the window or
+    on the days it is off."""
+    from app.scheduler import _compute_step_state, _deck_to_rotation
+
+    _frame_art(app, client)
+    client.post("/decks/fma_day/window", json={"start": "06:00", "end": "18:00"})
+    deck = _deck(app, "fma_day")
+    assert deck.id in {r.id for r in app.config["ROTATION_STORE"].all()}
+    rot = _deck_to_rotation(deck)
+    assert rot is not None
+
+    def step(day: int, hh: int, mm: int) -> int | None:
+        # 2026-10-26 is a Monday.
+        state = _compute_step_state(
+            rot, datetime(2026, 10, 26 + day, hh, mm, tzinfo=UTC), UTC, forced=None
+        )
+        return None if state is None else state.step_index
+
+    assert step(0, 5, 59) is None
+    assert [step(0, 6, 0), step(0, 6, 30), step(0, 7, 0), step(0, 7, 30)] == [0, 1, 2, 3]
+    assert step(0, 8, 0) == 0 and step(0, 17, 59) == 3
+    assert step(0, 18, 0) is None
+    assert step(3, 12, 0) is None  # Thursday: off
+    assert step(5, 6, 45) == 1  # Saturday
+
+
+def test_an_end_past_the_next_lineup_is_refused_and_changes_nothing(
+    client: Any, app: Flask
+) -> None:
+    _frame_art(app, client)
+    before = _deck(app, "fma_day")
+    # 18:30 runs over the 18:00 night push on the days they share.
+    resp = client.post("/decks/fma_day/window", json={"start": "06:00", "end": "18:30"})
+    assert resp.status_code == 409 and "Frame Old Art" in resp.get_json()["error"]
+    assert _deck(app, "fma_day") == before
+
+
+def test_the_rotation_goes_back_to_a_push_at_its_start(client: Any, app: Flask) -> None:
+    _frame_art(app, client)
+    client.post("/decks/fma_day/window", json={"start": "06:00", "end": "18:00"})
+    resp = client.post("/decks/fma_day/window", json={"push": True})
+    assert resp.status_code == 200, resp.get_json()
+    deck = _deck(app, "fma_day")
+    assert deck.advance_trigger == "daily" and deck.advance_fires_at == "06:00"
+    assert deck.advance_end_at is None
+    assert deck.page_ids == ["monet", "kahlo", "hopper", "klee"]
+    assert deck.advance_days_of_week == [0, 1, 2, 5, 6]
+    assert resp.get_json()["lineups"][0]["window"] == "at 06:00"
+    # Any rotation can: Morning (06:00-09:00 on weekdays) becomes a push at 06:00.
+    resp = client.post("/decks/morning/window", json={"push": True})
+    assert resp.status_code == 200, resp.get_json()
+    morning = _deck(app, "morning")
+    assert morning.advance_trigger == "daily" and morning.advance_fires_at == "06:00"
+    assert morning.page_ids == ["news", "art"]
+
+
+def test_a_migrated_schedule_turned_rotation_is_one_the_scheduler_runs(
+    client: Any, app: Flask
+) -> None:
+    _frame_art(app, client)
+    tagged = _deck(app, "fma_day").model_copy(update={"legacy_kind": "schedule"})
+    app.config["DECK_STORE"].upsert(tagged)
+    resp = client.post("/decks/fma_day/window", json={"start": "06:00", "end": "12:00"})
+    assert resp.status_code == 200, resp.get_json()
+    assert _deck(app, "fma_day").legacy_kind is None
+
+
+def test_reordering_a_rotation_lets_the_scheduler_resend_its_slot(client: Any, app: Flask) -> None:
+    sched = app.config["SCHEDULER"]
+    sched._rotation_last_step["morning"] = 0
+    sched._rotation_last_step["night"] = 0
+    resp = client.post("/decks/morning/order", json={"from": 1, "to": 0})
+    assert resp.status_code == 200, resp.get_json()
+    assert "morning" not in sched._rotation_last_step
+    assert sched._rotation_last_step["night"] == 0

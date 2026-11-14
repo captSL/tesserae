@@ -11,6 +11,13 @@
 <html lang="en"{% if _paper %} data-ui="paper"{% endif %}{{ server_mark.html_attr(_si) }}>
 <head>
   <meta charset="utf-8">
+  {# Home Assistant stamps ``Referrer-Policy: no-referrer`` on every Ingress
+     response, and under that policy a browser sends ``Origin: null`` with a
+     plain form POST. Over HTTP there is no Sec-Fetch-Site to fall back on,
+     so app/csrf.py refused every form. ``same-origin`` gives our own forms
+     their real Origin and still sends nothing to other sites. A meta tag,
+     because HA overwrites the response header. (#497) #}
+  <meta name="referrer" content="same-origin">
   {# Viewport meta. With the mobile-zoom lock on (default), pin
      initial-scale + maximum-scale + user-scalable=no so the admin UI
      can't be pinch-zoomed and iOS Safari can't auto-zoom on input
@@ -210,7 +217,7 @@
         {% endif %}
         {% if update_status is defined and update_status.available %}
         <a href="{{ url_for('auth.settings') }}" class="topbar-chip"
-           title="Tesserae update available{% if update_status.latest %} (v{{ update_status.latest }}){% endif %}">
+           title="Tesserae update available{% if update_status.label %} ({{ update_status.label }}{% if update_status.channel in ('edge', 'main') %} on main{% endif %}){% endif %}">
           <i class="ph-bold ph-arrow-circle-up" aria-hidden="true"></i><span>Update</span>
         </a>
         {% endif %}
@@ -366,15 +373,17 @@
       {% endif %}
       {% if update_status is defined and update_status.available %}
       {# Update-available badge. Shown only when the background version check
-         (app/version_check) found a newer release; links to the Settings
+         (app/version_check) found something newer: a release on stable, or
+         new commits on main for an edge / source build. Links to the Settings
          update section. Hidden entirely when online features are off. #}
+      {% set _upd_main = update_status.channel in ('edge', 'main') %}
       <a href="{{ url_for('auth.settings') }}"
          class="topbar-update"
-         title="Tesserae update available{% if update_status.latest %} (v{{ update_status.latest }}){% endif %}"
-         aria-label="Tesserae update available{% if update_status.latest %}: version {{ update_status.latest }}{% endif %}">
+         title="Tesserae update available{% if update_status.label %} ({{ update_status.label }}{% if _upd_main %} on main{% endif %}){% endif %}"
+         aria-label="Tesserae update available{% if update_status.label %}: {% if _upd_main %}{{ update_status.label }} on main{% else %}version {{ update_status.latest }}{% endif %}{% endif %}">
         <span class="topbar-update-dot" aria-hidden="true"></span>
         <i class="ph-bold ph-arrow-circle-up" aria-hidden="true"></i>
-        <span class="topbar-update-label">Update{% if update_status.latest %} · v{{ update_status.latest }}{% endif %}</span>
+        <span class="topbar-update-label">Update{% if update_status.label %} · {{ update_status.label }}{% endif %}</span>
       </a>
       {% endif %}
       {% if mcp_bridge_update %}
@@ -572,7 +581,7 @@
       {% if _update_due %}
       <a class="shell-notice" href="{{ url_for('auth.settings') }}">
         <i class="ph-bold ph-arrow-circle-up" aria-hidden="true"></i>
-        <span class="shell-notice-text"><b>Update available</b>{% if update_status.latest %} <span>v{{ update_status.latest }}</span>{% endif %}</span>
+        <span class="shell-notice-text"><b>Update available</b>{% if update_status.label %} <span>{{ update_status.label }}{% if update_status.channel in ('edge', 'main') %} on main{% endif %}</span>{% endif %}</span>
         <i class="ph ph-caret-right" aria-hidden="true"></i>
       </a>
       {% endif %}
@@ -690,6 +699,8 @@
   {% endif %}
   <script src="{{ url_for('static', filename='restart-form.js') }}"></script>
   <script src="{{ url_for('static', filename='components.js') }}"></script>
+  <script src="{{ url_for('static', filename='query-preview.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style/query-preview.css') }}">
   <script src="{{ url_for('static', filename='collapsible.js') }}"></script>
   <script src="{{ url_for('static', filename='bind_prompt.js') }}"></script>
   <script src="{{ url_for('static', filename='list-filter.js') }}"></script>

@@ -489,7 +489,10 @@
     });
     // Logs: the newest three, then the rest on request.
     page.querySelectorAll("[data-log-more]").forEach(function (btn) {
-      const list = page.querySelector("[data-log-list]");
+      // Each button expands its own list: the OTA logs sit in their own box
+      // after the routine uploads, inside the same Logs group.
+      const box = btn.closest(".dx-ota-logs, .dx-grp") || page;
+      const list = box.querySelector("[data-log-list]");
       if (!list) return;
       btn.addEventListener("click", function () {
         const show = btn.getAttribute("aria-expanded") !== "true";
@@ -565,7 +568,7 @@
   // ---- Transport segmented control (Add device card, issue #16) -------
   // Buttons inside [data-segmented-group]; clicking flips the active
   // button + swaps [hidden] on [data-transport-branch="rest|mqtt|
-  // opendisplay|visionect"]. Both branches stay in the DOM, so typed values in the
+  // opendisplay|visionect|samsung_frame|fraimic"]. Both branches stay in the DOM, so typed values in the
   // inactive branch are preserved across flips.
   function initSegmented(group) {
     const card = group.closest("[data-add-device-card]") || group;
@@ -577,6 +580,8 @@
       mqtt: card.querySelector("[data-segmented-help-mqtt]"),
       opendisplay: card.querySelector("[data-segmented-help-opendisplay]"),
       visionect: card.querySelector("[data-segmented-help-visionect]"),
+      samsung_frame: card.querySelector("[data-segmented-help-samsung_frame]"),
+      fraimic: card.querySelector("[data-segmented-help-fraimic]"),
     };
     buttons.forEach(function (btn) {
       btn.addEventListener("click", function () {

@@ -71,6 +71,20 @@
                 aria-selected="false">
           <i class="ph ph-frame-corners" aria-hidden="true"></i><span>Visionect</span>
         </button>
+        <button type="button"
+                class="dx-segmented-btn"
+                data-segmented-btn="samsung_frame"
+                role="tab"
+                aria-selected="false">
+          <i class="ph ph-television-simple" aria-hidden="true"></i><span>Samsung Frame</span>
+        </button>
+        <button type="button"
+                class="dx-segmented-btn"
+                data-segmented-btn="fraimic"
+                role="tab"
+                aria-selected="false">
+          <i class="ph ph-frame-corners" aria-hidden="true"></i><span>Fraimic</span>
+        </button>
       </div>
       <p class="dx-segmented-help" data-segmented-help-rest{% if default_transport != 'rest' %} hidden{% endif %}>
         REST is the recommended default, devices pair with a one-time code, no broker required.
@@ -80,6 +94,12 @@
       </p>
       <p class="dx-segmented-help" data-segmented-help-opendisplay hidden>
         OpenDisplay BLE tags, driven through Home Assistant or the standalone bridge.
+      </p>
+      <p class="dx-segmented-help" data-segmented-help-samsung_frame hidden>
+        Samsung The Frame TVs, shown through their own Art Mode over your local network.
+      </p>
+      <p class="dx-segmented-help" data-segmented-help-fraimic hidden>
+        Fraimic colour e-paper canvases, sent new pictures over your local network when they wake.
       </p>
       <p class="dx-segmented-help" data-segmented-help-visionect hidden>
         Visionect and Joan e-paper signs, over their own protocol on TCP {{ visionect_listener.port if visionect_listener and visionect_listener.port else 'the configured port' }}.
@@ -243,15 +263,17 @@
     </div>
 
     {# OpenDisplay branch: BLE tags via Home Assistant (push) or the
-       standalone bridge (REST). HA-detection picks which to lead with. #}
+       standalone bridge (REST). A reachable Home Assistant (the add-on, or
+       the Home Assistant Core plugin configured) picks which to lead with. #}
     <div class="dx-add-branch dx-add-branch--opendisplay"
          data-transport-branch="opendisplay"
          hidden>
-      {% if in_ha %}
+      {% if opendisplay_via_ha %}
       <div class="dx-hint-band">
         <i class="ph ph-info" aria-hidden="true"></i>
         <p>
-          <strong>Via Home Assistant.</strong> Tesserae writes each frame to <code>/media</code>
+          <strong>Via Home Assistant.</strong>
+          {% if in_ha %}Tesserae writes each frame to <code>/media</code>{% else %}Tesserae uploads each frame to Home Assistant's media folder (the Home Assistant Core plugin's token must belong to an administrator){% endif %}
           and calls HA's <code>opendisplay.upload_image</code> action; HA drives the tag over
           Bluetooth LE. Pick your tag below; its panel size fills in when Home Assistant reports
           one. Prefer the standalone bridge? Use the <strong>REST API</strong> tab instead.
@@ -284,13 +306,14 @@
       <div class="dx-hint-band">
         <i class="ph ph-info" aria-hidden="true"></i>
         <p>
-          <strong>OpenDisplay tags run over Bluetooth LE.</strong> This Tesserae is not the Home
-          Assistant add-on, so drive them with the standalone
+          <strong>OpenDisplay tags run over Bluetooth LE.</strong> This Tesserae has no Home
+          Assistant connection, so drive them with the standalone
           <a href="https://github.com/dmellok/tesserae-opendisplay" target="_blank" rel="noopener noreferrer">tesserae-opendisplay bridge</a>:
           switch to the <strong>REST API</strong> tab, issue a pairing code, then run the bridge on a
           machine near your tags (<code>pip install tesserae-opendisplay</code>). One bridge drives
-          many tags. Running Home Assistant instead? Install Tesserae as the HA add-on to push through
-          <code>opendisplay.upload_image</code> with no extra hardware.
+          many tags. Running Home Assistant instead? Set its URL and an administrator's long-lived
+          token in <strong>Settings → Plugins → Home Assistant Core</strong>, then come back here to
+          push through <code>opendisplay.upload_image</code> with no extra hardware.
         </p>
       </div>
       {% endif %}
@@ -355,6 +378,66 @@
                         help='Clockwise turn applied to match how the frame is mounted.') }}
         <div class="dx-actions-right">
           <button type="submit" class="dx-btn-primary"><i class="ph ph-plus" aria-hidden="true"></i><span>Add Visionect frame</span></button>
+        </div>
+      </form>
+    </div>
+
+    {# Samsung Frame branch: a TV reached on the local network; pages are
+       uploaded to its Art Mode. The first connection asks for Allow on the TV. #}
+    <div class="dx-add-branch dx-add-branch--samsung_frame"
+         data-transport-branch="samsung_frame"
+         hidden>
+      <div class="dx-hint-band">
+        <i class="ph ph-info" aria-hidden="true"></i>
+        <p>
+          <strong>Shown through Art Mode.</strong> Tesserae uploads each frame to the TV's Art
+          Mode as a 4K picture and makes it the current artwork; Art Mode still switches on when
+          the TV is off, follows the room light and draws the mat. Give the TV a fixed address in
+          your router. The first time Tesserae connects, press <strong>Allow</strong> on the TV.
+          No developer mode or app install is needed.
+        </p>
+      </div>
+      <form method="post" action="{{ url_for('auth.devices_add') }}" class="form">
+        <input type="hidden" name="kind" value="samsung_frame">
+        {{ text_input('add-sf-host', 'host', 'TV address', value='', placeholder='192.168.1.50', required=True,
+                      help="The TV's IP address or host name.") }}
+        {{ text_input('add-sf-id', 'id', 'Device id', value='', placeholder='living_room_frame', required=True,
+                      help='Lowercase, no spaces.') }}
+        {{ text_input('add-sf-name', 'name', 'Display name', value='', placeholder='Living room Frame') }}
+        <div class="dx-actions-right">
+          <button type="submit" class="dx-btn-primary"><i class="ph ph-plus" aria-hidden="true"></i><span>Add Samsung Frame</span></button>
+        </div>
+      </form>
+    </div>
+
+    {# Fraimic branch: a canvas reached on the local network while it is
+       awake; Tesserae sets its wake schedule and uploads at each wake. #}
+    <div class="dx-add-branch dx-add-branch--fraimic"
+         data-transport-branch="fraimic"
+         hidden>
+      <div class="dx-hint-band">
+        <i class="ph ph-info" aria-hidden="true"></i>
+        <p>
+          <strong>Sent when the frame wakes.</strong> On battery a Fraimic sleeps and can't be
+          reached, so Tesserae sets the frame's own wake schedule and uploads the latest picture at
+          each wake. Reserve the frame's address in your router, then <strong>tap the frame</strong>
+          once after adding it so Tesserae can set the schedule.
+        </p>
+      </div>
+      <form method="post" action="{{ url_for('auth.devices_add') }}" class="form">
+        {% if fraimic_kinds %}
+        {{ select_field('add-fr-kind', 'kind', 'Model', value=fraimic_kinds[0].value, options=fraimic_kinds,
+                        help='Sets the panel size: 1440x2560 for the 31.5" Large Canvas, 1200x1600 for the 13.3" Standard Canvas.') }}
+        {% else %}
+        <input type="hidden" name="kind" value="fraimic">
+        {% endif %}
+        {{ text_input('add-fr-host', 'host', 'Frame address', value='', placeholder='192.168.1.42', required=True,
+                      help="The frame's IP address, shown on its portal at fraimic.local/info.") }}
+        {{ text_input('add-fr-id', 'id', 'Device id', value='', placeholder='hallway_fraimic', required=True,
+                      help='Lowercase, no spaces.') }}
+        {{ text_input('add-fr-name', 'name', 'Display name', value='', placeholder='Hallway Fraimic') }}
+        <div class="dx-actions-right">
+          <button type="submit" class="dx-btn-primary"><i class="ph ph-plus" aria-hidden="true"></i><span>Add Fraimic</span></button>
         </div>
       </form>
     </div>

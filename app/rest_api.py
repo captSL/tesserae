@@ -389,6 +389,17 @@ def _parse_button_event_id(raw: Any) -> int | None:
     return None
 
 
+def _parse_button_key(raw: Any) -> str | None:
+    """The physical button a press came from (``button_key``), sent beside
+    the ``button`` action name by a client whose buttons have their own
+    names (``a``-``d`` on an Inky Impression). Lower-cased; anything that
+    isn't a short plain string is ignored rather than failing the press."""
+    if not isinstance(raw, str):
+        return None
+    key = raw.strip().lower()
+    return key if 0 < len(key) <= 32 else None
+
+
 def _wants_first_byte(range_header: str | None) -> bool:
     """Whether this is the single-byte reachability probe ``bytes=0-0``.
 
@@ -447,6 +458,7 @@ def _dispatch_query_button(device: Device, *, route: str) -> Any | None:
             device_id=device.id,
             button=button_raw,
             event_id=_parse_button_event_id(raw_event_id),
+            button_key=_parse_button_key(request.args.get("button_key")),
         )
     except Exception:
         current_app.logger.exception(
@@ -500,6 +512,26 @@ def _parse_touch_query() -> TouchStroke | None:
         y1=y1 if y1 is not None else y0,
         duration_ms=ms,
     )
+
+
+def _touch_stroke_to_canvas(device: Device, stroke: TouchStroke) -> TouchStroke:
+    """A stroke the firmware reported in framebuffer pixels
+    (``touch_space=fb``), turned onto the composition canvas through the
+    same rotate / flip / scale / underscan the .bin renderer used to draw
+    it. That keeps touch right whichever orientation the device page sets:
+    the glass never moves relative to the buffer, only the canvas does
+    (firmware #21, the PaperS3 in landscape). A panel block without usable
+    geometry leaves the stroke as reported."""
+    from dataclasses import replace
+
+    from app.overlay_sync import _panel_geometry, point_from_wire
+
+    geo = _panel_geometry(getattr(device, "panel", None) or {})
+    if geo is None:
+        return stroke
+    x0, y0 = point_from_wire(stroke.x0, stroke.y0, **geo)
+    x1, y1 = point_from_wire(stroke.x1, stroke.y1, **geo)
+    return replace(stroke, x0=x0, y0=y0, x1=x1, y1=y1)
 
 
 def _configured_poll_s(device: Device) -> int:
@@ -683,6 +715,29 @@ def _maybe_heal_gamut(device_id: str, body: dict[str, Any]) -> None:
                 push_mgr.invalidate_and_repaint(device_id)
     except Exception:
         current_app.logger.exception("rest: gamut heal failed for device=%s", device_id)
+
+
+def _maybe_heal_papers3_portrait(device_id: str, body: dict[str, Any]) -> None:
+    """Once an already-paired PaperS3 reports firmware 1.63.0, move it from
+    the landscape canvas old firmware left it on to portrait, and repaint.
+    See ``heal_papers3_portrait``. Best-effort: never breaks the poll."""
+    try:
+        from app.device_service import heal_papers3_portrait
+
+        changed = heal_papers3_portrait(
+            devices=_devices(),
+            renderers=_renderers(),
+            data_root=_device_data_root(),
+            instance_id=device_id,
+            fw_version=body.get("fw_version"),
+        )
+        if changed:
+            current_app.logger.info("rest: PaperS3 %s moved to the portrait canvas", device_id)
+            push_mgr = current_app.config.get("PUSH_MANAGER")
+            if push_mgr is not None:
+                push_mgr.invalidate_and_repaint(device_id)
+    except Exception:
+        current_app.logger.exception("rest: PaperS3 portrait heal failed for device=%s", device_id)
 
 
 def _maybe_record_gamuts(device_id: str, body: dict[str, Any]) -> None:
@@ -1123,6 +1178,8 @@ def get_frame(device_id: str) -> Response:
     button_svc = _button_service()
     button_raw = request.args.get("button", "").strip()
     touch_stroke = _parse_touch_query()
+    if touch_stroke is not None and request.args.get("touch_space", "").strip().lower() == "fb":
+        touch_stroke = _touch_stroke_to_canvas(device, touch_stroke)
     if button_svc is not None:
         if button_raw or request.args.get("page", "").strip():
             button_result = _dispatch_query_button(device, route="/frame")
@@ -1794,6 +1851,7 @@ def post_status(device_id: str) -> Response:
     _status_body = request.get_json(silent=True, force=True)
     if isinstance(_status_body, dict):
         _maybe_record_gamuts(device.id, _status_body)
+        _maybe_heal_papers3_portrait(device.id, _status_body)
 
     # Optional ``tz`` field in the heartbeat body lets a client tell
     # the server its IANA timezone so the response can carry resolved
@@ -1830,6 +1888,7 @@ def post_status(device_id: str) -> Response:
                     device_id=device.id,
                     button=button_name,
                     event_id=_parse_button_event_id(body.get("button_event_id")),
+                    button_key=_parse_button_key(body.get("button_key")),
                 )
             except Exception:
                 current_app.logger.exception(
@@ -3113,7 +3172,7 @@ def post_log(device_id: str) -> Response:
 
 def _store_log_batch(device: Device) -> Response:
     """Store one uploaded log batch (``text/plain``) and note it in Events."""
-    from app.state.device_logs import MAX_UPLOAD_BYTES
+    from app.state.device_logs import KIND_LOG, KIND_OTA, MAX_UPLOAD_BYTES
 
     store = current_app.config.get("DEVICE_LOGS")
     if store is None:
@@ -3124,14 +3183,34 @@ def _store_log_batch(device: Device) -> Response:
     raw = request.get_data() or b""
     if len(raw) > MAX_UPLOAD_BYTES:
         return _error(413, "log batch too large", max_bytes=MAX_UPLOAD_BYTES)
+    # An OTA log (docs/ota/contract.md "OTA logs") is filed apart from the
+    # routine batches. Any other value, or none, is a routine batch, so an
+    # older client and a typo both still land somewhere readable.
+    kind = (request.headers.get("X-Tesserae-Log-Kind") or "").strip().lower()
+    kind = KIND_OTA if kind == KIND_OTA else KIND_LOG
+    ota_meta = {}
+    if kind == KIND_OTA:
+        for header, key in (
+            ("X-Tesserae-Ota-Phase", "phase"),
+            ("X-Tesserae-Ota-Target", "target_fw"),
+            ("X-Tesserae-Ota-Attempt", "attempt_id"),
+        ):
+            value = (request.headers.get(header) or "").strip()[:64]
+            if value:
+                ota_meta[key] = value
     try:
-        info = store.save_upload(device.id, raw)
+        info = store.save_upload(device.id, raw, kind=kind)
     except (OSError, ValueError):
         current_app.logger.exception("rest /log: storing a batch failed for device=%s", device.id)
         return _error(500, "could not store log batch")
     events = _events()
     if events is not None:
-        msg = f"log uploaded, {info.lines} line{'' if info.lines == 1 else 's'}"
+        lines = f"{info.lines} line{'' if info.lines == 1 else 's'}"
+        if kind == KIND_OTA:
+            what = ", ".join(v for v in (ota_meta.get("target_fw"), ota_meta.get("phase")) if v)
+            msg = f"OTA log uploaded{f' ({what})' if what else ''}, {lines}"
+        else:
+            msg = f"log uploaded, {lines}"
         events.record(
             type="device",
             source=device.id,
@@ -3141,7 +3220,13 @@ def _store_log_batch(device: Device) -> Response:
                 "client_log": True,
                 "msg": msg,
                 "level": "info",
-                "log_upload": {"name": info.name, "bytes": info.bytes, "lines": info.lines},
+                "log_upload": {
+                    "name": info.name,
+                    "bytes": info.bytes,
+                    "lines": info.lines,
+                    "kind": kind,
+                    **({"ota": ota_meta} if ota_meta else {}),
+                },
             },
         )
     return jsonify({"status": 200, "bytes": len(raw), "stored": True})

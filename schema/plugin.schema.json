@@ -68,6 +68,10 @@
         }
       }
     },
+    "query_preview": {
+      "type": "boolean",
+      "description": "Show Preview query in the editors. server.py exports query_preview(options, settings, *, ctx), returning {images: [{url, thumbnail?, permalink?, matches: [str]}], total?, error?, warning?}. Previews are never settled; at most 20 results are shown."
+    },
     "cell_options": {
       "type": "array",
       "items": {
@@ -224,6 +228,22 @@
         "per_placement": {
           "type": "boolean",
           "description": "The widget's fetch() output belongs to one placement (a page, a cell and a device), for example a rotation that keeps its own turn or a payload fitted to the cell. The host passes ctx.placement_id to every widget; this flag also keeps the composer from sharing one fetch, or one last-good fallback, between placements that otherwise have the same options."
+        }
+      }
+    },
+    "lineups": {
+      "type": "object",
+      "description": "How the Lineups page can step through this widget's items. pin_option names a cell option the host sets to an item's key to render that one item (the server module then provides lineup_items(options), a list of {key, label, version?}); draw says the widget's output differs from one render to the next and has no way to name an item, so the arrows draw the dashboard again. The host also sets hidden options _draw (a per-drawing token) and _browse (turns past the current one) on a drawing render, and sets a sequential mode to random so a preview never moves the real cursor.",
+      "additionalProperties": false,
+      "properties": {
+        "pin_option": { "type": "string", "minLength": 1 },
+        "draw": { "type": "boolean" },
+        "noun": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[A-Za-z][A-Za-z '-]*$",
+          "description": "What the lineup editor calls the items, plural (\"papers\": \"6 papers\" instead of \"6 items\")."
         }
       }
     },

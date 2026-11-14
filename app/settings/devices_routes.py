@@ -16,6 +16,8 @@ the transport once at the end.
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +73,7 @@ _DEVICE_PAGE_SECTIONS: frozenset[str] = frozenset(
         "rendering",
         "timing",
         "lineups",
+        "dashboard-schedules",
         "connection",
         "logs",
         "diagnostics",
@@ -104,6 +107,7 @@ def _dev_seed_kinds() -> list[tuple[str, str, str]]:
     """
     return [
         ("esp32_client", "dev_esp32", "Dev ESP32"),
+        ("pi_client", "dev_pi", "Dev Pi"),
         ("pi_bin_client", "dev_pi_bin", "Dev Pi (bin)"),
         ("pi_png_client", "dev_pi_png", "Dev Pi (png)"),
         ("picpak_client", "dev_picpak", "Dev PicPak"),
@@ -194,11 +198,15 @@ def _make_rest_instance(device: Any) -> str | None:
     return str(token)
 
 
-def _undo_add(device: Any, problem: str, verb: str) -> Response:
+def _undo_add(
+    device: Any, problem: str, verb: str, back: Callable[[], Response] | None = None
+) -> Response:
     """Remove a device created moments ago whose config couldn't be stored
     (another request bound its sign first), and say why."""
     device_service.delete_instance(devices=devices(), renderers=renderers(), instance_id=device.id)
     flash(f"Device not {verb}. {problem}", "error")
+    if back is not None:
+        return back()
     return redirect(url_for("auth.settings_area", area="devices"))
 
 
@@ -269,7 +277,11 @@ def devices_add() -> Response:
     # a digital sign, a browser tab, anything that only fetches an image URL
     # (discussion #240). Pairing is still the right default for firmware that
     # can run the handshake; this is the escape hatch for what cannot.
-    if (form.get("transport") or "").strip().lower() == "rest":
+    # Push kinds (a Samsung Frame, say) reached from the REST tab's kind list
+    # keep their own transport.
+    if (
+        form.get("transport") or ""
+    ).strip().lower() == "rest" and result.device.transport != "push":
         _make_rest_instance(result.device)
     # TRMNL-style clients need their access token displayed once so the
     # user can paste it into the client config. Stash in session and let
@@ -739,11 +751,36 @@ def devices_register_discovered(discovered_id: str) -> Response:
     """One-click register a discovered device, same lifecycle as the
     Add-device form, but kind / panel / id default from the cached
     heartbeat (the form may override any of them)."""
+
+    def back(device: Any | None = None) -> Response:
+        if device is None:
+            return redirect(url_for("auth.settings_area", area="devices"))
+        return redirect(
+            url_for(
+                "auth.settings_area",
+                area="devices",
+                opened=device.id,
+                _anchor=f"device-{device.id}",
+            )
+        )
+
+    return register_discovered_device(discovered_id, back)
+
+
+def register_discovered_device(discovered_id: str, back: Callable[..., Response]) -> Response:
+    """The register-a-discovered-device lifecycle, shared by Settings ->
+    Devices and the setup wizard's device step so the two can't drift.
+
+    ``back()`` is where the user lands on a refusal; ``back(device)`` where
+    they land once the device is registered. The wizard used to carry its
+    own copy of this, which skipped the REST MAC + transport (so a REST
+    panel registered there never collected its token), the orphan-state
+    wipe, announced config and the device-added hooks."""
     cache = discovery_cache()
     entry = cache.get(discovered_id)
     if entry is None:
         flash(f"Discovered device {discovered_id!r} is no longer in the cache.", "error")
-        return redirect(url_for("auth.settings_area", area="devices"))
+        return back()
 
     form = request.form
     explicit_kind = (form.get("kind") or "").strip()
@@ -754,7 +791,7 @@ def devices_register_discovered(discovered_id: str) -> Response:
             "register it manually via the Add-device form.",
             "error",
         )
-        return redirect(url_for("auth.settings_area", area="devices"))
+        return back()
     # Some kinds announce config values in their discovery payload (a
     # Visionect sign's UUID), which the new device is given below. Refuse
     # before creating anything when they are invalid or its kind's rules
@@ -776,7 +813,7 @@ def devices_register_discovered(discovered_id: str) -> Response:
         )
         if problem:
             flash(f"Device not registered. {problem}", "error")
-            return redirect(url_for("auth.settings_area", area="devices"))
+            return back()
 
     # Did the user pick a different variant from the picker (issue #82)?
     # The two 4" Inky panels share the pi_bin protocol but differ in gamut
@@ -916,7 +953,7 @@ def devices_register_discovered(discovered_id: str) -> Response:
     )
     if not result.ok or result.device is None:
         flash(result.error or "Failed to register device.", "error")
-        return redirect(url_for("auth.settings_area", area="devices"))
+        return back()
     cache.forget(discovered_id)
     # Give the new device the config values the discovery announced, before
     # the transport rebuild, whatever id the device was given.
@@ -930,7 +967,7 @@ def devices_register_discovered(discovered_id: str) -> Response:
                 settings_store(), devices(), result.device, announced, announced_fields
             )
             if problem:
-                return _undo_add(result.device, problem, "registered")
+                return _undo_add(result.device, problem, "registered", back)
     device_service.device_added(settings_store(), result.device)
     # Same picture-quality seeding as the manual add-device path.
     renderer_loader.seed_device_settings_from_base(renderers(), settings_store())
@@ -949,14 +986,7 @@ def devices_register_discovered(discovered_id: str) -> Response:
             "client_ip": entry.parsed.get("ip"),
         }
     flash(f"Registered discovered device {result.device.name!r}.", "ok")
-    return redirect(
-        url_for(
-            "auth.settings_area",
-            area="devices",
-            opened=result.device.id,
-            _anchor=f"device-{result.device.id}",
-        )
-    )
+    return back(result.device)
 
 
 @bp.post("/settings/devices/discovery/<discovered_id>/dismiss")
@@ -1287,7 +1317,10 @@ def devices_update_combined(instance_id: str) -> Response:
         redirect_to = _calibration_page_redirect(instance_id)
     else:
         redirect_to = _device_page_redirect(
-            instance_id, _section if _section in _DEVICE_PAGE_SECTIONS else None
+            instance_id,
+            _section
+            if _section in _DEVICE_PAGE_SECTIONS or re.fullmatch(r"grp-[a-z0-9-]{1,40}", _section)
+            else None,
         )
 
     devices_registry = devices()
@@ -1981,10 +2014,10 @@ def devices_calibrate(instance_id: str) -> Response:
         card, source_label=f"calibration:{instance_id}", device_id=instance_id
     )
     if result.status == "sent":
-        flash("Calibration card sent, look at your panel, then answer below.", "ok")
+        flash("Orientation card sent. Look at your panel, then answer below.", "ok")
         flash_delivery([instance_id])
     else:
-        flash(f"Calibration push {result.status}: {result.error or '(no detail)'}", "error")
+        flash(f"Orientation card {result.status}: {result.error or '(no detail)'}", "error")
     # ?calibrating=<id> makes the device page render the answer form
     # inside the Display section's orientation band.
     return redirect(
@@ -2033,7 +2066,7 @@ def devices_calibrate_apply(instance_id: str) -> Response:
         orientation=target,
     )
     if not result.ok or result.device is None:
-        flash(result.error or "Calibration failed.", "error")
+        flash(result.error or "Could not set the rotation.", "error")
         return _device_page_redirect(instance_id, anchor)
     rebuild_transport_fn()()
     # Confirm re-push at the new orientation.

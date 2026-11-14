@@ -1209,7 +1209,7 @@ def test_editor_shows_one_preview_per_aspect_and_checked_devices(app: Flask) -> 
     )
     body = client.get(f"/pages/{pid}").get_data(as_text=True)
     # One landscape (800x480) + one portrait (480x800) preview = two cards.
-    assert body.count('class="preview-frame"') == 2
+    assert body.count('class="thumb-frame preview-frame"') == 2
     assert "w=800&amp;h=480" in body
     assert "w=480&amp;h=800" in body
     # Both devices are pre-checked checkboxes named device_ids (the
@@ -1344,7 +1344,7 @@ def test_multiselect_component_wires_mouse_touch_and_keyboard_reordering() -> No
     assert 'new Event("input", { bubbles: true })' in source
     assert ".multiselect-drag .ph" in styles
     assert "radial-gradient(circle, currentColor 1.5px" in styles
-    assert ".multiselect-opt:has(input:checked) + .multiselect-opt:has(input:checked)" in styles
+    assert ".multiselect-opt.is-selected + .multiselect-opt.is-selected" in styles
     assert "border-top-color: transparent" in styles
     drag_button = styles.split(".multiselect-drag {", 1)[1].split("}", 1)[0]
     assert "border-left" not in drag_button

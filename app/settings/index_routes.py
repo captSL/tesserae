@@ -22,15 +22,24 @@ from flask import current_app, flash, redirect, render_template, request, sessio
 from werkzeug.wrappers import Response
 
 from app import backup as _backup_mod
-from app import device_service, device_timetable, next_update, palette_profiles, test_patterns
+from app import (
+    device_service,
+    device_timetable,
+    fraimic,
+    next_update,
+    palette_profiles,
+    samsung_frame,
+    test_patterns,
+)
 from app import firmware_check as firmware_check_module
 from app import install_id as install_id_module
 from app import updater as _updater_mod
 from app.button_actions import DEFAULT_BUTTON_MAP, registered_actions
 from app.clock_text import clock_of
-from app.device_loader import Device, has_buttons
+from app.device_loader import Device, has_battery, has_buttons, uses_renderer_settings
 from app.ha_options import is_ha_addon
 from app.network import detect_local_ip, docker_bridge_ip_warning, is_docker_bridge_ip, url_host
+from app.online import online_enabled
 from app.panel import PANEL_PRESET_CHOICES, PANEL_PRESETS
 from app.state.settings_store import SECRET_MASK
 
@@ -191,6 +200,7 @@ def settings_area(area: str) -> str | Response:
     install_method = os.environ.get("TESSERAE_INSTALL_METHOD", "").strip()
     system_release_check = None
     system_release_pending = False
+    system_release_offline = False
     system_git_available = True
     if area == "system":
         upd = current_app.config["UPDATER"]
@@ -209,7 +219,11 @@ def settings_area(area: str) -> str | Response:
             # bare-install hint) still renders. Outside tests this never
             # waits on GitHub: it renders what is cached and the page
             # polls /settings/system/release-check while a refresh runs.
-            if not current_app.testing:
+            # The check asks api.github.com, so like every other outbound
+            # call it waits for Online features: an opted-out install
+            # makes no request just because someone opened this page.
+            system_release_offline = not online_enabled(settings_store())
+            if not current_app.testing and not system_release_offline:
                 system_release_check = upd.release_check_status(
                     current_app.config.get("APP_VERSION", "0.0.0")
                 )
@@ -265,6 +279,15 @@ def settings_area(area: str) -> str | Response:
     visionect_kinds, visionect_listener = (
         visionect_routes.add_card_context() if area == "devices" else ([], None)
     )
+    fraimic_kinds = (
+        [
+            {"value": d.id, "label": str(d.name)}
+            for d in fraimic.fraimic_kinds(current_app.config["DEVICE_REGISTRY"])
+            if d.id != fraimic.KIND  # the catalog models; the generic kind is the fallback
+        ]
+        if area == "devices"
+        else []
+    )
 
     return render_template(
         "settings.html",
@@ -280,11 +303,15 @@ def settings_area(area: str) -> str | Response:
         discovered_mqtt=discovered_mqtt,
         discovered_sig=discovered_sig,
         visionect_kinds=visionect_kinds,
+        fraimic_kinds=fraimic_kinds,
         visionect_listener=visionect_listener,
         default_transport=default_transport,
         broker_configured=broker_configured,
-        # Drives the OpenDisplay transport branch: HA add-on gets the
-        # push (opendisplay_ha) form, otherwise the bridge instructions.
+        # Drives the OpenDisplay transport branch: a Tesserae that can
+        # reach Home Assistant (the add-on, or any install with the Home
+        # Assistant Core plugin configured) gets the push (opendisplay_ha)
+        # form, otherwise the bridge instructions.
+        opendisplay_via_ha=is_ha_addon() or _ha_core_configured(),
         in_ha=is_ha_addon(),
         kind_default_rows=kind_default_rows,
         # When set (via ?calibrating=<id>), the matching device card shows
@@ -303,6 +330,7 @@ def settings_area(area: str) -> str | Response:
         system_git_available=system_git_available,
         system_install_method=install_method,
         system_release_check=system_release_check,
+        system_release_offline=system_release_offline,
         system_release_pending=system_release_pending,
         system_webhook_token_set=system_webhook_token_set,
         system_webhook_reveal_token=system_webhook_reveal_token,
@@ -1091,7 +1119,7 @@ def _build_device_section(store: Any, device: Device) -> dict[str, Any] | None:
     _HIDDEN_TAB_FIELDS = {"calibrated"}
     picture_quality: list[dict[str, Any]] = []
     calibration_picture_quality: list[dict[str, Any]] = []
-    if is_instance:
+    if is_instance and uses_renderer_settings(device):
         for clone in renderers().for_device(device.id):
             all_dev_fields = [
                 f for f in clone.manifest.get("settings", []) if f.get("device_setting")
@@ -1161,11 +1189,9 @@ def _build_device_section(store: Any, device: Device) -> dict[str, Any] | None:
         "transport_badge": _transport_badge(device),
         "mode_observation": _mode_observation_view(device.id),
         "status": _status_view(device),
-        # The colour-gamut control only matters for the .bin Pi path
-        # (pi_bin packs server-side to a fixed palette). PNG clients
-        # project their own gamut on-device; the ESP32 firmware is
-        # always E6. Gate on the device's base renderer being pi_bin.
-        "gamut_capable": any(rid.split("__", 1)[0] == "pi_bin" for rid in device.renderer_ids),
+        # The palette choice, for the kinds whose palette is the
+        # operator's to pick (see ``_palette_view``); None hides it.
+        "palette": _palette_view(device) if is_instance else None,
         "delete_endpoint": (
             url_for("auth.devices_delete", instance_id=device.id) if is_instance else None
         ),
@@ -1367,7 +1393,7 @@ def _build_device_section(store: Any, device: Device) -> dict[str, Any] | None:
         "battery_offset": (device.manifest.get("battery_offset") or {} if is_instance else {}),
         "battery_offset_endpoint": (
             url_for("auth.devices_update_battery_offset", instance_id=device.id)
-            if is_instance
+            if is_instance and has_battery(device)
             else None
         ),
         # Per-device locale override (see app.locale_resolve).
@@ -1469,6 +1495,12 @@ def _build_device_section(store: Any, device: Device) -> dict[str, Any] | None:
     section["lineup_names"] = _lineup_names_for(device.id, section["timetable_entries"])
     section["now_line"] = _now_line_for(device.id)
     section["lineup_rows"] = _lineup_rows_for(device.id) if is_instance else []
+    # A schedule is a timer deck, so one the Lineups list already has (a daily
+    # push, say) would show twice; the schedules list keeps the rest.
+    listed = {row["id"] for row in section["lineup_rows"]}
+    section["schedule_rows"] = [
+        e for e in section.get("timetable_entries") or [] if e.schedule_id not in listed
+    ]
     return section
 
 
@@ -1585,6 +1617,12 @@ def _now_line_for(device_id: str) -> dict[str, Any] | None:
     if next_step is None and nxt is not None and nxt.steps:
         next_step = nxt.steps[0]
         next_when = nxt.next_run.main if nxt.next_run is not None else ""
+    # A step on the dashboard already showing has no picture of its own yet: its
+    # thumbnail is what is on the frame now, not what comes next (an album draws
+    # its next photo only when the step fires).
+    showing = display.on_screen.dashboard_id if display and display.on_screen else None
+    if next_step is not None and next_step.dashboard_id == showing:
+        next_step = None
     upcoming: dict[str, Any] = (
         {
             "next_thumb": next_step.thumb_url,
@@ -1598,7 +1636,8 @@ def _now_line_for(device_id: str) -> dict[str, Any] | None:
     if live is not None:
         parts: list[str] = []
         window = live.window
-        if window is not None and not window.is_point and window.end is not None:
+        always_on = bool(live.progress and live.progress.always_on)
+        if window is not None and not window.is_point and window.end is not None and not always_on:
             parts.append(f"until {clock(window.end_min, end=True, cycle=view.time_cycle)}")
             # The next lineup takes over where this one ends.
             if nxt is not None and nxt.next_run is not None and nxt.next_run.hhmm == window.end:
@@ -1615,12 +1654,12 @@ def _now_line_for(device_id: str) -> dict[str, Any] | None:
 
 
 def _battery_card_or_none(device_id: str) -> dict[str, Any] | None:
-    """The Batteries page's chart card for this device (last 7 days), for the
+    """The Batteries page's chart card for this device (default range), for the
     Power section; ``None`` without history or when it can't be built."""
     from app.device_battery_routes import device_card
 
     try:
-        return device_card(device_id, window_days=7)
+        return device_card(device_id)
     except Exception:
         current_app.logger.debug("devices: no battery card for %s", device_id, exc_info=True)
         return None
@@ -1667,7 +1706,13 @@ def _device_overview(device: Device, section: dict[str, Any]) -> dict[str, Any]:
             comp = push_mgr.composition_for_digest(device.id, served_digest) or ""
         if comp:
             glass_url = url_for("renders", filename=f"{comp}.png", w=480)
-    thumb_url = glass_url or newest_url
+    # The card shows a thumbnail, not the composition itself: a 4K display's
+    # PNG is ~10 MB. The full image stays one click away (preview_url).
+    newest_comp = str((latest or {}).get("composition_digest") or "")
+    newest_thumb = (
+        url_for("renders", filename=f"{newest_comp}.png", w=800) if newest_comp else newest_url
+    )
+    thumb_url = glass_url or newest_thumb
     newest_is_artifact = bool(latest and not latest.get("composition_digest"))
     # What the frame does to take a picture: a pull display fetches it, a
     # Visionect sign is shown it (and ACKs).
@@ -1756,7 +1801,9 @@ def _device_overview(device: Device, section: dict[str, Any]) -> dict[str, Any]:
             "value": power.get("label") or "-",
             "sub": power.get("sub") or "",
             "low": battery_low,
-            "muted": power.get("label") == "Mains",
+            "muted": bool(power.get("muted", power.get("label") == "Mains")),
+            # A display that reports its screen (a TV) has no battery to show.
+            "title": power.get("title") or "Battery",
         },
         "firmware": {
             "value": fw_value,
@@ -1843,19 +1890,26 @@ def _format_bytes(n: int) -> str:
 
 
 def _logs_view(device_id: str, selected: str) -> dict[str, Any] | None:
-    """The device page's Logs section (device log upload), or None when
-    the device never advertised ``logs.schema``: collection controls, the
-    wakes left, the stored uploads, the last detected failure, and the
-    upload picked with ``?log=<name>`` for the inline viewer."""
+    """The device page's Logs section (device log upload): collection
+    controls, the wakes left, the stored uploads, the OTA logs, the last
+    detected failure, and the upload picked with ``?log=<name>`` for the
+    inline viewer. None when the device never advertised ``logs.schema`` and
+    has sent no OTA log either; a client that only sends OTA logs gets the
+    section without the collection controls."""
     from app import device_logs
+    from app.state.device_logs import KIND_OTA
 
     store = current_app.config.get("DEVICE_LOGS")
-    if store is None or not device_logs.logs_capable(
+    if store is None:
+        return None
+    capable = device_logs.logs_capable(
         device_id, device_status(), current_app.config.get("DEVICE_FACTS")
-    ):
+    )
+    stored = store.list_uploads(device_id)
+    if not capable and not any(u.kind == KIND_OTA for u in stored):
         return None
     now = time.time()
-    uploads = [
+    rows = [
         {
             "name": u.name,
             "received_at": u.received_at,
@@ -1866,15 +1920,23 @@ def _logs_view(device_id: str, selected: str) -> dict[str, Any] | None:
             "download_url": url_for(
                 "auth.devices_log_download", instance_id=device_id, name=u.name
             ),
+            "kind": u.kind,
         }
-        for u in store.list_uploads(device_id)
+        for u in stored
     ]
+    uploads = [r for r in rows if r["kind"] != KIND_OTA]
+    ota_uploads = [r for r in rows if r["kind"] == KIND_OTA]
     viewing = None
-    picked = next((u for u in uploads if u["name"] == selected), None) if selected else None
+    picked = next((u for u in rows if u["name"] == selected), None) if selected else None
     if picked is not None:
         text = store.read_upload(device_id, selected)
         if text is not None:
-            viewing = {"name": selected, "received_at": picked["received_at"], "text": text}
+            viewing = {
+                "name": selected,
+                "received_at": picked["received_at"],
+                "text": text,
+                "kind": picked["kind"],
+            }
     failure = None
     cached = (device_status().get(device_id) or {}).get("diag")
     diag = cached if isinstance(cached, dict) else store.last_diag(device_id)
@@ -1890,8 +1952,10 @@ def _logs_view(device_id: str, selected: str) -> dict[str, Any] | None:
             ),
         }
     return {
+        "capable": capable,
         "remaining": store.remaining(device_id),
         "uploads": uploads,
+        "ota_uploads": ota_uploads,
         "viewing": viewing,
         "failure": failure,
         "collect_endpoint": url_for("auth.devices_logs_collect", instance_id=device_id),
@@ -1935,9 +1999,94 @@ def _visible_config_fields(device: Any) -> list[dict[str, Any]]:
     than holding a setting its firmware no longer honours.
     """
     fields = note_refresh_floor(config_fields_from_schema(device.config_schema), device)
+    if any(f.get("retired") is True for f in fields):
+        stored = (settings_store().get_section("devices") or {}).get(device.id)
+        stored = stored if isinstance(stored, dict) else {}
+        fields = [f for f in fields if not _retired_and_unset(f, stored)]
     if _can_stay_awake(device.id):
         return fields
     return [f for f in fields if f.get("name") not in _ALWAYS_ON_FIELDS]
+
+
+def _retired_and_unset(field: dict[str, Any], stored: dict[str, Any]) -> bool:
+    """A ``"retired": true`` field the device no longer holds a value for.
+
+    Such a field belongs to behaviour that has since been replaced. It shows
+    only while a device still carries a non-default value, so that value can
+    be seen and cleared; a new device never sees it."""
+    if field.get("retired") is not True:
+        return False
+    default = field.get("default")
+    value = stored.get(str(field.get("name") or ""), default)
+    return str("" if value is None else value) == str("" if default is None else default)
+
+
+# Operator-facing names for the panel gamuts a kind may offer under
+# ``palettes``. Keyed by canonical gamut (see ``canonicalise_gamut``).
+_PALETTE_LABELS: dict[str, str] = {
+    "mono": "Black and white",
+    "bwr_3": "Black, white and red",
+    "bwry_4": "Black, white, red and yellow",
+    "waveshare_e6": "Six colours (Spectra 6)",
+    "inky_7colour": "Seven colours (adds orange)",
+    "gray_4": "4 greys",
+    "gray_8": "8 greys",
+    "gray_16": "16 greys",
+    "rgb16": "Full colour",
+    "rgb24": "Full colour",
+    "kaleido3": "Kaleido 3 colour",
+}
+
+# The .bin Pi path packs server-side to one of two fixed palettes.
+_PI_BIN_PALETTE_VIEW: dict[str, Any] = {
+    "label": "Colour gamut",
+    "help": (
+        "Match the physical panel. The .bin frame is packed to this palette on the "
+        "server; pick 7-colour for the older ACeP Inky Impression so orange renders."
+    ),
+    "choices": [
+        {"value": "waveshare_e6", "label": "Waveshare E6 / Spectra 6 (6-colour)"},
+        {"value": "inky_7colour", "label": "Inky Impression 7-colour (adds orange)"},
+    ],
+}
+
+
+def _palette_view(device: Device) -> dict[str, Any] | None:
+    """The Panel section's palette choice for a device, or None when its
+    palette is not the operator's to pick.
+
+    Two cases offer one. A kind that lists ``palettes`` is hardware sold in
+    several colour sets that cannot say which it has (an OpenDisplay tag).
+    The .bin Pi path packs server-side to a fixed palette. Everything else
+    either reports its gamut or has only one."""
+    from app.quantizer import canonicalise_gamut
+
+    kind = devices().get(str(device.kind_of)) if device.kind_of else None
+    raw = (kind.manifest if kind is not None else device.manifest).get("palettes")
+    offered: list[str] = []
+    if isinstance(raw, list):
+        for item in raw:
+            gamut = canonicalise_gamut(str(item))
+            if gamut not in offered:
+                offered.append(gamut)
+    if len(offered) >= 2:
+        current = canonicalise_gamut(str((device.panel or {}).get("gamut") or offered[0]))
+        if current not in offered:
+            offered.append(current)
+        return {
+            "value": current,
+            "label": "Colour palette",
+            "help": (
+                "The colours this panel can show. The display does not report it, so "
+                "pick the one that matches the hardware; previews are drawn in these "
+                "colours."
+            ),
+            "choices": [{"value": g, "label": _PALETTE_LABELS.get(g, g)} for g in offered],
+        }
+    if any(rid.split("__", 1)[0] == "pi_bin" for rid in device.renderer_ids):
+        stored = str((device.panel or {}).get("gamut") or "waveshare_e6")
+        return {**_PI_BIN_PALETTE_VIEW, "value": canonicalise_gamut(stored)}
+    return None
 
 
 def _wake_align_view(store: Any, device_id: str) -> dict[str, str]:
@@ -2145,10 +2294,13 @@ def _transport_badge(device: Device) -> str:
     "HA" for push devices (OpenDisplay-via-HA) delivered through a Home
     Assistant service call rather than a broker. Visionect signs are push
     devices too, over their own TCP protocol rather than through HA, so
-    they read "TCP" (the kind column names them)."""
+    they read "TCP" (the kind column names them). Samsung Frame TVs and
+    Fraimic canvases are reached directly on the local network, "LAN"."""
     if device.transport == "rest":
         return "REST"
     if device.transport == "push":
+        if samsung_frame.is_samsung_frame_device(device) or fraimic.is_fraimic_device(device):
+            return "LAN"
         return "TCP" if visionect_routes.is_visionect_device(device) else "HA"
     if device.transport == "relay":
         # Before the access-token branch: relay devices carry a device token
@@ -2201,12 +2353,26 @@ def _rotation_options(panel: dict[str, Any] | None) -> list[dict[str, str]]:
     ]
 
 
+def _ha_core_configured() -> bool:
+    """True when the Home Assistant Core plugin has a URL and a token, so
+    this Tesserae can call HA's API wherever it runs."""
+    registry = current_app.config.get("PLUGIN_REGISTRY")
+    plugin = registry.get("ha_core") if registry is not None else None
+    mod = getattr(plugin, "server_module", None) if plugin is not None else None
+    if mod is None or not hasattr(mod, "is_configured"):
+        return False
+    try:
+        return bool(mod.is_configured())
+    except Exception:
+        return False
+
+
 def _opendisplay_setup(device: Device) -> dict[str, Any] | None:
-    """Setup guidance for OpenDisplay device cards. Detects whether this
-    Tesserae is the Home Assistant add-on and points the user at the
-    right delivery path: HA's OpenDisplay integration (the HA kind) or
-    the standalone bridge (the REST kind). Returns None for every other
-    kind so the card only grows the section for OpenDisplay devices."""
+    """Setup guidance for OpenDisplay device cards. Detects how this
+    Tesserae can reach Home Assistant and points the user at the right
+    delivery path: HA's OpenDisplay integration (the HA kind) or the
+    standalone bridge (the REST kind). Returns None for every other kind
+    so the card only grows the section for OpenDisplay devices."""
     kind = device.kind_of or device.id
     if kind not in ("opendisplay", "opendisplay_ha"):
         return None
@@ -2226,16 +2392,32 @@ def _opendisplay_setup(device: Device) -> dict[str, Any] | None:
                 ),
                 "link": _OPENDISPLAY_INTEGRATION,
             }
+        if _ha_core_configured():
+            return {
+                "title": "OpenDisplay via Home Assistant",
+                "in_ha": False,
+                "ok": True,
+                "body": (
+                    "Connected to Home Assistant through the Home Assistant Core "
+                    "plugin. Install the OpenDisplay integration in HA and pair your "
+                    "tag, then set its HA device id above. On each render Tesserae "
+                    "uploads the frame to HA's media folder and calls "
+                    "opendisplay.upload_image; HA pushes it to the tag over Bluetooth "
+                    "LE. The plugin's token must belong to an HA administrator."
+                ),
+                "link": _OPENDISPLAY_INTEGRATION,
+            }
         return {
             "title": "OpenDisplay via Home Assistant",
             "in_ha": False,
             "ok": False,
             "body": (
                 "This kind delivers frames through Home Assistant's "
-                "opendisplay.upload_image action, but this Tesserae is not running "
-                "as the HA add-on (no shared /media, no Supervisor). Run the HA "
-                "add-on, or use the OpenDisplay tag (bridge) kind with the "
-                "standalone bridge instead."
+                "opendisplay.upload_image action, but this Tesserae has no Home "
+                "Assistant connection. Set the URL and an administrator's "
+                "long-lived token in Settings, Plugins, Home Assistant Core, or use "
+                "the OpenDisplay tag (bridge) kind with the standalone bridge "
+                "instead."
             ),
             "link": _OPENDISPLAY_BRIDGE,
         }
@@ -2346,6 +2528,9 @@ def _humanize_signal(rssi: object) -> dict[str, Any] | None:
     return {"bars": bars, "label": label, "sub": f"{value} dBm"}
 
 
+_SCREEN_LABELS = {"art": "Art Mode", "on": "On", "starting": "Starting", "off": "Off"}
+
+
 def _humanize_power(parsed: dict[str, Any]) -> dict[str, Any]:
     """Map battery_mv / battery_pct to a {label, sub} tile. Treats both
     fields being absent or zero as a mains device so a Pi or ESP32 dev
@@ -2354,6 +2539,16 @@ def _humanize_power(parsed: dict[str, Any]) -> dict[str, Any]:
     ``power_plugged`` (a UPS such as a PiSugar on a Pi reports it) words
     the sub-line: a battery sitting at 100 % plugged in and one running
     down read the same without it."""
+    screen = parsed.get("screen")
+    if isinstance(screen, str) and screen in _SCREEN_LABELS:
+        # A mains display that reports what its screen is doing (a TV).
+        why = parsed.get("screen_why")
+        return {
+            "label": _SCREEN_LABELS[screen],
+            "sub": str(why) if why else "Mains",
+            "title": "Screen",
+            "muted": screen == "off",
+        }
     pct = parsed.get("battery_pct")
     mv = parsed.get("battery_mv")
     plugged = parsed.get("power_plugged")

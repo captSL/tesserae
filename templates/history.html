@@ -216,11 +216,11 @@
                aria-label="Select entry #{{ ev.id }}" title="Select for bulk delete">
         <a class="dx-hist-time" {% if ev.preview_digest %}href="{{ url_for('renders', filename=ev.preview_digest ~ '.png') }}" {{ color_attrs(ev.preview_device_ids|default(ev.device_ids)) }} data-lightbox aria-label="Push #{{ ev.id }}"{% endif %} title="{{ ev.abs }} ({{ ev.rel }})">{{ ev.time }}</a>
         {% if ev.preview_digest %}
-        <a class="dx-hist-thumb" href="{{ url_for('renders', filename=ev.preview_digest ~ '.png') }}" {{ color_attrs(ev.preview_device_ids|default(ev.device_ids)) }} data-lightbox aria-label="Open render for push #{{ ev.id }}">
+        <a class="thumb-frame dx-hist-thumb{% if not ev.preview_shape %} thumb-frame--letterbox{% endif %}"{% if ev.preview_shape %} style="--thumb-ar: {{ ev.preview_shape[0] }} / {{ ev.preview_shape[1] }}; --thumb-r: {{ '%.4f'|format(ev.preview_shape[0] / ev.preview_shape[1]) }}"{% endif %} href="{{ url_for('renders', filename=ev.preview_digest ~ '.png') }}" {{ color_attrs(ev.preview_device_ids|default(ev.device_ids)) }} data-lightbox aria-label="Open render for push #{{ ev.id }}">
           <img src="{{ url_for('renders', filename=ev.preview_digest ~ '.png', w=180) }}" {{ color_attrs(ev.preview_device_ids|default(ev.device_ids)) }} alt="" width="64" height="48" loading="lazy" decoding="async">
         </a>
         {% else %}
-        <span class="dx-hist-thumb dx-hist-thumb--empty{% if ev.failed %} is-bad{% endif %}" aria-hidden="true">no frame</span>
+        <span class="thumb-frame dx-hist-thumb dx-hist-thumb--empty{% if ev.failed %} is-bad{% endif %}" aria-hidden="true">no frame</span>
         {% endif %}
         <div class="dx-hist-mid">
           <span class="dx-hist-tags">
@@ -267,6 +267,9 @@
         </span>
         {% if ev.extra and ev.extra.get('waited_s') %}
         <p class="dx-hist-waited"><i class="ph ph-hourglass" aria-hidden="true"></i> waited {{ ev.extra.waited_s|round|int }} s for {{ ev.extra.waited_for or 'the' }} picture{{ '' if ev.extra.waited_for == 1 else 's' }} to finish before sending</p>
+        {% endif %}
+        {% if ev.extra and ev.extra.get('image_warning') %}
+        <p class="dx-hist-waited"><i class="ph ph-warning" aria-hidden="true"></i> {{ ev.extra.image_warning }}</p>
         {% endif %}
         {% if ev.followups %}
         {# The page sent again once a widget's pending work landed: small

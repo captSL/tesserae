@@ -38,6 +38,8 @@ main.page.lu-page {
   --lu-r-pill: 10px;
   --lu-r-xs: 4px;
   --lu-wb-gap: 6px; /* between the thumbs in an open timeline block */
+  --lu-blk-min: 4px; /* the narrowest a day bar block draws */
+  --lu-blk-pad: 7px; /* a day bar block's label inset */
   --lu-live-wash: color-mix(in oklab, var(--lu-acc) 6%, var(--t-surface));
   --lu-sched-bg: var(--t-surface-sunk);
   --lu-blk-bg: color-mix(in oklab, var(--t-border-strong) 60%, var(--t-border));
@@ -48,7 +50,13 @@ main.page.lu-page {
   --lu-pz-edge: color-mix(in oklab, var(--t-warn) 35%, var(--t-fg));
   --lu-warn-text: color-mix(in oklab, var(--t-warn) 80%, var(--t-fg));
   --lu-shadow-pop: var(--t-shadow-md);
-  --lu-paper: #f2efe7; /* an e-paper sheet behind a thumbnail */
+  --lu-paper: var(--thumb-paper); /* an e-paper sheet behind a thumbnail */
+  /* The cards behind a multi-item tile, and its ×N badge. */
+  --lu-stack-far: color-mix(in oklab, var(--lu-paper) 78%, var(--t-fg));
+  --lu-stack-near: color-mix(in oklab, var(--lu-paper) 90%, var(--t-fg));
+  --lu-stack-edge: color-mix(in oklab, var(--t-fg) 42%, transparent);
+  --lu-count-bg: var(--t-fg);
+  --lu-count-fg: var(--t-bg);
   font-size: 14px;
   line-height: 1.45;
   color: var(--t-fg);
@@ -60,6 +68,13 @@ main.page.lu-page {
   --lu-blk-bg: color-mix(in oklab, var(--t-fg) 6%, var(--t-border-strong));
   --lu-on-warn: var(--t-bg);
   --lu-pz-edge: color-mix(in oklab, var(--t-warn) 25%, var(--t-bg));
+  /* Dark: filled cards a step lighter than the page, each nearer one lighter
+     again, with a soft edge. */
+  --lu-stack-far: color-mix(in oklab, var(--t-surface-soft) 55%, var(--t-border-strong));
+  --lu-stack-near: color-mix(in oklab, var(--t-surface-soft) 20%, var(--t-border-strong));
+  --lu-stack-edge: color-mix(in oklab, var(--t-fg) 22%, transparent);
+  --lu-count-bg: color-mix(in oklab, var(--t-fg) 18%, var(--t-surface));
+  --lu-count-fg: var(--t-fg);
 }
 :root[data-ui="paper"] .lu {
   --lu-r: 2px;
@@ -216,6 +231,7 @@ main.page.lu-page {
   text-decoration: underline;
 }
 .lu .lu-btn-primary {
+  text-decoration: none;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -350,6 +366,12 @@ main.page.lu-page {
   color: var(--lu-acc-text);
   background: color-mix(in oklab, var(--t-fg) 6%, transparent);
 }
+/* A ghost button with an outline: a second action beside a primary one. */
+.lu .lu-btn-ghost.lu-btn-line {
+  border: 1px solid var(--t-border-strong);
+  color: var(--t-fg);
+  text-decoration: none;
+}
 .lu .lu-tb-count {
   margin-left: auto;
   font: 12px var(--t-font-mono);
@@ -380,7 +402,7 @@ main.page.lu-page {
 }
 .lu .lu-ds-hdr {
   display: grid;
-  grid-template-columns: auto minmax(0, 0.85fr) minmax(0, 1.15fr) var(--lu-fold-w);
+  grid-template-columns: auto minmax(0, 0.85fr) minmax(0, 1.15fr) auto;
   grid-template-areas: "thumb name bar chev" "thumb state bar chev";
   column-gap: 18px;
   row-gap: 12px;
@@ -400,7 +422,7 @@ main.page.lu-page {
 }
 @container lu-ds (max-width: 1000px) {
   .lu .lu-ds-hdr {
-    grid-template-columns: auto minmax(0, 1fr) var(--lu-fold-w);
+    grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas: "thumb name chev" "thumb state chev" "bar bar bar";
   }
   .lu .lu-ds-hdr .lu-today {
@@ -409,7 +431,7 @@ main.page.lu-page {
 }
 @container lu-ds (max-width: 560px) {
   .lu .lu-ds-hdr {
-    grid-template-columns: auto minmax(0, 1fr) var(--lu-fold-w);
+    grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas: "name name chev" "thumb state state" "bar bar bar";
     padding: 14px 8px 14px 16px;
     column-gap: 12px;
@@ -418,9 +440,21 @@ main.page.lu-page {
     --slot: 92px;
   }
 }
-.lu .lu-ds-hdr .lu-ds-fold {
+/* The display's "+" (a new lineup for it) sits beside its fold chevron. */
+.lu .lu-ds-hdr .lu-ds-ctl {
   grid-area: chev;
+  display: flex;
+  align-items: center;
+  justify-self: end;
+}
+.lu .lu-ds-hdr .lu-ds-fold {
   margin: 0;
+}
+.lu .lu-ds-hdr .lu-ds-add {
+  width: var(--lu-fold-w);
+  height: var(--lu-fold-w);
+  color: var(--t-muted);
+  text-decoration: none;
 }
 .lu .lu-ds-hdr .lu-now-thumb {
   grid-area: thumb;
@@ -528,7 +562,7 @@ main.page.lu-page {
 .lu .lu-now-thumb .lu-thumb {
   max-width: 100%;
   max-height: 100%;
-  border: 1px solid var(--lu-acc);
+  --thumb-edge: var(--lu-acc);
   box-shadow: 0 0 0 3px var(--lu-acc-soft);
 }
 .lu .lu-now-thumb .lu-thumb.p {
@@ -540,10 +574,12 @@ main.page.lu-page {
   height: calc(var(--slot, 132px) * var(--arh) / var(--arw));
 }
 .lu .lu-now-thumb .lu-thumb.empty {
-  border-style: dashed;
-  border-color: var(--t-border-strong);
+  --thumb-edge: var(--t-border-strong);
+  --thumb-bg: transparent;
   box-shadow: none;
-  background: transparent;
+}
+.lu .lu-now-thumb .lu-thumb.empty::before {
+  border-style: dashed;
 }
 /* The dashed box says what is going on instead of a bare glyph. */
 .lu .lu-thumb-note {
@@ -582,26 +618,57 @@ main.page.lu-page {
 .lu .lu-thumb.note-queued .lu-thumb-note .lu-ico {
   color: var(--lu-acc);
 }
-/* A newer frame waits behind the one shown. */
-.lu .lu-qbadge {
+/* A newer frame waits behind the one shown: a small second thumbnail on the header
+   thumb's bottom right corner, carrying the Queued tag. The header thumb itself is
+   always the glass. */
+.lu .lu-now-wrap {
+  position: relative;
+  display: flex;
+  max-width: 100%;
+  max-height: 100%;
+}
+.lu .lu-qthumb {
   position: absolute;
-  right: 3px;
-  bottom: 3px;
+  z-index: 2;
+  right: -10px;
+  bottom: -10px;
+  display: block;
+}
+.lu .lu-now-thumb .lu-qthumb .lu-thumb {
+  --thumb-edge: var(--lu-warn-text);
+  box-shadow:
+    0 0 0 2px var(--t-surface),
+    0 2px 6px rgb(0 0 0 / 0.35);
+}
+.lu .lu-now-thumb .lu-qthumb .lu-thumb.p {
+  height: 46px;
+  width: calc(46px * var(--arw) / var(--arh));
+}
+.lu .lu-now-thumb .lu-qthumb .lu-thumb.l {
+  width: 58px;
+  height: calc(58px * var(--arh) / var(--arw));
+}
+.lu .lu-qtag {
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
   gap: 3px;
   padding: 1px 5px 1px 3px;
   border-radius: 999px;
-  font: 600 10px/1.3 var(--t-font);
+  font: 600 9.5px/1.3 var(--t-font);
+  white-space: nowrap;
   color: var(--t-fg);
-  background: color-mix(in oklab, var(--t-surface, #fff) 92%, transparent);
-  border: 1px solid var(--lu-acc);
+  background: var(--t-surface);
+  border: 1px solid var(--lu-warn-text);
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
 }
-.lu .lu-qbadge .lu-ico {
-  width: 11px;
-  height: 11px;
-  color: var(--lu-acc);
+.lu .lu-qtag .lu-ico {
+  width: 10px;
+  height: 10px;
+  color: var(--lu-warn-text);
 }
 /* The phone slot is too small for the sub-line; the tooltip and aria-label
    carry the full sentence and the header's next line gives the time. */
@@ -611,7 +678,7 @@ main.page.lu-page {
   }
 }
 :root:not([data-ui="paper"]) .lu .lu-now-thumb .lu-thumb {
-  border-width: 2px;
+  --thumb-edge-w: 2px;
   box-shadow: 0 0 0 4px color-mix(in oklab, var(--lu-acc) 16%, transparent);
 }
 
@@ -715,20 +782,35 @@ main.page.lu-page {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
-  gap: 6px 14px;
+  gap: 5px 14px;
 }
+/* The bar and its scale are grid cells of .lu-today, so the picker can sit on
+   the track's own row and share its centre line. */
 .lu .lu-today-bar {
+  display: contents;
+}
+.lu .lu-today-bar > .lu-trk {
+  grid-area: 1 / 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+}
+.lu .lu-today-bar > .lu-scale {
+  grid-area: 2 / 1;
+}
+/* The "Update in" flag's headroom is padding on the whole bar, not margin on
+   the track, so it is not part of the track's row. */
+.lu .lu-today:has(> .lu-today-bar > .lu-trk.flagged) {
+  padding-top: 30px;
+}
+.lu .lu-today .lu-trk.flagged {
+  margin-top: 0;
 }
 .lu .lu-dpick {
+  grid-area: 1 / 2;
+  align-self: stretch;
   position: relative;
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-top: 1px;
 }
 .lu .lu-dp-label {
   display: inline-flex;
@@ -815,15 +897,6 @@ main.page.lu-page {
 .lu .lu-dp-today:hover {
   color: var(--t-fg);
 }
-@container lu-ds (max-width: 560px) {
-  .lu .lu-today {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .lu .lu-today .lu-dpick {
-    grid-row: 1;
-    justify-self: end;
-  }
-}
 
 /* The bar: a plain slot with a thin rod; lineup blocks sit on top of it,
    holds and Quiet hours colour only the rod. */
@@ -853,7 +926,10 @@ main.page.lu-page {
   bottom: 2px;
   display: flex;
   align-items: center;
-  padding: 0 7px;
+  /* No padding: a block is exactly its slot, however short (the label keeps
+     its own margin). A padded block grew past a short slot and slid under
+     the next one. */
+  padding: 0;
   overflow: hidden;
   border-radius: 6px;
   font: 600 11px/1 var(--t-font);
@@ -862,10 +938,15 @@ main.page.lu-page {
   background: var(--lu-blk-bg);
   color: var(--lu-blk-fg);
   box-shadow: inset 0 0 0 1px var(--lu-blk-edge);
-  /* A hairline of track between neighbouring blocks, so they never touch:
-     half a pixel of transparent border each side, with the fill kept inside. */
-  border-inline: 0.5px solid transparent;
+  /* One pixel of track after every block, at any width and pixel density:
+     a transparent end edge with the fill kept inside it. */
+  border-inline-end: 1px solid transparent;
   background-clip: padding-box;
+  /* A short slot still reads as a sliver: it grows to the minimum to the
+     left (--w is its width in % of the day), so its end, and the gap to
+     the next block, stay where they are. */
+  min-width: var(--lu-blk-min);
+  margin-left: min(0px, calc(var(--w, 100) * 1% - var(--lu-blk-min)));
   transition:
     filter 150ms ease-out,
     box-shadow 150ms ease-out;
@@ -892,8 +973,15 @@ main.page.lu-page {
   background: color-mix(in oklab, var(--lu-acc) 30%, transparent);
 }
 .lu .lu-blk.push {
-  min-width: 5px;
-  padding: 0;
+  min-width: max(5px, var(--lu-blk-min));
+}
+/* A short block or a push rides above its neighbours, never under them; one
+   that starts where another ends grows right, off that block's end. */
+.lu .lu-blk.is-thin {
+  z-index: 3;
+}
+.lu .lu-blk.grow-r {
+  margin-left: 0;
 }
 .lu .lu-blk:not(.hold):hover,
 .lu .lu-blk.is-linked {
@@ -918,7 +1006,8 @@ main.page.lu-page {
   pointer-events: none;
   display: block;
   min-width: 0;
-  max-width: 100%;
+  max-width: calc(100% - 2 * var(--lu-blk-pad));
+  margin-inline: var(--lu-blk-pad);
   overflow: hidden;
   text-overflow: ellipsis;
   font: 600 12px/1.2 var(--t-font);
@@ -1544,6 +1633,26 @@ main.page.lu-page {
   filter: grayscale(0.9);
   opacity: 0.7;
 }
+/* Why the pictures are grey: a small tag over the strip, not itself greyed. */
+.lu .lu-off-why {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 8px;
+  padding: 2px 8px 2px 6px;
+  border-radius: var(--lu-r);
+  background: color-mix(in oklab, var(--t-fg) 7%, transparent);
+  color: var(--t-muted);
+  font: 700 10px/1.4 var(--t-font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: default;
+}
+.lu .lu-off-why .lu-ico {
+  font-size: 13px;
+  stroke-width: 1.5;
+}
 .lu .lu-row.is-off:hover .lu-row-name,
 .lu .lu-row.is-off:not(.is-folded) .lu-row-name {
   color: var(--t-fg-soft);
@@ -1563,10 +1672,14 @@ main.page.lu-page {
   row-gap: 6px;
   padding: 11px 8px 11px 16px;
   cursor: pointer;
-  grid-template-columns: 112px minmax(0, 1fr) minmax(220px, 290px) auto var(--lu-fold-w);
+  /* The tag column is at least 112px but grows to its label: "Mon Tue Wed Sat Sun"
+     is wider than that and must not run under the title. */
+  grid-template-columns: minmax(112px, max-content) minmax(0, 1fr) minmax(220px, 290px) auto var(
+      --lu-fold-w
+    );
   grid-template-areas: "tag title state actions fold";
 }
-.lu .lu-row-head :is(.lu-days, .lu-win, .lu-win-edit, .lu-row-actions) {
+.lu .lu-row-head :is(.lu-days, .lu-win, .lu-win-edit, .lu-name-edit, .lu-row-actions) {
   cursor: auto;
 }
 .lu .lu-fold {
@@ -1642,6 +1755,73 @@ main.page.lu-page {
   font-weight: 700;
   letter-spacing: -0.01em;
   overflow-wrap: anywhere;
+}
+/* The name is a button that turns into a text field; it looks like plain title text. */
+.lu .lu-row-name .lu-name {
+  all: unset;
+  display: inline;
+  box-sizing: border-box;
+  cursor: text;
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+  text-decoration: underline dotted transparent;
+  text-underline-offset: 4px;
+  transition: text-decoration-color 120ms ease-out;
+}
+.lu .lu-row-name .lu-name:hover {
+  text-decoration-color: color-mix(in oklab, currentcolor 55%, transparent);
+}
+.lu .lu-row-name .lu-name:focus-visible {
+  outline: 2px solid var(--lu-acc);
+  outline-offset: 2px;
+}
+.lu .lu-name-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+/* The field sits where the name was (its text does not move and the row does not
+   grow) and is as wide as the name, up to the title column. */
+.lu .lu-name-edit input {
+  height: 28px !important;
+  min-height: 0 !important;
+  width: min(100%, 26em);
+  margin: -3px 0 -3px -7px;
+  padding: 0 6px;
+  border: 1px solid var(--t-border-strong);
+  border-radius: var(--lu-r);
+  background: var(--t-surface);
+  color: var(--t-fg);
+  font: 700 15.5px var(--t-font) !important;
+  letter-spacing: -0.01em;
+  box-shadow: none;
+}
+@supports (field-sizing: content) {
+  .lu .lu-name-edit input {
+    field-sizing: content;
+    width: auto;
+    min-width: 10em;
+    max-width: calc(100% + 7px);
+  }
+}
+.lu .lu-name-edit input:focus {
+  outline: none;
+  border-color: var(--lu-acc);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--lu-acc) 25%, transparent);
+}
+.lu .lu-name-edit input[aria-invalid="true"] {
+  border-color: var(--t-danger);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--t-danger) 25%, transparent);
+}
+.lu .lu-name-err {
+  color: var(--t-danger);
+  font: 12px var(--t-font);
+}
+.lu .lu-name-err:empty {
+  display: none;
 }
 .lu .lu-row-meta {
   display: flex;
@@ -1768,6 +1948,8 @@ main.page.lu-page {
   color: color-mix(in oklab, var(--t-fg) 30%, transparent);
   cursor: pointer;
   text-align: center;
+  position: relative;
+  --lu-dt-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath d='M1 4.3 3.1 6.3 7 1.8' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 :root[data-ui="paper"] .lu .lu-days .lu-dt {
   border-radius: 2px;
@@ -1786,6 +1968,78 @@ main.page.lu-page {
 }
 .lu .lu-days .lu-dt.is-edited {
   box-shadow: inset 0 0 0 1px var(--t-warn);
+}
+/* On or off, said with a mark and not only a shade, on the days being changed: the
+   clicked tile shows a check (now runs) or an x (now off) in place of its letter for a
+   moment, and a day left changed keeps a small one at its corner until saved. The days
+   not being changed stay plain: their shade already says which run. */
+.lu .lu-days .lu-dt::before,
+.lu .lu-days .lu-dt::after {
+  content: "";
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease-out;
+}
+.lu .lu-days .lu-dt::before {
+  top: -4px;
+  right: -4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--t-fg);
+}
+.lu .lu-days .lu-dt::after {
+  top: -4px;
+  right: -4px;
+  width: 10px;
+  height: 10px;
+  background: var(--t-surface);
+  -webkit-mask: var(--lu-dt-mark) center / 7px 7px no-repeat;
+  mask: var(--lu-dt-mark) center / 7px 7px no-repeat;
+}
+.lu .lu-days .lu-dt:not(.on) {
+  --lu-dt-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath d='M1.6 1.6 6.4 6.4M6.4 1.6 1.6 6.4' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+.lu .lu-days .lu-dt.is-edited::before,
+.lu .lu-days .lu-dt.is-edited::after {
+  opacity: 1;
+}
+/* A day turned off shows an outlined x, so it never reads as a check. */
+.lu .lu-days .lu-dt:not(.on)::before {
+  background: var(--t-surface);
+  box-shadow: inset 0 0 0 1px var(--t-fg-soft);
+}
+.lu .lu-days .lu-dt:not(.on)::after {
+  background: var(--t-fg);
+}
+/* Just clicked: the mark replaces the letter for a moment, large enough to read. */
+.lu .lu-days .lu-dt.just-on,
+.lu .lu-days .lu-dt.just-off {
+  color: transparent;
+}
+.lu .lu-days .lu-dt.just-on::before,
+.lu .lu-days .lu-dt.just-off::before {
+  inset: 0;
+  width: auto;
+  height: auto;
+  border-radius: 3px;
+  opacity: 1;
+}
+.lu .lu-days .lu-dt.just-on::after,
+.lu .lu-days .lu-dt.just-off::after {
+  inset: 0;
+  width: auto;
+  height: auto;
+  opacity: 1;
+  -webkit-mask-size: 11px 11px;
+  mask-size: 11px 11px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lu .lu-days .lu-dt::before,
+  .lu .lu-days .lu-dt::after {
+    transition: none;
+  }
 }
 @container lu-ds (max-width: 560px) {
   .lu .lu-days {
@@ -1816,7 +2070,9 @@ main.page.lu-page {
 .lu .lu-win-edit input {
   height: 26px !important;
   min-height: 0 !important;
-  width: 96px;
+  /* As wide as the browser draws the time, so "6:00 PM" keeps its AM/PM. */
+  width: auto;
+  min-width: 96px;
   padding: 0 4px;
   border: 1px solid var(--t-border-strong);
   border-radius: var(--lu-r);
@@ -1825,10 +2081,63 @@ main.page.lu-page {
   font: 12px var(--t-font-mono) !important;
   box-shadow: none;
 }
+/* With a mouse the time is typed or stepped with the arrow keys; Chrome's clock button
+   would cost the room "– 6:30 PM ×" needs to stay on one line. */
+@media (hover: hover) and (pointer: fine) {
+  .lu .lu-win-edit input::-webkit-calendar-picker-indicator {
+    display: none;
+  }
+}
 .lu .lu-win-edit input:focus {
   outline: none;
   border-color: var(--lu-acc);
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--lu-acc) 25%, transparent);
+}
+.lu .lu-win-endwrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* "+ End time" on a push; on a window, a small x tucked against the end field. */
+.lu .lu-win-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px 0 6px;
+  border: 1px dashed var(--t-border-strong);
+  border-radius: var(--lu-r);
+  background: transparent;
+  color: var(--t-fg-soft);
+  font: 12px var(--t-font-mono);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.lu .lu-win-end .lu-ico {
+  font-size: 12px;
+}
+.lu .lu-win-end:hover {
+  border-style: solid;
+  color: var(--t-fg);
+}
+.lu .lu-win-end.is-rm {
+  justify-content: center;
+  width: 22px;
+  margin-left: -2px;
+  padding: 0;
+  border: 0;
+  color: var(--t-muted);
+}
+.lu .lu-win-end.is-rm:hover {
+  color: var(--t-fg);
+  background: color-mix(in oklab, var(--t-fg) 7%, transparent);
+}
+.lu .lu-win-end.is-rm + [data-win-ok] {
+  margin-left: 4px;
+}
+.lu .lu-win-end:focus-visible {
+  outline: 2px solid var(--lu-acc);
+  outline-offset: 1px;
 }
 .lu .lu-win-err {
   color: var(--t-danger);
@@ -2050,6 +2359,86 @@ main.page.lu-page {
   align-items: flex-start;
   transition: opacity 150ms ease-out;
 }
+/* Reordering: grab a step by its picture or name; a bar shows where it will land. */
+.lu .lu-strip.is-sortable .lu-step {
+  position: relative;
+}
+.lu .lu-strip.is-sortable .lu-step img {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+.lu .lu-strip.is-sortable .lu-step figcaption {
+  cursor: grab;
+}
+/* A grip beside the step's n/N while the pointer is on it says it can be moved. */
+@media (hover: hover) and (pointer: fine) {
+  .lu .lu-strip.is-sortable .lu-step .lu-step-meta::after {
+    content: "";
+    width: 7px;
+    height: 11px;
+    background: radial-gradient(circle, currentcolor 1px, transparent 1.3px) 0 0 / 3.5px 3.7px;
+    opacity: 0;
+    transition: opacity 120ms ease-out;
+  }
+  .lu .lu-strip.is-sortable .lu-step:is(:hover, :focus-within) .lu-step-meta::after {
+    opacity: 0.9;
+  }
+  .lu .lu-strip.is-reordering .lu-step .lu-step-meta::after {
+    opacity: 0;
+  }
+}
+.lu .lu-step.is-dragging {
+  opacity: 0.35;
+}
+.lu .lu-strip.is-reordering .lu-step {
+  transition: none;
+}
+/* The landing bar stands beside the pictures, in the gap between two steps (over the
+   arrow), not on a picture's edge. */
+.lu .lu-strip.is-sortable .lu-step figure {
+  position: relative;
+}
+.lu .lu-step.drop-before > figure::before,
+.lu .lu-step.drop-after > figure::after {
+  content: "";
+  position: absolute;
+  top: calc(var(--slot-h, 27px) - 4px);
+  height: calc(var(--th) + 8px);
+  width: 4px;
+  border-radius: 2px;
+  background: var(--lu-acc);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--lu-acc) 28%, transparent);
+  pointer-events: none;
+  z-index: 4;
+}
+.lu .lu-step.drop-before > figure::before {
+  left: -19px;
+}
+.lu .lu-step.drop-after > figure::after {
+  right: -12px;
+}
+/* Where a dropped step landed, for a moment. */
+.lu .lu-step.just-moved .lu-thumb {
+  animation: lu-step-landed 1s ease-out;
+}
+@keyframes lu-step-landed {
+  from {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--t-fg) 55%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lu .lu-step.just-moved .lu-thumb {
+    animation: none;
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--t-fg) 55%, transparent);
+  }
+}
+/* While one is dragged every other step is shown plainly, whatever now/next dimming applies. */
+.lu .lu-strip.is-reordering .lu-step:not(.is-dragging) {
+  opacity: 1 !important;
+}
 .lu .lu-strip.has-now .lu-step:not(.is-now):not(:hover):not(:focus-within) {
   opacity: 0.55;
 }
@@ -2065,6 +2454,9 @@ main.page.lu-page {
   align-items: flex-start;
 }
 .lu .lu-slot {
+  /* NOW / NEXT sit above the stack cards and the selection outline, never under them. */
+  position: relative;
+  z-index: 3;
   height: 20px;
   display: flex;
   align-items: center;
@@ -2077,10 +2469,12 @@ main.page.lu-page {
 .lu .lu-step .lu-thumb {
   height: var(--th);
   width: calc(var(--th) * var(--arw) / var(--arh));
+}
+.lu .lu-step .lu-thumb::before {
   transition: border-color 150ms ease-out;
 }
 .lu .lu-step:hover .lu-thumb {
-  border-color: var(--t-fg-soft);
+  --thumb-edge: var(--t-fg-soft);
 }
 @container lu-ds (max-width: 700px) {
   .lu .lu-strip {
@@ -2092,22 +2486,15 @@ main.page.lu-page {
   }
 }
 
-/* Thumbnails: the display's real aspect ratio, never cropped. */
+/* Thumbnails: a ``thumb-frame`` (base.css) in the display's real aspect ratio.
+   The border is drawn over the picture, so the picture fills the box exactly. */
 .lu .lu-thumb {
-  position: relative;
   display: block;
   flex: none;
   aspect-ratio: var(--ar);
-  border-radius: var(--lu-r-xs);
-  overflow: hidden;
-  border: 1px solid var(--t-border-strong);
-  background: var(--lu-paper);
-}
-.lu .lu-thumb img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+  --thumb-radius: var(--lu-r-xs);
+  --thumb-edge: var(--t-border-strong);
+  --thumb-bg: var(--lu-paper);
 }
 .lu .lu-thumb-ph {
   display: grid;
@@ -2182,7 +2569,7 @@ main.page.lu-page {
   inset: 0;
   border-radius: var(--lu-r-xs);
   border: 1px solid var(--t-border-strong);
-  background: color-mix(in oklab, var(--lu-paper) 80%, var(--t-surface));
+  background: var(--lu-stack-near);
 }
 .lu .lu-tile.stacked::before {
   transform: translate(8px, -8px);
@@ -2191,6 +2578,13 @@ main.page.lu-page {
 .lu .lu-tile.stacked::after {
   transform: translate(4px, -4px);
   opacity: 0.8;
+}
+:root[data-theme="dark"] .lu .lu-tile.stacked::before,
+:root[data-theme="dark"] .lu .lu-tile.stacked::after {
+  opacity: 1;
+}
+:root[data-theme="dark"] .lu .lu-tile.stacked::before {
+  background: var(--lu-stack-far);
 }
 .lu .lu-tile.stacked .lu-thumb {
   z-index: 1;
@@ -2204,8 +2598,9 @@ main.page.lu-page {
   min-width: 28px;
   padding: 0 6px;
   border-radius: var(--lu-r-pill);
-  background: var(--t-fg);
-  color: var(--t-bg);
+  background: var(--lu-count-bg);
+  color: var(--lu-count-fg);
+  box-shadow: inset 0 0 0 1px var(--lu-stack-edge);
   font: 700 11px/20px var(--t-font-mono);
   text-align: center;
   cursor: pointer;
@@ -2214,6 +2609,10 @@ main.page.lu-page {
 .lu .lu-count[aria-expanded="true"] {
   background: var(--lu-acc);
   color: var(--lu-acc-fg);
+}
+
+.lu .lu-count.is-draw {
+  cursor: default;
 }
 
 /* Hover / focus: push this dashboard now. */
@@ -2305,7 +2704,8 @@ main.page.lu-page {
 
 /* Current step: ring; next: quiet dashed outline; queued: amber dash. */
 .lu .lu-step.is-now .lu-thumb {
-  border: 2px solid var(--lu-acc);
+  --thumb-edge: var(--lu-acc);
+  --thumb-edge-w: 2px;
   box-shadow: 0 0 0 4px var(--lu-acc-soft);
 }
 :root[data-theme="dark"] .lu .lu-step.is-now .lu-thumb {
@@ -2962,12 +3362,17 @@ main.page.lu-page {
   .lu input,
   .lu select,
   .lu .lu-tb-search input,
-  .lu .lu-win-edit input {
+  .lu .lu-win-edit input,
+  .lu .lu-name-edit input {
     font-size: 16px !important;
   }
   .lu .lu-win-edit input {
     height: 44px !important;
-    width: 116px;
+    min-width: 116px;
+  }
+  .lu .lu-name-edit input {
+    height: 44px !important;
+    margin: 0;
   }
   .lu .lu-fold,
   .lu .lu-ibtn,
@@ -2984,6 +3389,19 @@ main.page.lu-page {
   .lu .lu-win {
     min-height: 44px;
     padding: 0 6px;
+  }
+  .lu .lu-win-end {
+    min-height: 44px;
+    padding: 0 12px;
+  }
+  .lu .lu-win-end.is-rm {
+    min-width: 44px;
+  }
+  .lu .lu-row-name .lu-name {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    min-width: 44px;
   }
   .lu .lu-dp-label {
     height: 44px;
@@ -3028,6 +3446,7 @@ main.page.lu-page {
   }
   /* ×N: a 44px target in the tile's top-right corner, the badge inside it. */
   .lu .lu-count {
+    box-shadow: none;
     right: -8px;
     bottom: auto;
     top: -10px;
@@ -3039,8 +3458,9 @@ main.page.lu-page {
     display: flex;
     align-items: flex-start;
     justify-content: flex-end;
-    background: linear-gradient(var(--t-fg), var(--t-fg)) no-repeat right top / 32px 20px;
-    color: var(--t-bg);
+    background: linear-gradient(var(--lu-count-bg), var(--lu-count-bg)) no-repeat right top / 32px
+      20px;
+    color: var(--lu-count-fg);
     line-height: 20px;
   }
   :root:not([data-ui="paper"]) .lu .lu-count {
@@ -3242,7 +3662,7 @@ main.page.lu-page {
     column-gap: 6px;
   }
   .lu .lu-ds-hdr {
-    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.25fr) var(--lu-fold-w);
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.25fr) auto;
     column-gap: 12px;
   }
   .lu .lu-ds-tags {
@@ -3255,7 +3675,7 @@ main.page.lu-page {
 }
 
 .lu .lu-today .lu-blk {
-  padding-inline: 4px;
+  --lu-blk-pad: 4px;
 }
 .lu .lu-today .lu-blk-l {
   font-size: 11px;
@@ -3278,4 +3698,387 @@ main.page.lu-page {
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 10px;
+}
+
+/* ----- Zoom, item arrows and the lightbox -----------------------------------
+   The zoom icon sits in the top right corner of a thumbnail (it is inside the
+   .lu-thumb, so it follows the picture's own corner), quiet until the thumbnail
+   is hovered or focused; on touch it is always there and 44px to hit. Clicking
+   anywhere on a thumbnail (outside Push now, the arrows and x N) does the same.
+   The item arrows sit under Push now on the hover scrim. On touch the
+   lightbox is where items are chosen: the tile keeps only its corner controls. */
+.lu:not(.is-enhanced) .lu-zoom,
+.lu:not(.is-enhanced) .lu-items {
+  display: none;
+}
+.lu .lu-zoom {
+  position: absolute;
+  z-index: 3;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--lu-r-xs);
+  background: rgba(21, 20, 18, 0.58);
+  color: #fffdf8;
+  font-size: 13px;
+  cursor: zoom-in;
+  opacity: 0.7;
+  transition: opacity 150ms ease-out;
+}
+.lu .lu-zoom:hover {
+  background: rgba(21, 20, 18, 0.82);
+}
+.lu .lu-tile:hover .lu-zoom,
+.lu .lu-now-thumb:hover .lu-zoom,
+.lu .lu-zoom:focus-visible {
+  opacity: 1;
+}
+.lu .lu-zoom:focus-visible {
+  outline: 2px solid #fffdf8;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 4px var(--lu-acc);
+}
+.lu.is-enhanced :is(.lu-tile, .lu-now-thumb) .lu-thumb:has(.lu-zoom) {
+  cursor: zoom-in;
+}
+.lu .lu-now-thumb .lu-thumb .lu-zoom {
+  top: 3px;
+  right: 3px;
+}
+/* Under Push now, over the scrim. */
+.lu .lu-items {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: 5px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: #fffdf8;
+  opacity: 0;
+  transition: opacity 150ms ease-out;
+  white-space: nowrap;
+}
+.lu .lu-it {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 253, 248, 0.2);
+  color: #fffdf8;
+  font-size: 13px;
+  cursor: pointer;
+}
+.lu .lu-it:not(:disabled):hover {
+  background: var(--lu-acc);
+  color: var(--lu-acc-fg);
+}
+.lu .lu-it:disabled {
+  opacity: 0.35;
+}
+.lu .lu-it:focus-visible {
+  outline: 2px solid #fffdf8;
+  outline-offset: 1px;
+}
+.lu .lu-it-pos {
+  padding: 0 3px;
+  font: 600 10px/1 var(--t-font-mono);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.lu .lu-it-pos:empty {
+  display: none;
+}
+.lu .lu-tile:hover .lu-items,
+.lu .lu-tile:focus-within .lu-items {
+  opacity: 1;
+}
+.lu .lu-tile.pushed .lu-items {
+  display: none;
+}
+.lu .lu-tile.has-items .lu-push-ov {
+  top: 40%;
+}
+/* A chosen item being drawn (or that could not be): said on the tile itself. */
+.lu .lu-tile.is-loading .lu-thumb img,
+.lu .lu-tile.is-itemfail .lu-thumb img {
+  opacity: 0.45;
+}
+.lu .lu-tile.is-loading .lu-thumb::after,
+.lu .lu-lb-spin {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in oklab, var(--lu-acc) 30%, transparent);
+  border-top-color: var(--lu-acc);
+  animation: lu-spin 0.9s linear infinite;
+}
+.lu .lu-tile.is-itemfail .lu-thumb::after {
+  content: "!";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font: 700 18px var(--t-font);
+  color: var(--lu-warn-text);
+}
+@keyframes lu-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The lightbox: one component for the header thumbnail and the steps. */
+.lu .lu-lb {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  box-sizing: border-box;
+  /* What the card spends on everything but the picture: the picture takes the rest. */
+  --lb-chrome: 230px;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  overscroll-behavior: contain;
+}
+.lu .lu-lb-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(12, 11, 10, 0.74);
+}
+.lu .lu-lb-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+  width: min(1100px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 12px 14px 14px;
+  background: var(--t-surface);
+  color: var(--t-fg);
+  border: 1px solid var(--t-border-strong);
+  border-radius: var(--lu-r-card);
+  box-shadow: var(--t-shadow-lg, var(--lu-shadow-pop));
+}
+.lu .lu-lb-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.lu .lu-lb-titles {
+  min-width: 0;
+  flex: 1;
+}
+.lu .lu-lb-titles h2 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.lu .lu-lb-sub {
+  margin: 1px 0 0;
+  font-size: 12px;
+  color: var(--t-muted);
+}
+.lu .lu-lb-x {
+  flex: none;
+}
+.lu .lu-lb-stage {
+  position: relative;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  border-radius: var(--lu-r);
+  background: var(--lu-sched-bg);
+}
+/* Fit the picture in its own shape: as large as the screen leaves room for. */
+.lu .lu-lb-stage .lu-thumb {
+  width: min(100%, calc((100vh - var(--lb-chrome)) * var(--arw) / var(--arh)));
+  width: min(100%, calc((100dvh - var(--lb-chrome)) * var(--arw) / var(--arh)));
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--lu-r-xs);
+}
+.lu .lu-lb-stage .lu-thumb-ph {
+  font-size: 48px;
+  min-height: 120px;
+}
+.lu .lu-lb.is-loading .lu-lb-stage .lu-thumb img {
+  opacity: 0.4;
+}
+.lu .lu-lb-load {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 8px;
+  border-radius: var(--lu-r-pill);
+  background: var(--t-surface);
+  border: 1px solid var(--t-border-strong);
+  font-size: 12px;
+  color: var(--t-fg);
+}
+.lu .lu-lb-spin {
+  position: static;
+  margin: 0;
+  flex: none;
+}
+.lu .lu-lb-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--lu-warn-text);
+}
+.lu .lu-lb-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.lu .lu-lb-items {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.lu .lu-lb-items .lu-ibtn {
+  flex: none;
+}
+.lu .lu-lb-pos {
+  min-width: 0;
+  padding: 0 6px;
+  font: 12px var(--t-font-mono);
+  color: var(--t-fg-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lu .lu-lb-msg {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
+  font-size: 12px;
+  color: var(--t-muted);
+  overflow-wrap: anywhere;
+}
+.lu .lu-lb-msg.ok {
+  color: var(--lu-acc-text);
+}
+.lu .lu-lb-msg.queued {
+  color: var(--lu-warn-text);
+}
+.lu .lu-lb-msg.err {
+  color: var(--t-danger);
+}
+.lu .lu-lb-push {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  margin-left: auto;
+}
+.lu .lu-lb-push .lu-ico {
+  font-size: 13px;
+}
+.lu .lu-lb-push:disabled {
+  cursor: progress;
+}
+@media (pointer: coarse) {
+  /* Always there, 44px to hit, the chip itself stays small. */
+  .lu .lu-zoom {
+    top: 0;
+    right: 0;
+    width: 44px;
+    height: 44px;
+    max-width: 100%;
+    background: none;
+    opacity: 0.9;
+  }
+  .lu .lu-zoom:hover {
+    background: none;
+  }
+  .lu .lu-zoom .lu-ico {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    box-sizing: border-box;
+    width: 26px;
+    height: 26px;
+    padding: 5px;
+    border-radius: var(--lu-r-xs);
+    background: rgba(21, 20, 18, 0.62);
+  }
+  .lu .lu-items {
+    display: none;
+  }
+  .lu .lu-tile.has-items .lu-push-ov {
+    top: auto;
+  }
+  /* x N moves to the bottom-right corner so the zoom icon has the top right. */
+  .lu .lu-count {
+    top: auto;
+    bottom: -10px;
+    align-items: flex-end;
+    background-position: right bottom;
+  }
+  .lu .lu-count:hover,
+  .lu .lu-count[aria-expanded="true"] {
+    background-position: right bottom;
+  }
+  .lu .lu-lb-x,
+  .lu .lu-lb-items .lu-ibtn {
+    width: 44px;
+    height: 44px;
+  }
+}
+@media (max-width: 600px) {
+  .lu .lu-lb {
+    --lb-chrome: 290px;
+    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right))
+      max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  }
+  .lu .lu-lb-card {
+    padding: 10px 10px 12px;
+  }
+  .lu .lu-lb-stage {
+    padding: 6px;
+  }
+  .lu .lu-lb-items {
+    flex: 1 1 100%;
+  }
+  .lu .lu-lb-pos {
+    flex: 1;
+    text-align: center;
+  }
+  .lu .lu-lb-msg {
+    text-align: left;
+    flex: 1 1 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lu .lu-zoom,
+  .lu .lu-items {
+    transition: none;
+  }
+  .lu .lu-tile.is-loading .lu-thumb::after,
+  .lu .lu-lb-spin {
+    animation: none;
+  }
 }

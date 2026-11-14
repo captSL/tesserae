@@ -106,11 +106,18 @@ PrimaryAction = Literal["skip", "play", "push"]
 
 @dataclass(frozen=True)
 class ItemInfo:
-    """One item inside a multi-item dashboard (a gallery photo, a quote)."""
+    """One item inside a multi-item dashboard (a gallery photo, a quote).
+
+    ``key`` is what the dashboard can be pinned to for a render and a push
+    (a photo's file name, a paper's code); empty when the widget has no way to
+    show a chosen item. ``version`` changes when that item's picture does, so a
+    cached preview is never reused past it."""
 
     index: int
     label: str
     thumb_url: str = ""
+    key: str = ""
+    version: str = ""
 
 
 @dataclass(frozen=True)
@@ -129,6 +136,14 @@ class DashboardInfo:
     item_count: int = 1
     items: tuple[ItemInfo, ...] = ()
     composition_digest: str | None = None
+    #: the arrows draw it again (a widget that cannot name its items but differs per render)
+    draw: bool = False
+    #: how many items a draw widget says it draws from (0 = it does not say)
+    draw_count: int = 0
+    #: the widget lists its items and listed none right now
+    empty_list: bool = False
+    #: the widget letterboxes its pictures (a gallery set to fit), so item previews do too
+    item_fit: bool = False
     missing: bool = False  # a lineup step still points at a deleted dashboard
     #: displays it is bound to, and "Name (WxH)" for each, for the off-display flag
     bound_ids: tuple[str, ...] = ()
@@ -160,8 +175,11 @@ class LineupUrls:
     fire: str = ""
     play: str = ""
     push_step: str = ""
+    step_item: str = ""
     window: str = ""
     days: str = ""
+    name: str = ""
+    order: str = ""
     bind: str = ""
 
 
@@ -181,12 +199,17 @@ class LineupInput:
     end: str | None = None
     interval_minutes: int = 0
     runtime: RuntimeStep | None = None
-    playing: bool = False  # a by-hand deck the display is on right now
+    #: the display was last driven by this lineup and nothing has been sent by hand since
+    #: (a by-hand deck it is on, or a step pushed from the page, even on another day)
+    playing: bool = False
     urls: LineupUrls = field(default_factory=LineupUrls)
     priority: int = 0  # wins a tie with another lineup due at the same moment
     last_fired: float | None = None  # epoch of an interval lineup's last fire
     #: the lineup names its display(s), so a step bound elsewhere cannot show
     explicit_display: bool = False
+    #: a daily push's stored ``advance_end_at`` (the scheduler ignores it): what
+    #: "Add end time" offers first
+    end_hint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -241,6 +264,20 @@ class UpcomingInput:
 
 
 @dataclass(frozen=True)
+class DisplayShot:
+    """A dashboard as one display shows it. A dashboard bound to several
+    displays has one thumbnail and one shape (the largest panel's), which is
+    wrong on a display of another ratio; this is that display's own picture,
+    at its own panel size. ``composition_digest`` is the push to this display
+    that the thumbnail is, ``None`` when it is a fresh preview."""
+
+    thumb_url: str
+    width: int
+    height: int
+    composition_digest: str | None = None
+
+
+@dataclass(frozen=True)
 class DisplayInput:
     id: str
     name: str
@@ -278,6 +315,16 @@ class DisplayInput:
     # True when a render exists that a pull/REST display has not fetched yet
     # (its latest digest differs from the last one served, or none was served).
     pending: bool = False
+    #: the picture waiting for it when that is no dashboard (a file, a note, a link sent
+    #: by hand): the thumbnail of the latest render, "" when it cannot be named
+    pending_thumb_url: str = ""
+    #: the picture the display actually took, when it reports one. A dashboard's
+    #: own thumbnail is its newest render, which for a dashboard that changes on
+    #: every render (an album) may be the one still waiting.
+    glass_thumb_url: str = ""
+    #: dashboard id -> the dashboard as this display shows it, for a dashboard whose
+    #: shape here is not the one it has on the other displays it is bound to
+    shots: Mapping[str, DisplayShot] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +379,7 @@ class ItemView(_Dict):
     index: int
     label: str
     thumb_url: str
+    key: str = ""
 
 
 @dataclass
@@ -361,14 +409,28 @@ class FrameView(_Dict):
 
 @dataclass
 class HeaderNoteView(_Dict):
-    """What the header thumb says about delivery: the placeholder that stands
-    in for a missing image (``state`` queued / nothing / unavailable /
-    delivering / none) or the corner badge on a shown image (``queued``).
-    ``title`` is the full sentence (tooltip and aria-label)."""
+    """What the header thumb says when it has no image to show: the placeholder that
+    stands in for it (``state`` nothing / unavailable / delivering / none). ``title`` is
+    the full sentence (tooltip and aria-label)."""
 
     state: str
     label: str
     sub: str
+    title: str
+
+
+@dataclass
+class QueuedThumbView(_Dict):
+    """The small second thumbnail on a corner of the header thumb: what waits for the
+    frame (a lineup's step, or something sent by hand) and carries the Queued tag. The
+    header thumb itself always shows what is on the glass. ``thumb_url`` is empty when
+    the waiting picture cannot be shown; the box then carries the tag alone."""
+
+    name: str
+    thumb_url: str
+    aspect: str
+    orientation: Literal["p", "l"]
+    label: str
     title: str
 
 
@@ -546,6 +608,7 @@ class WindowView(_Dict):
     overlaps_pause: bool
     pause_title: str | None
     editable: bool
+    end_hint: str | None = None  # a push's remembered end, offered by "Add end time"
 
 
 @dataclass
@@ -557,6 +620,14 @@ class ProgressView(_Dict):
     starts_in_minutes: int | None
     starts_in_label: str | None  # "3h 48m"
     title: str
+    #: a block that runs all day and carries on into the next day: it has no end to
+    #: count down to, so there is no bar and no ends-in; only an interruption is said
+    always_on: bool = False
+    #: always-on only: minutes until the display's quiet hours pause it (None: none soon),
+    #: or the label of when they end while it is paused now
+    pauses_in_minutes: int | None = None
+    pauses_in_label: str | None = None
+    paused_until_label: str | None = None
 
 
 @dataclass
@@ -578,6 +649,14 @@ class NextRunView(_Dict):
 class PillView(_Dict):
     kind: PillKind
     label: str
+    title: str
+
+
+@dataclass
+class OffWhyView(_Dict):
+    """Why a greyed row is greyed: its pictures are not in black and white."""
+
+    label: str  # "Not today", "Done for today", "Off", "Not playing"
     title: str
 
 
@@ -604,6 +683,14 @@ class StepView(_Dict):
     separator: Literal["arrow", "loop", ""]
     push_title: str
     composition_digest: str | None = None
+    #: items can be chosen: each has a ``key`` the preview and Push now accept
+    pick_items: bool = False
+    #: "draw next": the arrows render the dashboard again; there is no list to choose from
+    draw_items: bool = False
+    draw_count: int = 0
+    #: lists its items, listed none, but has been sent before: still a collection
+    stacked: bool = False
+    item_fit: bool = False
     missing: bool = False  # its dashboard was deleted; the scheduler cannot show it
     #: its dashboard is bound only to other displays, so this one never shows it
     off_display: bool = False
@@ -634,6 +721,9 @@ class ActionsView(_Dict):
     days_url: str
     can_push_step: bool
     bind_url: str = ""
+    step_item_url: str = ""
+    name_url: str = ""
+    order_url: str = ""
 
 
 @dataclass
@@ -669,6 +759,8 @@ class LineupView(_Dict):
     warnings: list[str] = field(default_factory=list)
     display_removed: bool = False
     missing_count: int = 0  # steps whose dashboard was deleted; not in step_count
+    # Set on the rows drawn grey (status not_today / off): the reason, as a tag.
+    off_why: OffWhyView | None = None
 
 
 @dataclass
@@ -712,9 +804,10 @@ class DisplayView(_Dict):
     nothing_sent: bool = False
     show_note: str = ""
     # Additive: the dashed placeholder text when the header has no image, and
-    # the "Queued" corner badge when a newer frame waits behind the shown one.
+    # the small queued thumbnail on its corner when a newer frame waits behind the
+    # shown one (the header thumb itself never carries the Queued tag).
     placeholder: HeaderNoteView | None = None
-    queued_badge: HeaderNoteView | None = None
+    queued_thumb: QueuedThumbView | None = None
 
 
 @dataclass
@@ -947,6 +1040,18 @@ class _Block:
 
 def _dwells(lineup: LineupInput) -> list[int]:
     return [max(1, s.dwell_minutes or 1) for s in lineup.steps]
+
+
+def _always_on(lineup: LineupInput, block: _Block) -> bool:
+    """A cycle or interval block that fills its calendar day (00:00 to 24:00) and whose
+    next day is on too, so it never reaches an end: it carries on at midnight. Not a
+    block that merely ends at midnight (06:00 to 24:00), and not the last day of a run
+    (a Friday-only block really does stop at Friday's midnight)."""
+    if lineup.kind not in ("cycle", "interval") or block.push or block.hold:
+        return False
+    if block.s % DAY_MIN != 0 or block.e - block.s != DAY_MIN:
+        return False
+    return ((block.s // DAY_MIN + 1) % 7) in lineup.days
 
 
 def window_minutes(lineup: LineupInput) -> tuple[int, int] | None:
@@ -1249,6 +1354,34 @@ def _pause_display_parts(pause: PauseInput | None, day: int) -> list[tuple[int, 
     return out
 
 
+def next_pause(pause: PauseInput | None, now_abs: int) -> tuple[int, int, bool] | None:
+    """The display's next quiet hours as ``(start, end, inside)`` in week minutes:
+    ``inside`` when ``now_abs`` is already in them (``start`` is then now or earlier,
+    ``end`` where they stop). Uses :func:`_pause_display_parts`, the spans the day bar
+    draws (a 23:00-06:30 pause ends at 06:30), and joins spans that touch (a 23:00-06:30 pause is one stretch
+    across midnight). ``None`` when there are no quiet hours in the coming week."""
+    if pause is None:
+        return None
+    spans: list[tuple[int, int]] = []
+    first_day = now_abs // DAY_MIN - 1  # yesterday's tail can still be running
+    for day in range(first_day, first_day + 9):
+        for ps, pe in _pause_display_parts(pause, day % 7):
+            spans.append((day * DAY_MIN + ps, day * DAY_MIN + pe))
+    spans.sort()
+    merged: list[list[int]] = []
+    for a, b in spans:
+        if merged and a <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    for a, b in merged:
+        if a <= now_abs < b:
+            return a, b, True
+        if a > now_abs:
+            return a, b, False
+    return None
+
+
 def in_pause(pause: PauseInput | None, week_minute: int) -> bool:
     """Whether week minute ``week_minute`` is in quiet hours, by
     ``quiet_hours.is_in_window`` itself."""
@@ -1274,6 +1407,62 @@ def window_overlaps_pause(pause: PauseInput | None, lineup: LineupInput) -> bool
         elif any(b.s < pe and b.e > ps for ps, pe in parts):
             return True
     return False
+
+
+def _short_range(start: int, end: int) -> str:
+    """``6–8 AM`` / ``11 AM–1 PM`` / ``06:00–08:00``: the clock range, with
+    the first AM/PM left off when both ends share it."""
+    a, b = clock(start), clock(end, end=True)
+    if a[-2:] in ("AM", "PM") and a[-2:] == b[-2:]:
+        a = a[:-2].rstrip("  ")
+    return f"{a}–{b}"
+
+
+def pause_note(pause: PauseInput | None, lineup: LineupInput, where: str) -> str | None:
+    """One line saying what quiet hours do to this lineup, or ``None`` when
+    they leave it alone. ``where`` names them (``Office Frame TV's quiet
+    hours``). Judged per run day with the pause's weekday and all-day masks;
+    a day that loses only part of the window wins over one that loses all of it."""
+    if pause is None or not window_overlaps_pause(pause, lineup):
+        return None
+    spans = day_spans(lineup)
+    if not spans:
+        return None
+    if lineup.kind == "interval":
+        # The window's last minute counts (18:00 runs), but it reads as 18:00, not 18:01.
+        spans = [(s, e - 1 if e < DAY_MIN else e) for s, e in spans]
+        spans = [(s, e) for s, e in spans if e > s] or day_spans(lineup)
+    if lineup.kind == "daily":
+        s = spans[0][0]
+        return f"Skipped: {clock(s)} is in {where}."
+    first, last = spans[0][0], spans[-1][1]
+    partial: str | None = None
+    whole = False
+    for day in sorted(set(lineup.days)):
+        parts = _pause_display_parts(pause, day)
+        hits = [
+            (max(ps, ws), min(pe, we))
+            for ws, we in spans
+            for ps, pe in parts
+            if ws < pe and ps < we
+        ]
+        if not hits:
+            continue
+        covered = sum(b - a for a, b in hits)
+        if covered >= sum(we - ws for ws, we in spans):
+            whole = True
+            continue
+        a, b = min(hits)
+        if a <= first:
+            partial = f"Starts at {clock(b)}: {_short_range(a, b)} is in {where}."
+        elif b >= last:
+            partial = f"Stops at {clock(a)}: {_short_range(a, b)} is in {where}."
+        else:
+            partial = f"Pauses {_short_range(a, b)} for {where}."
+        break
+    if partial:
+        return partial
+    return f"Sends nothing: all of it is in {where}." if whole else None
 
 
 # ---------------------------------------------------------------------------
@@ -1473,17 +1662,19 @@ def _lands_at(d: DisplayInput, clk: _Clock, push_epoch: float) -> _Lands:
 def _header_notes(
     d: DisplayInput,
     clk: _Clock,
+    dashboards: Mapping[str, DashboardInfo],
     on_screen: ScreenView | None,
     queued: QueuedView | None,
     connected: bool,
     in_sync: bool,
-) -> tuple[HeaderNoteView | None, HeaderNoteView | None]:
-    """``(placeholder, badge)`` for the header thumb.
+) -> tuple[HeaderNoteView | None, QueuedThumbView | None]:
+    """``(placeholder, queued thumbnail)`` for the header.
 
-    A frame waits when the display is a sleeper with a render it has not
-    fetched (``d.pending``) or the schedule's step has not landed
-    (``queued``). With an image to show the wait is a corner badge on it;
-    without one the dashed box says what is going on."""
+    The header thumb always shows what is on the glass, or says why it cannot
+    (``placeholder``). A frame waits when the display is a sleeper with a render
+    it has not fetched (``d.pending``) or the schedule's step has not landed
+    (``queued``); that is the small thumbnail on the header thumb's corner,
+    carrying the Queued tag, whether a lineup or a manual send put it there."""
     waiting = not connected and (d.pending or queued is not None)
     if (
         connected
@@ -1499,28 +1690,42 @@ def _header_notes(
             None,
         )
     has_image = on_screen is not None or (d.frame is not None and bool(d.frame.thumb_url))
-    when = ""
+    thumb: QueuedThumbView | None = None
     if waiting:
+        when = ""
         if queued is not None and queued.lands:
             when = queued.lands
         else:
             when = _lands_at(d, clk, clk.epoch).label
-    sentence = (
-        f"A new frame is queued. The frame picks it up at its next check-in {when}."
-        if when
-        else "A new frame is queued. The frame picks it up when it next checks in."
-    )
-    if has_image:
-        if not waiting:
-            return None, None
-        return None, HeaderNoteView("queued", "Queued", "", sentence)
-    if waiting:
-        sub = (
-            f"Frame picks it up at its next check-in {when}"
+        sentence = (
+            f"A new frame is queued. The frame picks it up at its next check-in {when}."
             if when
-            else "when the frame next checks in"
+            else "A new frame is queued. The frame picks it up when it next checks in."
         )
-        return HeaderNoteView("queued", "Queued", sub, sentence), None
+        if queued is not None:
+            scr = _screen(dashboards.get(queued.dashboard_id), queued.dashboard_id, d)
+            # A render already waiting is the picture itself; the dashboard's
+            # thumbnail only stands in for a step not rendered yet.
+            waiting_url = (
+                d.pending_thumb_url
+                if d.pending and d.published and d.published.dashboard_id == queued.dashboard_id
+                else ""
+            )
+            thumb = QueuedThumbView(
+                queued.name,
+                waiting_url or scr.thumb_url,
+                scr.aspect,
+                scr.orientation,
+                "Queued",
+                sentence,
+            )
+        else:
+            aspect, orient = _aspect(d.width, d.height)
+            thumb = QueuedThumbView(
+                "A new frame", d.pending_thumb_url, aspect, orient, "Queued", sentence
+            )
+    if has_image:
+        return None, thumb
     if d.frame is not None:
         return (
             HeaderNoteView(
@@ -1529,18 +1734,18 @@ def _header_notes(
                 "",
                 "The frame on this display is known, but its image file is gone.",
             ),
-            None,
+            thumb,
         )
     if d.nothing_sent:
         return (
             HeaderNoteView(
                 "nothing", "Nothing sent yet", "", "Nothing has been sent to this display yet."
             ),
-            None,
+            thumb,
         )
     return (
         HeaderNoteView("none", "No image yet", "", "No image is known for this display yet."),
-        None,
+        thumb,
     )
 
 
@@ -1608,11 +1813,15 @@ def _screen(
 ) -> ScreenView:
     w = dash.width if dash and dash.width > 0 else d.width
     h = dash.height if dash and dash.height > 0 else d.height
+    thumb_url = dash.thumb_url if dash else ""
+    shot = d.shots.get(dashboard_id)
+    if shot is not None and shot.width > 0 and shot.height > 0:
+        w, h, thumb_url = shot.width, shot.height, shot.thumb_url
     aspect, orient = _aspect(w, h)
     return ScreenView(
         dashboard_id=dashboard_id,
         name=MISSING_NAME if dash and dash.missing else dash.name if dash else dashboard_id,
-        thumb_url=dash.thumb_url if dash else "",
+        thumb_url=thumb_url,
         width=w,
         height=h,
         aspect=aspect,
@@ -1888,12 +2097,16 @@ def build_display(
         if runtime.next_at is not None:
             next_adv = clk.week_minute(runtime.next_at)
 
-    # An advance that comes due inside quiet hours (or a pause) doesn't happen
-    # then. The scheduler's projection knows when this lineup really fires next
-    # (the first grid step after the hold, not the moment it ends); without a
-    # projection, the end of the hold stands in. The bar and the pill mark that
-    # step, and "Update in" counts to when it lands on the display.
+    # The advance as the scheduler will really send it. Its projection replays
+    # the engine's own gates (minimum hold, quiet hours and pauses, the
+    # condition / priority picker), so when there is one the next advance, its
+    # dashboard and the countdown come from it rather than from the raw dwell
+    # boundary, which the engine can skip or move. The same event tells when
+    # the frame reaches a display that sleeps between check-ins. Without a
+    # projection, a boundary inside quiet hours (or a pause) is moved to the end
+    # of the hold.
     adv_lands: _Lands | None = None
+    adv_dash: str | None = None
     if next_adv is not None and lb is not None:
         adv_epoch = (
             runtime.next_at
@@ -1901,24 +2114,21 @@ def build_display(
             else clk.epoch_of(next_adv)
         )
         held_adv = _lands_at(d, clk, adv_epoch)
-        if held_adv.held and held_adv.epoch is not None:
-            if d.upcoming is None:
+        if d.upcoming is None:
+            if held_adv.held and held_adv.epoch is not None:
                 adv_lands = held_adv
                 next_adv = clk.week_minute(held_adv.epoch)
-            else:
-                fires = next(
-                    (
-                        ev.at
-                        for ev in d.upcoming
-                        if ev.at > clk.epoch and ev.lineup_id == lb.lineup.id
-                    ),
-                    None,
-                )
-                if fires is None:
-                    next_adv = None
-                else:
-                    adv_lands = _lands_at(d, clk, fires)
-                    next_adv = clk.week_minute(fires)
+        else:
+            fires = next(
+                (ev for ev in d.upcoming if ev.at > clk.epoch and ev.lineup_id == lb.lineup.id),
+                None,
+            )
+            if fires is not None:
+                adv_dash = fires.dashboard_id
+                adv_lands = _lands_at(d, clk, fires.at)
+                next_adv = clk.week_minute(fires.at)
+            elif held_adv.held:
+                next_adv = None
 
     # A daily push that fired after the live window's latest step owns the
     # panel (a noon override inside an hourly rotation); windows alone miss
@@ -2077,6 +2287,8 @@ def build_display(
         )
 
     on_screen = _screen(dashboards.get(on_id), on_id, d, on_since) if on_id is not None else None
+    if on_screen is not None and d.glass_thumb_url:
+        on_screen.thumb_url = d.glass_thumb_url
     scheduled_view: ScheduledView | None = None
     if sched is not None and sched_dash is not None:
         scheduled_view = ScheduledView(
@@ -2132,7 +2344,9 @@ def build_display(
             )
         else:
             show_note = ", waiting for check-in"
-    placeholder, queued_badge = _header_notes(d, clk, on_screen, queued, connected, in_sync)
+    placeholder, queued_thumb = _header_notes(
+        d, clk, dashboards, on_screen, queued, connected, in_sync
+    )
     next_title = (
         next_update.text + (f" {next_update.then_text}." if next_update.then_text else "")
         if next_update
@@ -2183,6 +2397,7 @@ def build_display(
                 dashboards,
                 sched=sched,
                 next_adv=next_adv,
+                next_dash=adv_dash,
                 on_id=on_id,
                 queued=queued,
                 fold_default=fold_default,
@@ -2234,7 +2449,7 @@ def build_display(
         nothing_sent=nothing_sent,
         show_note=show_note,
         placeholder=placeholder,
-        queued_badge=queued_badge,
+        queued_thumb=queued_thumb,
     )
 
 
@@ -2278,6 +2493,23 @@ def _next_update_view(
     )
 
 
+_GREY_NOTE = "Shown grey because it is not running now. Its pictures are in colour when it runs."
+
+
+def _off_why(status: LineupStatus, *, manual: bool, runs_today: bool) -> OffWhyView | None:
+    """The tag on a row drawn grey: a lineup that is off, by hand and idle, due
+    on another day, or due today but already finished (its window has ended)."""
+    if status == "off":
+        return OffWhyView("Off", f"Switched off; nothing runs until it is enabled. {_GREY_NOTE}")
+    if status != "not_today":
+        return None
+    if manual:
+        return OffWhyView("Not playing", f"Runs by hand and is not playing. {_GREY_NOTE}")
+    if runs_today:
+        return OffWhyView("Done for today", f"Today's run has ended. {_GREY_NOTE}")
+    return OffWhyView("Not today", f"It does not run today. {_GREY_NOTE}")
+
+
 def _lineup_sort_key(v: LineupView) -> tuple[int, int, str]:
     if v.status == "off":
         return (2, 0, v.name.lower())
@@ -2294,6 +2526,7 @@ def _lineup_view(
     *,
     sched: _Scheduled | None,
     next_adv: int | None,
+    next_dash: str | None = None,
     on_id: str | None,
     queued: QueuedView | None,
     fold_default: bool,
@@ -2314,7 +2547,7 @@ def _lineup_view(
     status: LineupStatus
     if not lineup.enabled:
         status, status_label = "off", "Off"
-    elif live or (lineup.kind == "manual" and lineup.playing):
+    elif live or lineup.playing:
         status, status_label = "live", "Live"
     elif later:
         status, status_label = "later_today", "Later today"
@@ -2322,6 +2555,8 @@ def _lineup_view(
         status, status_label = "not_today", "By hand"
     else:
         status, status_label = "not_today", days_label(days_sorted)
+
+    off_why = _off_why(status, manual=lineup.kind == "manual", runs_today=today % 7 in lineup.days)
 
     # -- window ------------------------------------------------------------
     win = window_minutes(lineup)
@@ -2347,6 +2582,7 @@ def _lineup_view(
                 else None
             ),
             editable=True,
+            end_hint=lineup.end_hint if point else None,
         )
 
     # -- next run ------------------------------------------------------------
@@ -2385,7 +2621,37 @@ def _lineup_view(
 
     # -- progress ----------------------------------------------------------
     progress: ProgressView | None = None
-    if live and lb is not None:
+    if live and lb is not None and _always_on(lineup, lb):
+        # Runs all day and on into tomorrow (12 AM to 12 AM): there is no end to
+        # count down to. Only an interruption by quiet hours is worth saying.
+        pause = next_pause(d.pause, now_abs)
+        pauses_in = paused_until = None
+        if pause is not None:
+            if pause[2]:
+                paused_until = clock(pause[1] % DAY_MIN)
+            else:
+                pauses_in = pause[0] - now_abs
+        title = f"{refreshes} refreshes today. Runs all day."
+        if pauses_in is not None:
+            title += (
+                f" Quiet hours ({pause_label(d.pause)}) pause it in {rel_short(pauses_in)}."
+                if d.pause
+                else ""
+            )
+        progress = ProgressView(
+            refreshes_today=refreshes,
+            window_pct=None,
+            ends_in_minutes=None,
+            ends_in_label=None,
+            starts_in_minutes=None,
+            starts_in_label=None,
+            title=title,
+            always_on=True,
+            pauses_in_minutes=pauses_in,
+            pauses_in_label=rel_short(pauses_in) if pauses_in is not None else None,
+            paused_until_label=paused_until,
+        )
+    elif live and lb is not None:
         s_rel = lb.s if lb.s <= now_abs else lb.s - WEEK_MIN
         e_rel = lb.e if lb.s <= now_abs else lb.e - WEEK_MIN
         span = max(1, e_rel - s_rel)
@@ -2431,6 +2697,17 @@ def _lineup_view(
                 (p.i for p in lb.pts if p.t % WEEK_MIN == next_adv % WEEK_MIN),
                 (intended + 1) % n,
             )
+            if next_dash is not None and lineup.steps[nxt].dashboard_id != next_dash:
+                # The engine's picker sends another dashboard than the clock's
+                # slot names (a rule skips it, priority mode keeps the first).
+                nxt = next(
+                    (
+                        j
+                        for k in range(1, n + 1)
+                        if lineup.steps[j := (nxt + k) % n].dashboard_id == next_dash
+                    ),
+                    nxt,
+                )
             next_at = clock(next_adv)
     steps: list[StepView] = []
     loops = lineup.kind == "cycle" and n > 1
@@ -2454,6 +2731,7 @@ def _lineup_view(
             )
         if i == nxt:
             pill = PillView("next", f"Next {next_at}", f"Next advance {next_at}")
+        shot = d.shots.get(st.dashboard_id)
         items = list(dash.items) if dash else []
         count = max(dash.item_count if dash else 1, len(items), 1)
         off_display = bool(
@@ -2470,7 +2748,9 @@ def _lineup_view(
                 dashboard_id=st.dashboard_id,
                 name=scr.name,
                 thumb_url="" if off_display else scr.thumb_url,
-                composition_digest=dash.composition_digest if dash else None,
+                composition_digest=(
+                    shot.composition_digest if shot else (dash.composition_digest if dash else None)
+                ),
                 width=scr.width,
                 height=scr.height,
                 aspect=scr.aspect,
@@ -2478,7 +2758,12 @@ def _lineup_view(
                 dwell_minutes=st.dwell_minutes,
                 conditional=st.conditional,
                 item_count=count,
-                items=[ItemView(it.index, it.label, it.thumb_url) for it in items],
+                items=[ItemView(it.index, it.label, it.thumb_url, it.key) for it in items],
+                pick_items=not (off_display or scr.missing) and any(it.key for it in items),
+                draw_items=not (off_display or scr.missing) and bool(dash and dash.draw),
+                draw_count=dash.draw_count if dash and dash.draw else 0,
+                stacked=bool(dash and dash.empty_list and dash.composition_digest),
+                item_fit=bool(dash and dash.item_fit),
                 current=i == intended,
                 next=i == nxt,
                 queued=is_queued,
@@ -2561,8 +2846,12 @@ def _lineup_view(
             days_url=u.days,
             can_push_step=bool(lineup.steps),
             bind_url=u.bind,
+            step_item_url=u.step_item,
+            name_url=u.name,
+            order_url=u.order,
         ),
         sort_minutes=sort_minutes,
+        off_why=off_why,
     )
 
 
@@ -2681,7 +2970,13 @@ def sample_inputs() -> tuple[list[DisplayInput], dict[str, DashboardInfo]]:
             name=v,
             item_count=_SAMPLE_ITEMS.get(k, 1),
             items=tuple(
-                ItemInfo(i, f"{v} {i + 1} of {_SAMPLE_ITEMS[k]}")
+                ItemInfo(
+                    i,
+                    f"{v} {i + 1} of {_SAMPLE_ITEMS[k]}",
+                    # Only the art gallery can show a chosen item (the others
+                    # stand for widgets that cannot be pinned).
+                    key=f"{k}-{i + 1}.jpg" if k == "art" else "",
+                )
                 for i in range(_SAMPLE_ITEMS.get(k, 0))
             ),
         )
@@ -2805,6 +3100,7 @@ def _sample_urls(lineup_id: str) -> LineupUrls:
         toggle=f"/decks/{lineup_id}/toggle",
         delete=f"/decks/{lineup_id}/delete",
         push_step=f"/decks/{lineup_id}/push-step",
+        step_item=f"/decks/{lineup_id}/step-item",
         window=f"/decks/{lineup_id}/window",
         days=f"/decks/{lineup_id}/days",
     )
@@ -2868,6 +3164,7 @@ __all__ = [
     "PrimaryAction",
     "ProgressView",
     "PublishedInput",
+    "QueuedThumbView",
     "QueuedView",
     "RuntimeStep",
     "ScheduledView",

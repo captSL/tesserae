@@ -37,7 +37,7 @@
 {%- macro overview_tiles(section, base=None) -%}
 <div class="dx-live" data-render-sync="tiles:{{ section.get('device_id') }}">
 {{ stat_tile('Showing', section.overview.showing, (base ~ '#lineups') if base is not none else '', "Open this display's lineups") }}
-{{ stat_tile('Battery', section.overview.battery, (base ~ '#power') if base is not none and section.battery_offset_endpoint else '', 'Open power settings') }}
+{{ stat_tile(section.overview.battery.title or 'Battery', section.overview.battery, (base ~ '#power') if base is not none and section.battery_offset_endpoint else '', 'Open power settings') }}
 {%- set _fw_update = section.overview.firmware.has_update or ((section.status.firmware or {}).state == 'outdated' and (section.status.firmware or {}).latest) %}
 {{ stat_tile('Firmware', section.overview.firmware, url_for('auth.firmware_index') if _fw_update else ((base ~ '#connection') if base is not none else ''), 'Open the Firmware page' if _fw_update else 'Open firmware and connection details') }}
 {{ stat_tile('Next update', section.overview.next_wake, (base ~ '#timing') if base is not none else '', 'Open wake timing') }}
@@ -57,7 +57,7 @@
    cached older frame can never stand in for a newer one. #}
 {%- macro render_thumb(section, extra_class='') -%}
 <div class="dx-thumbs" data-render-sync="thumb:{{ section.get('device_id') }}" data-render-sig="{{ section.overview.sync_sig }}">
-<div {{ color_attrs(section.get("device_id")) }} class="dx-thumb {{ extra_class }}{% if section.panel and section.panel.h and section.panel.w and section.panel.h > section.panel.w %} dx-thumb--portrait{% endif %}"{% if section.overview.has_render and section.panel and section.panel.w and section.panel.h %} style="--thumb-ar: {{ section.panel.w }} / {{ section.panel.h }}"{% endif %}>
+<div {{ color_attrs(section.get("device_id")) }} class="thumb-frame dx-thumb {{ extra_class }}{% if section.panel and section.panel.h and section.panel.w and section.panel.h > section.panel.w %} dx-thumb--portrait{% endif %}"{% if section.overview.has_render and section.panel and section.panel.w and section.panel.h %} style="--thumb-ar: {{ section.panel.w }} / {{ section.panel.h }}; --thumb-r: {{ '%.4f'|format(section.panel.w / section.panel.h) }}"{% endif %}>
   {% if section.overview.has_render %}
   <img src="{{ section.overview.thumb_url }}" alt="{{ 'Last image ' ~ section.overview.get('taken_verb', 'fetched') ~ ' by' if section.overview.queued and not section.overview.queued_is_only_thumb else 'Latest render on' }} {{ section.device_name }}" loading="lazy"{% if section.overview.preview_is_artifact|default(false) %} data-device-quantised{% endif %}>
   {% else %}
@@ -65,8 +65,10 @@
   {% endif %}
 </div>
 {% if section.overview.queued_thumb_url %}
-<figure {{ color_attrs(section.get("device_id")) }} class="dx-thumb-q" data-device-queued-thumb>
-  <img src="{{ section.overview.queued_thumb_url }}" alt="Queued image for {{ section.device_name }}" loading="lazy"{% if section.overview.queued_is_artifact|default(false) %} data-device-quantised{% endif %}>
+{% set _qw = section.panel.w if section.panel and section.panel.w and section.panel.h else 4 %}
+{% set _qh = section.panel.h if section.panel and section.panel.w and section.panel.h else 3 %}
+<figure class="dx-thumb-q" data-device-queued-thumb>
+  <span {{ color_attrs(section.get("device_id")) }} class="thumb-frame dx-thumb-q-frame" style="--thumb-ar: {{ _qw }} / {{ _qh }}; --thumb-r: {{ '%.4f'|format(_qw / _qh) }}"><img src="{{ section.overview.queued_thumb_url }}" alt="Queued image for {{ section.device_name }}" loading="lazy"{% if section.overview.queued_is_artifact|default(false) %} data-device-quantised{% endif %}></span>
   <figcaption><i class="ph ph-clock-countdown" aria-hidden="true"></i>Queued</figcaption>
 </figure>
 {% elif section.overview.queued_is_only_thumb %}
@@ -205,7 +207,10 @@
 {%- set value = section.state.get(field.name, field.get('default', '')) -%}
 {%- set ftype = field.get('type', 'string') -%}
 {%- set show_if = field.get('show_if') -%}
-{%- set wrap_attrs = ('data-show-if="' ~ (show_if|tojson|forceescape) ~ '"') if show_if else '' -%}
+{#- ``show_if`` names other fields of the same kind by their plain form names
+    (static/components.js, ``data-show-if-plain``); the first render hides the
+    field when the saved values say it doesn't apply. -#}
+{%- set wrap_attrs = ('data-show-if="'|safe ~ (show_if|tojson|forceescape) ~ '" data-show-if-plain'|safe ~ ('' if option_visible(field, section.state, section.fields) else ' hidden')|safe) if show_if else '' -%}
 {%- if ftype in ('boolean', 'switch') -%}
   {%- if awake -%}
   {%- set aval = section.state.get(awake.name, awake.get('default', '')) -%}
@@ -253,7 +258,7 @@
 <div class="dx-now" data-render-sync="thumb:{{ section.get('device_id') }}" data-render-sig="{{ ov.sync_sig }}">
   <div class="dx-now-media">
     <a class="dx-now-link" href="#lineups" title="Open this display's lineups">
-    <span {{ color_attrs(section.get("device_id")) }} class="dx-thumb dx-now-thumb{% if section.panel and section.panel.h and section.panel.w and section.panel.h > section.panel.w %} dx-thumb--portrait{% endif %}"{% if section.panel and section.panel.w and section.panel.h %} style="--thumb-ar: {{ section.panel.w }} / {{ section.panel.h }}"{% endif %}>
+    <span {{ color_attrs(section.get("device_id")) }} class="thumb-frame dx-thumb dx-now-thumb{% if section.panel and section.panel.h and section.panel.w and section.panel.h > section.panel.w %} dx-thumb--portrait{% endif %}"{% if section.panel and section.panel.w and section.panel.h %} style="--thumb-ar: {{ section.panel.w }} / {{ section.panel.h }}"{% endif %}>
       {%- if ov.has_render %}
       <img src="{{ ov.thumb_url }}" alt="{{ 'Last image ' ~ ov.get('taken_verb', 'fetched') ~ ' by' if ov.queued and not ov.queued_is_only_thumb else 'Latest render on' }} {{ section.device_name }}" loading="lazy"{% if ov.preview_is_artifact|default(false) %} data-device-quantised{% endif %}>
       {%- else %}
@@ -266,13 +271,13 @@
     </a>
     {%- if ov.queued_thumb_url %}
     <div class="dx-next" data-device-queued-thumb title="{{ ov.queued.text if ov.queued else 'It goes out at the next check-in' }}">
-      <span {{ color_attrs(section.get("device_id")) }} class="dx-next-thumb"{% if section.panel and section.panel.w and section.panel.h %} style="--thumb-ar: {{ section.panel.w }} / {{ section.panel.h }}"{% endif %}><img src="{{ ov.queued_thumb_url }}" alt="Queued image for {{ section.device_name }}" loading="lazy"></span>
+      <span {{ color_attrs(section.get("device_id")) }} class="thumb-frame dx-next-thumb"{% if section.panel and section.panel.w and section.panel.h %} style="--thumb-ar: {{ section.panel.w }} / {{ section.panel.h }}"{% endif %}><img src="{{ ov.queued_thumb_url }}" alt="Queued image for {{ section.device_name }}" loading="lazy"></span>
       <span class="dx-next-tag is-queued"><i class="ph ph-clock-countdown" aria-hidden="true"></i>Queued</span>
       <span class="dx-help">Goes out at the next update</span>
     </div>
     {%- elif nl and nl.next_thumb %}
     <a class="dx-next" href="{{ nl.next_url }}" title="Next up: {{ nl.next_name }}{% if nl.next_when %}, {{ nl.next_when }}{% endif %}">
-      <span {{ color_attrs(section.get("device_id")) }} class="dx-next-thumb"{% if section.panel and section.panel.w and section.panel.h %} style="--thumb-ar: {{ section.panel.w }} / {{ section.panel.h }}"{% endif %}><img src="{{ nl.next_thumb }}" alt="Next up on {{ section.device_name }}: {{ nl.next_name }}" loading="lazy"></span>
+      <span {{ color_attrs(section.get("device_id")) }} class="thumb-frame dx-next-thumb"{% if section.panel and section.panel.w and section.panel.h %} style="--thumb-ar: {{ section.panel.w }} / {{ section.panel.h }}"{% endif %}><img src="{{ nl.next_thumb }}" alt="Next up on {{ section.device_name }}: {{ nl.next_name }}" loading="lazy"></span>
       <span class="dx-next-tag">Next</span>
       <span class="dx-help">{{ nl.next_name }}{% if nl.next_when %}<br>{{ nl.next_when }}{% endif %}</span>
     </a>
@@ -305,7 +310,7 @@
 <ul class="dx-vitals" aria-label="Vital signs" data-render-sync="tiles:{{ section.get('device_id') }}">
   {%- set bat_tip = ov.battery.sub or '' %}
   <li><a class="dx-vital" href="{{ '#power' if section.battery_offset_endpoint else '#connection' }}"{% if bat_tip %} title="{{ bat_tip }}"{% endif %}>
-    <span class="dx-vital-k">Battery</span>
+    <span class="dx-vital-k">{{ ov.battery.title or 'Battery' }}</span>
     <span class="dx-vital-v{% if ov.battery.low %} is-warn{% endif %}{% if ov.battery.muted %} is-muted{% endif %}">{{ ov.battery.value }}</span>
     <span class="dx-vital-s">{{ bat_tip }}</span></a></li>
   {%- set nu_parts = [] %}

@@ -167,7 +167,7 @@ def test_display_header(page: str) -> None:
     assert _next_line(fd) in hdr and fd["next_line"]["before"] == "AI News next at"
     # The now thumbnail sits in a fixed slot in the display's own shape.
     assert re.search(
-        r'<figure class="lu-now-thumb" title="On screen: Family"><span class="lu-thumb p" style="--ar:1440/2560',
+        r'<figure class="lu-now-thumb" title="On screen: Family"><span class="thumb-frame lu-thumb p" style="--ar:1440/2560',
         hdr,
     )
     # The fold chevron is the header's last control, tied to the body.
@@ -185,10 +185,12 @@ def test_day_bar_is_prerendered(page: str) -> None:
     assert 'aria-label="Wed: Breakfast 06:30, Dinner (Mon–Wed) 17:00, Night 22:00"' in b
     # The live window wears the accent class; holds are rods; a push is a sliver.
     assert re.search(
-        r'class="lu-blk live" style="left:70\.8333%;width:12\.5%" data-lineup="dinner"', b
+        r'class="lu-blk live" style="left:70\.8333%;width:12\.5%;--w:12\.5" data-lineup="dinner"',
+        b,
     )
     assert b.count('class="lu-blk hold"') == 4  # night, breakfast, dinner, night
-    assert re.search(r'class="lu-blk push" [^>]*data-lineup="night"', b)
+    # A push is thin: it draws above a block that starts where it does.
+    assert re.search(r'class="lu-blk push is-thin" [^>]*data-lineup="night"', b)
     # Every non-hold block is a drag/keyboard target with resize handles.
     assert b.count('data-edit tabindex="0"') == 3
     assert b.count('<i class="lu-h" data-h="l"') == 2  # the push has no handles
@@ -451,7 +453,9 @@ def test_page_shell_and_progressive_enhancement(page: str) -> None:
     assert "lineup_fold.js" not in page
     assert "/static/style/dx-lineups.css" in page
     assert 'data-view-url="/decks/view.json"' in page and 'data-edits-url="/decks/edits"' in page
-    # The wizard and the schedule forms are still on the page.
+    # New lineup opens the lineup editor's new-lineup flow; the setup wizard
+    # and the schedule forms are still on the page.
+    assert '<a class="lu-btn-primary" href="/decks/new">' in page
     assert "data-open-timed-wizard" in page and 'id="timed-wizard"' in page
     assert 'id="schedule-form-card"' in page
 
@@ -488,7 +492,7 @@ def test_accent_comes_from_the_theme_tokens() -> None:
         r"\.lu \.lu-tag-st\.live \{ background: var\(--lu-acc\); color: var\(--lu-acc-fg\);",
         r"\.lu \.lu-blk\.live \{ background: var\(--lu-acc\); color: var\(--lu-acc-fg\);",
         r"\.lu \.lu-pill\.p-now \{ background: var\(--lu-acc\); color: var\(--lu-acc-fg\);",
-        r"\.lu \.lu-step\.is-now \.lu-thumb \{ border: 2px solid var\(--lu-acc\)",
+        r"\.lu \.lu-step\.is-now \.lu-thumb \{ --thumb-edge: var\(--lu-acc\)",
         r"\.lu \.lu-sdot \{[^}]*background: var\(--lu-acc\)",
     ):
         assert re.search(rule, CSS), rule
@@ -538,9 +542,11 @@ def test_old_lineups_page_code_is_gone() -> None:
     assert not (REPO_ROOT / "static" / "lineup_fold.js").exists()
     old = (REPO_ROOT / "static" / "style" / "dx-decks.css").read_text()
     assert ".dk-row" not in old and ".dk-group" not in old
-    assert ".dxe-thumb" in old  # the lineup editor keeps its styles
-    # Thumbnails fit inside the display's shape instead of cropping.
-    assert re.search(r"\.lu \.lu-thumb img \{[^}]*object-fit: contain", CSS)
+    assert ".lu.dxe" in old  # the lineup editor keeps its styles
+    # Thumbnails are the one frame in the display's shape (base.css): the picture
+    # covers it, so the lineups sheet sets no object-fit on a thumbnail's picture.
+    assert not re.search(r"\.lu \.lu-thumb img \{[^}]*object-fit", CSS)
+    assert re.search(r"\.lu \.lu-thumb \{[^}]*aspect-ratio: var\(--ar\)", CSS)
 
 
 def test_unknown_glass_says_so(app: Flask) -> None:
@@ -548,6 +554,7 @@ def test_unknown_glass_says_so(app: Flask) -> None:
     k = vm["displays"][1]
     k["on_screen"], k["on_screen_known"] = None, False
     k["show_note"] = ", waiting for check-in"
+    k["queued_thumb"] = None
     k["placeholder"] = _note("none", "No image yet", "", "No image is known for this display yet.")
     hdr = _section(_render(app, vm), "kitchen").split("</header>")[0]
     assert "No image yet" in hdr and "lu-thumb-ph" not in hdr and ">?<" not in hdr
@@ -563,7 +570,7 @@ def _kitchen_header(app: Flask, **fields: Any) -> str:
     vm = sample_view_model().to_dict()
     k = vm["displays"][1]
     k["on_screen"], k["on_screen_known"] = None, False
-    k["queued_badge"] = None
+    k["queued_thumb"] = None
     k["placeholder"] = _note("none", "No image yet", "", "No image is known for this display yet.")
     k.update(fields)
     return _section(_render(app, vm), "kitchen").split("</header>")[0]
@@ -603,28 +610,55 @@ def test_nothing_sent_is_honest(app: Flask) -> None:
     assert 'title="Nothing has been sent yet."' in hdr and ">?<" not in hdr
 
 
-def test_queued_placeholder_and_badge_markup(app: Flask) -> None:
-    sentence = "A new frame is queued. The frame picks it up at its next check-in ~3:48 PM."
-    hdr = _kitchen_header(
-        app,
-        placeholder=_note(
-            "queued", "Queued", "Frame picks it up at its next check-in ~3:48 PM", sentence
-        ),
-    )
-    assert "note-queued" in hdr and f'aria-label="{sentence}"' in hdr
-    assert "<b>Queued</b><small>Frame picks it up at its next check-in ~3:48 PM</small>" in hdr
-    assert ">?<" not in hdr
+def _queued_thumb(**over: Any) -> dict[str, Any]:
+    return {
+        "name": "News",
+        "thumb_url": "/compose/thumbs/v1/sent/q1.webp",
+        "aspect": "800/480",
+        "orientation": "l",
+        "label": "Queued",
+        "title": "A new frame is queued. The frame picks it up at its next check-in ~3:48 PM.",
+        **over,
+    }
+
+
+def test_the_header_thumb_is_the_glass_and_the_queued_one_sits_on_its_corner(app: Flask) -> None:
     frame = {
         "label": "a frame sent by hand",
         "thumb_url": "/compose/thumbs/v1/sent/abc123.webp",
         "since": "17:58",
         "title": "A frame sent by hand, on screen since 17:58",
     }
-    badged = _kitchen_header(
-        app, frame=frame, placeholder=None, queued_badge=_note("queued", "Queued", "", sentence)
-    )
-    assert '<img src="/compose/thumbs/v1/sent/abc123.webp"' in badged
-    assert f'<span class="lu-qbadge" title="{sentence}"' in badged
+    qt = _queued_thumb()
+    hdr = _kitchen_header(app, frame=frame, placeholder=None, queued_thumb=qt)
+    figure = hdr[hdr.index('<figure class="lu-now-thumb"') : hdr.index("</figure>")]
+    # The figure's own title is the glass; the Queued tag is not on the main thumb.
+    assert 'title="A frame sent by hand, on screen since 17:58"' in figure.split(">")[0]
+    wrap = figure[figure.index('<span class="lu-now-wrap">') :]
+    main, queued = wrap.split('<span class="lu-qthumb"')
+    assert '<img src="/compose/thumbs/v1/sent/abc123.webp"' in main and "lu-qtag" not in main
+    assert 'role="group"' in queued and f'aria-label="{qt["title"]}"' in queued
+    assert '<img src="/compose/thumbs/v1/sent/q1.webp"' in queued
+    assert '<span class="lu-qtag">' in queued and "<span>Queued</span>" in queued
+    assert "lu-qbadge" not in hdr
+    # Nothing queued: no overlay, no wrapper.
+    calm = _kitchen_header(app, frame=frame, placeholder=None, queued_thumb=None)
+    assert "lu-qthumb" not in calm and "lu-now-wrap" not in calm
+
+
+def test_a_queued_picture_with_no_image_still_shows_a_tagged_box_and_the_glass_placeholder(
+    app: Flask,
+) -> None:
+    hdr = _kitchen_header(app, queued_thumb=_queued_thumb(name="A new frame", thumb_url=""))
+    assert "<b>No image yet</b>" in hdr  # what is on the glass, not "Queued"
+    assert "note-queued" not in hdr
+    queued = hdr[hdr.index('<span class="lu-qthumb"') :]
+    assert '<span class="lu-thumb-ph"' in queued and "<span>Queued</span>" in queued
+
+
+def test_queued_thumb_has_its_corner_rules(app: Flask) -> None:
+    assert ".lu .lu-qthumb { position: absolute; z-index: 2; right: -10px; bottom: -10px;" in CSS
+    assert ".lu .lu-now-thumb .lu-qthumb .lu-thumb.p { height: 46px;" in CSS
 
 
 def test_checked_in_display_is_not_waiting(app: Flask) -> None:
@@ -723,3 +757,134 @@ def test_deleted_dashboard_step_is_flagged_in_markup_and_js(app: Flask) -> None:
         '.includes("missing")',
     ):
         assert token in js, token
+
+
+def test_an_all_day_block_draws_no_bar_and_no_ends_in(app: Flask) -> None:
+    vm = sample_view_model().to_dict()
+    dinner = next(lu for lu in vm["displays"][0]["lineups"] if lu["id"] == "dinner")
+    assert dinner["progress"]["ends_in_label"]  # an ordinary window counts down
+    assert "ends in" in _row(_render(app, vm), "dinner") and "lu-hs-bar" in _row(
+        _render(app, vm), "dinner"
+    )
+    dinner["progress"].update(
+        always_on=True,
+        window_pct=None,
+        ends_in_label=None,
+        ends_in_minutes=None,
+        pauses_in_label="4h 48m",
+        pauses_in_minutes=288,
+    )
+    row = _row(_render(app, vm), "dinner")
+    assert "ends in" not in row and "lu-hs-bar" not in row and 'role="progressbar"' not in row
+    assert "pauses in <b>4h 48m</b>" in row
+    dinner["progress"].update(pauses_in_label=None, pauses_in_minutes=None)
+    quiet = _row(_render(app, vm), "dinner")
+    assert "pauses" not in quiet and "ends in" not in quiet and "lu-hs-bar" not in quiet
+
+
+# -- zoom icon, item arrows and the lightbox ------------------------------------------
+
+
+def _with_thumbs() -> dict[str, Any]:
+    vm = sample_view_model().to_dict()
+    for d in vm["displays"]:
+        for lu in d["lineups"]:
+            for s in lu["steps"]:
+                s["thumb_url"] = f"/compose/thumbs/v1/sent/{s['dashboard_id']}0abc.webp"
+        if d["on_screen"]:
+            d["on_screen"]["thumb_url"] = "/compose/thumbs/v1/sent/onscreen0abc.webp"
+    return vm
+
+
+def test_thumbnails_carry_a_zoom_icon_in_their_corner(app: Flask) -> None:
+    body = _render(app, _with_thumbs())
+    dinner = _row(body, "dinner")
+    # Inside the thumb (so it sits in the picture's own top right corner), a real button.
+    assert re.search(
+        r'<span class="thumb-frame lu-thumb [^"]*"[^>]*>\s*<img [^>]*>\s*<button type="button" class="lu-zoom" '
+        r'data-zoom="step:dinner:0" aria-haspopup="dialog" aria-label="Zoom Newspaper" title="Zoom Newspaper">',
+        dinner,
+    )
+    assert dinner.count('class="lu-zoom"') == 6  # one per step
+    header = _section(body, "frame").split("</header>")[0]
+    assert 'data-zoom="head:frame"' in header and "Zoom what Visionect frame is showing" in header
+    # Quiet and hidden without the script, always there on touch, 44px to hit.
+    assert ".lu:not(.is-enhanced) .lu-zoom," in CSS
+    assert ".lu .lu-zoom { top: 0; right: 0; width: 44px; height: 44px;" in CSS
+
+
+def test_no_zoom_icon_without_a_picture_to_zoom(app: Flask) -> None:
+    """The sample has no thumbnails yet: nothing to enlarge, so no icon."""
+    body = _render(app, sample_view_model().to_dict())
+    assert 'class="lu-zoom"' not in body
+    vm = _with_thumbs()
+    vm["displays"][0]["lineups"][0]["steps"][0]["missing"] = True
+    vm["displays"][0]["lineups"][0]["steps"][1]["off_display"] = True
+    dinner = _row(_render(app, vm), "dinner")
+    assert 'data-zoom="step:dinner:0"' not in dinner and 'data-zoom="step:dinner:1"' not in dinner
+    assert 'data-zoom="step:dinner:2"' in dinner
+
+
+def test_item_arrows_only_where_an_item_can_be_chosen(app: Flask) -> None:
+    dinner = _row(_render(app, sample_view_model().to_dict()), "dinner")
+    # The art gallery (12 items, pinnable): previous / next under Push now.
+    art = dinner.split('data-step="1"')[1].split('data-step="2"')[0]
+    assert 'class="lu-tile stacked has-items"' in art
+    assert re.search(
+        r'<span class="lu-items" role="group" aria-label="Choose which Art item to push">'
+        r'<button type="button" class="lu-it" data-item="dinner:1:-1" aria-label="Previous item" title="Previous item">',
+        art,
+    )
+    assert 'data-item="dinner:1:1"' in art and 'aria-label="Next item"' in art
+    assert art.index("lu-push-form") < art.index("lu-items") < art.index("lu-pushed-msg")
+    # Quotes have 20 items but no way to ask for one; a single dashboard has one.
+    assert dinner.count('<span class="lu-items"') == 1
+    assert 'data-item="dinner:4' not in dinner and 'data-item="dinner:0' not in dinner
+    assert 'class="lu-tile stacked"' in dinner  # quotes still stack with a count
+    assert ">×20<" in dinner
+
+
+def test_no_arrows_without_a_push_route_or_when_off_display(app: Flask) -> None:
+    vm = sample_view_model().to_dict()
+    vm["displays"][0]["lineups"][0]["actions"]["step_item_url"] = ""
+    assert "lu-items" not in _row(_render(app, vm), "dinner")
+    vm = sample_view_model().to_dict()
+    vm["displays"][0]["lineups"][0]["steps"][1]["off_display"] = True
+    assert "lu-items" not in _row(_render(app, vm), "dinner")
+
+
+def test_lightbox_script_loads_before_the_page_script_and_the_tabbar_stays_below(
+    app: Flask,
+) -> None:
+    body = _render(app, sample_view_model().to_dict())
+    assert body.index("lineups_lightbox.js") < body.index("static/lineups.js")
+    assert body.index("lineups_render.js") < body.index("lineups_lightbox.js")
+    z = int(re.search(r"\.lu \.lu-lb \{[^}]*z-index: (\d+)", CSS).group(1))  # type: ignore[union-attr]
+    paper = (REPO_ROOT / "static" / "style" / "paper.css").read_text()
+    tabbar = int(re.search(r'data-ui="paper"\] \.tabbar \{[^}]*z-index: (\d+)', paper).group(1))  # type: ignore[union-attr]
+    assert z > tabbar, "the lightbox must cover Paper's phone tab bar"
+    assert "padding: max(16px, env(safe-area-inset-top))" in CSS
+
+
+def test_draw_arrows_say_picture_not_item_and_wait_for_something_drawn(app: Flask) -> None:
+    """A widget that cannot name its items but differs per render: Next draws,
+    Previous waits for a picture; it stacks like a collection with a "random" badge
+    (the total is unknown), never a ×N count."""
+    vm = sample_view_model().to_dict()
+    step = vm["displays"][0]["lineups"][0]["steps"][2]  # a plain one-item dashboard
+    step["draw_items"] = True
+    row = _row(_render(app, vm), "dinner")
+    seg = row.split('data-step="2"')[1].split('data-step="3"')[0]
+    assert 'class="lu-tile stacked has-items"' in seg
+    assert re.search(
+        r'<span class="lu-items" role="group" aria-label="Draw another Family picture">'
+        r'<button type="button" class="lu-it" data-item="dinner:2:-1" aria-label="Previous picture" '
+        r'title="Previous picture" disabled>',
+        seg,
+    )
+    assert 'data-item="dinner:2:1" aria-label="Draw the next picture"' in seg
+    assert '<span class="lu-it-pos" aria-hidden="true"></span>' in seg
+    assert re.search(r'<span class="lu-count is-draw"[^>]*>random</span>', seg) and "×" not in seg
+    # Named items keep their wording; a step that is neither gets no arrows.
+    assert "Choose which Art item to push" in row and "Previous item" in row
+    assert row.count("lu-items") == 2

@@ -3078,3 +3078,150 @@ def test_frame_refresh_survives_a_render_without_a_page(app: Flask) -> None:
     pm, remaining = _refresh(app, rendered_at=now - 600, change_at=now - 60, page_id=None)
     assert pm.pushes == []
     assert remaining is None
+
+
+def test_a_button_key_on_frame_and_status_selects_its_own_binding(app: Flask) -> None:
+    """``button_key`` (the physical button) rides beside ``button`` on the
+    frame GET and the status POST, and a map entry for it wins."""
+    client = app.test_client()
+    _sign_in(client)
+    code = _issue_pairing(app)
+    resp = _register_via_api(client, code=code, device_id="bedroom_pico")
+    token = resp.get_json()["device_token"]
+
+    settings = app.config["SETTINGS_STORE"]
+    devices = settings.get_section("devices") or {}
+    devices["bedroom_pico"] = {
+        **devices.get("bedroom_pico", {}),
+        "button_map": {"a": "fetch_latest", "d": "fetch_latest"},
+    }
+    settings.update_section("devices", devices)
+    app.config["PUSH_MANAGER"]._latest_renders["bedroom_pico"] = {
+        "digest": "abc123",
+        "ext": "bin",
+        "filename": "abc123.bin",
+        "renderer_id": "pico_bin",
+        "timestamp": time.time(),
+        "composition_digest": "comp123",
+    }
+    headers = {"Authorization": f"Bearer {token}"}
+
+    frame = client.get(
+        "/api/v1/device/bedroom_pico/frame?button=left&button_key=A&button_event_id=20",
+        headers=headers,
+    )
+    status = client.post(
+        "/api/v1/device/bedroom_pico/status",
+        json={"button": "d", "button_key": "d", "button_event_id": 21},
+        headers=headers,
+    )
+
+    assert frame.status_code == 200
+    assert status.status_code == 200
+    rows = [
+        row
+        for row in app.config["EVENT_LOG"].list(type="push")
+        if row.source == "button" and row.target == "bedroom_pico"
+    ]
+    # Both presses ran the key's binding (fetch_latest), not left's default
+    # rotate_prev or an unmapped "d".
+    assert sorted(row.extra["button_event_id"] for row in rows if row.status == "fetched") == [
+        20,
+        21,
+    ]
+
+
+# -- PaperS3 portrait heal (firmware #21) --------------------------------
+
+
+def _register_papers3(app: Flask, client, device_id: str) -> str:
+    """Register the way firmware before 1.63.0 did: the 960x540 buffer,
+    no rotation, so the server stores a landscape canvas."""
+    _sign_in(client)
+    code = _issue_pairing(app)
+    resp = client.post(
+        "/api/v1/device/register",
+        headers={"X-Pairing-Code": code, "Content-Type": "application/json"},
+        data=json.dumps(
+            {
+                "device_id": device_id,
+                "kind": "m5stack_papers3",
+                "panel_w": 960,
+                "panel_h": 540,
+                "fw_version": "1.62.3",
+            }
+        ),
+    )
+    assert resp.status_code == 201, resp.get_data(as_text=True)
+    return resp.get_json()["device_token"]
+
+
+def _panel(app: Flask, device_id: str) -> dict:
+    return dict(app.config["DEVICE_REGISTRY"].get(device_id).manifest.get("panel") or {})
+
+
+def test_papers3_on_old_firmware_keeps_its_canvas(app: Flask) -> None:
+    client = app.test_client()
+    token = _register_papers3(app, client, "paper_s3")
+    assert (_panel(app, "paper_s3")["w"], _panel(app, "paper_s3")["h"]) == (960, 540)
+    _post_status(client, "paper_s3", token, {"fw_version": "1.62.3"})
+    assert (_panel(app, "paper_s3")["w"], _panel(app, "paper_s3")["h"]) == (960, 540)
+
+
+def test_papers3_moves_to_portrait_once_it_runs_1_63(app: Flask) -> None:
+    client = app.test_client()
+    token = _register_papers3(app, client, "paper_s3")
+    _post_status(client, "paper_s3", token, {"fw_version": "1.63.0"})
+    panel = _panel(app, "paper_s3")
+    assert (panel["w"], panel["h"], panel["orientation"]) == (540, 960, "portrait")
+    assert (panel["native_w"], panel["native_h"]) == (960, 540)
+    device = app.config["DEVICE_REGISTRY"].get("paper_s3")
+    assert json.loads(device.path.read_text(encoding="utf-8"))["papers3_portrait_healed"] is True
+
+
+def test_papers3_heal_runs_once_so_a_later_landscape_choice_sticks(app: Flask) -> None:
+    from app.device_service import heal_papers3_portrait
+
+    client = app.test_client()
+    token = _register_papers3(app, client, "paper_s3")
+    _post_status(client, "paper_s3", token, {"fw_version": "1.63.1"})
+    # The owner turns it back to landscape on the device page.
+    device = app.config["DEVICE_REGISTRY"].get("paper_s3")
+    raw = json.loads(device.path.read_text(encoding="utf-8"))
+    raw["panel"].update({"w": 960, "h": 540, "orientation": "landscape"})
+    device.path.write_text(json.dumps(raw), encoding="utf-8")
+    device.manifest["panel"].update({"w": 960, "h": 540, "orientation": "landscape"})
+    assert raw["papers3_portrait_healed"] is True
+    assert not heal_papers3_portrait(
+        devices=app.config["DEVICE_REGISTRY"],
+        renderers=app.config["RENDERER_REGISTRY"],
+        data_root=device.path.parent.parent,
+        instance_id="paper_s3",
+        fw_version="1.64.0",
+    )
+
+
+@pytest.mark.parametrize("fw", ["1.65.0", "1.66.2"])
+def test_papers3_heal_leaves_firmware_with_framebuffer_touch_alone(app: Flask, fw: str) -> None:
+    # 1.65.0 maps touch for any orientation, so a landscape PaperS3 stays
+    # landscape: moving it would only override the owner (firmware #21).
+    client = app.test_client()
+    token = _register_papers3(app, client, "paper_s3")
+    _post_status(client, "paper_s3", token, {"fw_version": fw})
+    assert (_panel(app, "paper_s3")["w"], _panel(app, "paper_s3")["h"]) == (960, 540)
+
+
+@pytest.mark.parametrize("fw", ["", "99.0.0-bench", "1.63.0-3-gabc", None])
+def test_papers3_heal_ignores_unparseable_versions(app: Flask, fw: Any) -> None:
+    client = app.test_client()
+    token = _register_papers3(app, client, "paper_s3")
+    _post_status(client, "paper_s3", token, {"fw_version": fw} if fw is not None else {})
+    assert (_panel(app, "paper_s3")["w"], _panel(app, "paper_s3")["h"]) == (960, 540)
+
+
+def test_other_kinds_are_never_touched(app: Flask) -> None:
+    client = app.test_client()
+    token = _register_esp32(app, client, "esp_any")
+    before = _panel(app, "esp_any")
+    _post_status(client, "esp_any", token, {"fw_version": "1.63.0"})
+    assert _panel(app, "esp_any") == before

@@ -130,6 +130,10 @@
       {{ dsec_head('display', 'image-square', 'Display', _name ~ ((' · ' ~ section.panel.w ~ ' × ' ~ section.panel.h ~ ' · ' ~ _rot_label) if section.panel else '')) }}
       <div class="dx-dsec-body" id="display-body" data-collapsible-body>
 
+        {#- A field's ``group`` (device.json config_schema) sets where it sits: 'sign' and
+            'sign_net' are Visionect's frame settings; any other name is a group of its own
+            after Rendering. A field without one stays in Identity, Rendering or Timing. -#}
+        {% set _grouped = (section.fields or [])|selectattr('group')|rejectattr('group', 'in', ['sign', 'sign_net'])|list %}
         {% set id_fields = (section.fields or [])|selectattr('type', 'in', ['string', 'ha_device_picker'])|list %}
         <div class="dx-grp" id="identity" data-devsub>
           <div class="dx-grp-head"><h3 class="dx-grp-title">Identity</h3></div>
@@ -189,11 +193,10 @@
               <button type="submit" form="{{ section.id }}-calibrate" class="dx-btn is-icon" aria-label="Send orientation card" title="Send orientation card"><i class="ph ph-compass" aria-hidden="true"></i></button>
               {% endif %}
             {% endcall %}
-            {% if section.gamut_capable %}
-            {% call fld(section.id ~ '-gamut', 'Colour gamut', help='The palette the .bin frame is packed to on the server.', w='lg') %}
-              {{ dx_select(section.id ~ '-gamut', 'panel_gamut', section.panel.get('gamut', 'waveshare_e6'),
-                  [{'value':'waveshare_e6','label':'Waveshare E6 / Spectra 6 (6-colour)'},
-                   {'value':'inky_7colour','label':'Inky Impression 7-colour (adds orange)'}], form=_form) }}
+            {% if section.palette %}
+            {% call fld(section.id ~ '-gamut', section.palette.label, help=section.palette.help, w='lg') %}
+              {{ dx_select(section.id ~ '-gamut', 'panel_gamut', section.palette.value,
+                  section.palette.choices, form=_form) }}
             {% endcall %}
             {% endif %}
           </div>
@@ -287,6 +290,15 @@
           </div>
         </div>
 
+        {% for gname in _grouped|map(attribute='group')|unique %}
+        <div class="dx-grp" id="grp-{{ gname|lower|replace(' ', '-') }}" data-devsub>
+          <div class="dx-grp-head"><h3 class="dx-grp-title">{{ gname }}</h3></div>
+          <div class="dx-fg">
+            {% for field in _grouped if field.group == gname %}{{ config_field(section, field, _form) }}{% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+
         {#- The frame's own settings (Visionect): only the ones this frame
             answered when it last connected are offered. Network settings sit
             apart, behind a warning. -#}
@@ -326,17 +338,25 @@
 
     {# ---------------- SCHEDULE ---------------- #}
     {% set qh = section.quiet_hours %}
-    {% set _n_lineups = (section.lineup_rows|length) + (section.timetable_entries|length) %}
+    {% set _n_lineups = section.lineup_rows|length %}
+    {% set _n_dash = section.schedule_rows|length %}
     <section class="dx-dsec" id="schedule" data-collapsible>
       {{ dsec_head('schedule', 'calendar-blank', 'Schedule',
           (section.overview.next_wake.sub ~ ' · ' if section.overview.next_wake.sub else '')
           ~ ('own quiet hours' if qh.get('enabled') else 'server quiet hours')
-          ~ ' · ' ~ _n_lineups ~ (' lineup' if _n_lineups == 1 else ' lineups')) }}
+          ~ (' · ' ~ _n_lineups ~ (' lineup' if _n_lineups == 1 else ' lineups') if _n_lineups or not _n_dash else '')
+          ~ (' · ' ~ _n_dash ~ (' dashboard schedule' if _n_dash == 1 else ' dashboard schedules') if _n_dash else '')) }}
       <div class="dx-dsec-body" id="schedule-body" data-collapsible-body>
 
-        {% set t_fields = (section.fields or [])|rejectattr('type', 'in', ['string', 'ha_device_picker', 'select'])|list %}
+        {% set t_fields = (section.fields or [])|rejectattr('type', 'in', ['string', 'ha_device_picker', 'select'])|rejectattr('name', 'in', _grouped|map(attribute='name')|list)|list %}
         {% set awake_spec = t_fields|selectattr('name', 'equalto', 'awake_poll_s')|first %}
         {% set has_always_on = t_fields|selectattr('name', 'equalto', 'always_on')|list|length > 0 %}
+        {#- A display with nothing to time (a TV that is pushed to) gets no Timing group. -#}
+        {% set _has_timing = t_fields or sign or section.refresh_mode_capable or section.wake_align_capable %}
+        {#- The Next update tile and vital link to #timing; without the group
+            that anchor stays here, in the Schedule section. -#}
+        {% if not _has_timing %}<span id="timing"></span>{% endif %}
+        {% if _has_timing %}
         <div class="dx-grp" id="timing" data-devsub>
           <div class="dx-grp-head"><h3 class="dx-grp-title">Timing</h3></div>
           <div class="dx-fg">
@@ -383,6 +403,7 @@
           </details>
           {% endif %}
         </div>
+        {% endif %}
 
         {# Quiet hours: the override's switch heads the fields it governs;
            off hides them (and disables them, so they are not posted). #}
@@ -419,13 +440,16 @@
         </div>
         {% endif %}
 
+        {#- Lineups and dashboard schedules are different things, so each has its own list,
+            shown only when it has rows. With neither, the Lineups group keeps the empty state. -#}
+        {% if section.lineup_rows or not section.schedule_rows %}
         <div class="dx-grp" id="lineups" data-devsub>
           <div class="dx-grp-head">
             <h3 class="dx-grp-title">Lineups</h3>
             <a class="dx-link-btn dx-grp-end" href="{{ url_for('decks.index') }}"><i class="ph ph-arrow-square-out" aria-hidden="true"></i><span>Lineups page</span></a>
           </div>
-          {% if section.lineup_rows or section.timetable_entries %}
-          <ul class="dx-list"{% if section.lineup_rows %} data-device-lineups{% endif %}>
+          {% if section.lineup_rows %}
+          <ul class="dx-list" data-device-lineups>
             {% for lu in section.lineup_rows %}
             <li class="dx-li{% if not lu.enabled %} is-off{% endif %}">
               <i class="ph ph-monitor-play" aria-hidden="true"></i>
@@ -439,26 +463,7 @@
               </div>
             </li>
             {% endfor %}
-            {% for entry in section.timetable_entries %}
-            <li class="dx-li{% if not entry.enabled %} is-off{% endif %}">
-              <i class="ph ph-squares-four" aria-hidden="true"></i>
-              <div class="dx-li-main">
-                <span class="dx-li-name">{{ entry.page_name }}</span>
-                {% if not entry.enabled %}<span class="tg tg--sm">disabled</span>{% endif %}
-                {% if entry.wont_send %}<span class="tg tg--sm tg--warn" title="This dashboard isn't bound to any device, so it won't send. Bind it to a device, or enable legacy unbound broadcast in Settings.">unbound · won't send</span>{% endif %}
-                <span class="dx-li-meta">schedule ·
-                  {% if entry.type == 'daily' %}daily{% elif entry.window_start and entry.window_end %}{{ entry.window_start }} → {{ entry.window_end }}{% elif entry.window_start %}from {{ entry.window_start }}{% else %}always{% endif %}
-                  · {{ entry.days_label }}{% if entry.interval_minutes %} · every {{ entry.interval_minutes }} min{% endif %}</span>
-              </div>
-              <div class="dx-li-end">
-                <a class="dx-btn is-sm is-ghost is-icon" href="{{ url_for('schedules.index') }}#schedule-{{ entry.schedule_id }}" aria-label="Edit {{ entry.page_name }}" title="Edit"><i class="ph ph-pencil-simple" aria-hidden="true"></i></a>
-              </div>
-            </li>
-            {% endfor %}
           </ul>
-          {% if section.timetable_entries %}
-          <p class="dx-help dx-list-note">Schedules show here when their dashboard is bound to this display. Edit them on the <a href="{{ url_for('decks.index') }}">Lineups</a> page.</p>
-          {% endif %}
           {% else %}
           <div class="dx-empty">
             <i class="ph ph-calendar-blank" aria-hidden="true"></i>
@@ -470,6 +475,35 @@
           </div>
           {% endif %}
         </div>
+        {% endif %}
+
+        {% if section.schedule_rows %}
+        {% if not section.lineup_rows %}<span id="lineups"></span>{% endif %}
+        <div class="dx-grp" id="dashboard-schedules" data-devsub>
+          <div class="dx-grp-head">
+            <h3 class="dx-grp-title">Dashboard schedules</h3>
+          </div>
+          <ul class="dx-list">
+            {% for entry in section.schedule_rows %}
+            <li class="dx-li{% if not entry.enabled %} is-off{% endif %}">
+              <i class="ph ph-squares-four" aria-hidden="true"></i>
+              <div class="dx-li-main">
+                <span class="dx-li-name">{{ entry.page_name }}</span>
+                {% if not entry.enabled %}<span class="tg tg--sm">disabled</span>{% endif %}
+                {% if entry.wont_send %}<span class="tg tg--sm tg--warn" title="This dashboard isn't bound to any device, so it won't send. Bind it to a device, or enable legacy unbound broadcast in Settings.">unbound · won't send</span>{% endif %}
+                <span class="dx-li-meta">
+                  {% if entry.type == 'daily' %}daily{% elif entry.window_start and entry.window_end %}{{ entry.window_start }} → {{ entry.window_end }}{% elif entry.window_start %}from {{ entry.window_start }}{% else %}always{% endif %}
+                  · {{ entry.days_label }}{% if entry.interval_minutes %} · every {{ entry.interval_minutes }} min{% endif %}</span>
+              </div>
+              <div class="dx-li-end">
+                <a class="dx-btn is-sm is-ghost is-icon" href="{{ url_for('schedules.index') }}#schedule-{{ entry.schedule_id }}" aria-label="Edit {{ entry.page_name }}" title="Edit"><i class="ph ph-pencil-simple" aria-hidden="true"></i></a>
+              </div>
+            </li>
+            {% endfor %}
+          </ul>
+          <p class="dx-help dx-list-note">Schedules show here when their dashboard is bound to this display. Edit them on the <a href="{{ url_for('decks.index') }}">Lineups</a> page.</p>
+        </div>
+        {% endif %}
       </div>
     </section>
 
@@ -491,7 +525,7 @@
           <div class="dx-f dx-f-span">
             <div class="dx-f-head">
               <label class="dx-f-label" for="{{ section.id }}-button-map">JSON</label>
-              {{ info_pop('Map each button name to an action; actions with arguments use the action:arg form, e.g. page:Kitchen, step:2, webhook:https://… A page: binding takes a dashboard name or its id; a name binding breaks if the dashboard is renamed, an id binding does not. Leave it empty to use the defaults shown under Effective map.') }}
+              {{ info_pop('Map each button name to an action; actions with arguments use the action:arg form, e.g. page:Kitchen, step:2, webhook:https://… A Raspberry Pi on an Inky Impression also sends its button letter, a to d, and a letter wins over the name, so {"a": "page:Calendar", "d": "page:Weather"} binds each button on its own. A page: binding takes a dashboard name or its id; a name binding breaks if the dashboard is renamed, an id binding does not. Leave it empty to use the defaults shown under Effective map.') }}
             </div>
             <textarea id="{{ section.id }}-button-map" name="button_map_json" form="{{ _form }}"
                       class="dx-in dx-mono dx-button-map-input" rows="5" spellcheck="false" autocomplete="off"
@@ -726,6 +760,7 @@
             </div>
           </div>
           {% endif %}
+          {% if lg.capable %}
           <div class="dx-collect{% if lg.remaining %} is-active{% endif %}">
             <div class="dx-collect-text">
               <span class="dx-f-label">{% if lg.remaining %}Collecting: {{ lg.remaining }} wake{{ '' if lg.remaining == 1 else 's' }} left{% else %}Not collecting{% endif %}</span>
@@ -763,18 +798,6 @@
             {% endif %}
             <span class="dx-help">The newest 20 uploads are kept, up to 1 MB.</span>
           </div>
-          {% if lg.viewing %}
-          <div class="dx-log-viewer">
-            <div class="dx-code-head">
-              <span class="dx-f-label">Upload from {{ lg.viewing.received_at|fmt_time }}</span>
-              <span class="dx-btn-row">
-                <a class="dx-link-btn" href="{{ url_for('auth.device_page', instance_id=section.device_id) }}#logs">Close</a>
-                <button type="button" class="dx-btn is-sm" data-copy-target="#{{ section.id }}-log-view"><i class="ph ph-copy" aria-hidden="true"></i><span>Copy</span></button>
-              </span>
-            </div>
-            <pre class="dx-code is-tall dx-log-view" id="{{ section.id }}-log-view">{{ lg.viewing.text }}</pre>
-          </div>
-          {% endif %}
           {% else %}
           <div class="dx-empty">
             <i class="ph ph-scroll" aria-hidden="true"></i>
@@ -782,6 +805,46 @@
               <p class="dx-empty-title">No logs uploaded yet</p>
               <p class="dx-help">Start a collection above; each wake's log lands here after the panel's next check-in.</p>
             </div>
+          </div>
+          {% endif %}
+          {% endif %}{# lg.capable #}
+
+          {% if lg.ota_uploads %}
+          <div class="dx-ota-logs">
+            <span class="dx-f-label">OTA logs</span>
+            <p class="dx-help">Sent by the panel on its own around each firmware update: the download and install, and the first boot after it. The newest 10 are kept, up to 512 KB.</p>
+            <ul class="dx-list dx-log-list" data-log-list>
+              {% for up in lg.ota_uploads %}
+              <li class="dx-li dx-log-row{% if lg.viewing and lg.viewing.name == up.name %} is-active{% endif %}"{% if loop.index > 3 %} data-log-extra hidden{% endif %}>
+                <div class="dx-li-main">
+                  <span class="dx-li-when">{{ up.received_at|fmt_time }}</span>
+                  <span class="dx-li-meta">{{ up.relative }} · {{ up.size }} · {{ up.lines }} line{{ '' if up.lines == 1 else 's' }}</span>
+                </div>
+                <div class="dx-li-end">
+                  <a class="dx-btn is-sm is-ghost is-icon" href="{{ up.view_url }}" aria-label="View the OTA log from {{ up.received_at|fmt_time }}" title="View"><i class="ph ph-eye" aria-hidden="true"></i></a>
+                  <a class="dx-btn is-sm is-ghost is-icon" href="{{ up.download_url }}" aria-label="Download the OTA log from {{ up.received_at|fmt_time }}" title="Download"><i class="ph ph-download-simple" aria-hidden="true"></i></a>
+                </div>
+              </li>
+              {% endfor %}
+            </ul>
+            {% if lg.ota_uploads|length > 3 %}
+            <div class="dx-list-foot">
+              <button type="button" class="dx-link-btn" data-log-more aria-expanded="false" data-more-label="Show all {{ lg.ota_uploads|length }} OTA logs" data-less-label="Show the newest 3"><i class="ph ph-caret-down" aria-hidden="true"></i><span>Show all {{ lg.ota_uploads|length }} OTA logs</span></button>
+            </div>
+            {% endif %}
+          </div>
+          {% endif %}
+
+          {% if lg.viewing %}
+          <div class="dx-log-viewer">
+            <div class="dx-code-head">
+              <span class="dx-f-label">{% if lg.viewing.kind == 'ota' %}OTA log{% else %}Upload{% endif %} from {{ lg.viewing.received_at|fmt_time }}</span>
+              <span class="dx-btn-row">
+                <a class="dx-link-btn" href="{{ url_for('auth.device_page', instance_id=section.device_id) }}#logs">Close</a>
+                <button type="button" class="dx-btn is-sm" data-copy-target="#{{ section.id }}-log-view"><i class="ph ph-copy" aria-hidden="true"></i><span>Copy</span></button>
+              </span>
+            </div>
+            <pre class="dx-code is-tall dx-log-view" id="{{ section.id }}-log-view">{{ lg.viewing.text }}</pre>
           </div>
           {% endif %}
         </div>

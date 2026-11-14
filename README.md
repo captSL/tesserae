@@ -24,6 +24,19 @@ Self-hosted dashboard companion for e-ink displays. Compose tile-based
 dashboards in a browser, render the frame headless, push it to one or
 more panels over MQTT or HTTP.
 
+> [!NOTE]
+> **Available for contract work.** I'm Kayden. I created Tesserae and maintain
+> it, with help from a growing group of contributors. I take on contracts
+> building with AI: custom agents, MCP
+> servers that connect AI models to your tools and data, and AI-assisted
+> development workflows for teams. I also take on full-stack, embedded and Home
+> Assistant projects, the same work Tesserae is built from.
+>
+> If Tesserae is useful to you, sponsoring helps keep it independent and
+> actively maintained.
+>
+> **[Email me about a contract](mailto:dmellok@icloud.com?subject=Contract%20work%20enquiry)** · **[Sponsor on GitHub](https://github.com/sponsors/dmellok)** · **[Support on Ko-fi](https://ko-fi.com/dmellok)**
+
 Open source under AGPL-3.0-or-later. The self-hosted server needs no
 account and never has to talk to us: the only outbound contact is
 `api.tesserae.ink` for update checks, an anonymous install count, and a
@@ -58,7 +71,8 @@ and the onboarding wizard.
 
 Other install paths:
 [Home Assistant App](https://docs.tesserae.ink/install/home-assistant/),
-[LXC / Proxmox / MicroCloud](https://docs.tesserae.ink/install/lxc/),
+[Proxmox VE helper script](https://docs.tesserae.ink/install/lxc/#proxmox-ve-helper-script),
+[LXC / MicroCloud](https://docs.tesserae.ink/install/lxc/),
 [macOS / Linux / Pi shell installer](https://docs.tesserae.ink/install/server/),
 [Windows PowerShell](https://docs.tesserae.ink/install/server/),
 [manual venv](https://docs.tesserae.ink/install/server/#manual-install).
@@ -145,11 +159,12 @@ TBD means a client and hardware profile ship but nobody has confirmed a
 frame on the physical panel yet. The per-renderer bench matrix lives at
 [Screens & compatibility](https://docs.tesserae.ink/compatibility/).
 
-> **Some links below are affiliate links.** Seeed product links carry a
-> Tesserae affiliate tag: buying through one gets you a discount at checkout
-> and pays a small commission that goes back into the project. Nothing is
-> listed here because of it, and a panel's ✅ / TBD status means exactly what
-> it says above. Links without the tag are plain product links.
+> **Some links below are affiliate links.** Seeed product links and the
+> Pimoroni Inky Frame and Inky Impression links carry a Tesserae affiliate tag:
+> buying through one pays a small commission that goes back into the project,
+> and a Seeed link also gets you a discount at checkout. Nothing is listed here because of it,
+> and a panel's ✅ / TBD status means exactly what it says above. Links without
+> the tag are plain product links.
 
 ### Seeed Studio
 
@@ -201,12 +216,29 @@ microSD and the frontlight are not wired yet.
 
 | Panel | Resolution | Client | Status |
 |---|---|---|---|
-| [Inky Impression 4"](https://shop.pimoroni.com/products/inky-impression) (6-colour Spectra 6) | 600×400 | [pi-png](https://github.com/dmellok/tesserae-device-pi-png) or [pi-bin](https://github.com/dmellok/tesserae-device-pi-bin) | ✅ |
-| Inky Impression 4" (legacy 7-colour ACeP) | 640×400 | [pi-png](https://github.com/dmellok/tesserae-device-pi-png) or [pi-bin](https://github.com/dmellok/tesserae-device-pi-bin) | ✅ |
-| [Inky Impression 5.7"](https://shop.pimoroni.com/products/inky-impression-5-7) (7-colour ACeP) | 600×448 | [pi-png](https://github.com/dmellok/tesserae-device-pi-png) or [pi-bin](https://github.com/dmellok/tesserae-device-pi-bin) | ✅ |
-| [Inky Impression 7.3"](https://shop.pimoroni.com/products/inky-impression?variant=55186435244411) (6-colour Spectra 6) | 800×480 | [pi-png](https://github.com/dmellok/tesserae-device-pi-png) or [pi-bin](https://github.com/dmellok/tesserae-device-pi-bin) | ✅ |
-| [Inky Impression 13.3"](https://shop.pimoroni.com/products/inky-impression?variant=55186435277179) (6-colour Spectra 6) | 1600×1200 | [pi-png](https://github.com/dmellok/tesserae-device-pi-png) or [pi-bin](https://github.com/dmellok/tesserae-device-pi-bin) | ✅ |
-| Inky [pHAT](https://shop.pimoroni.com/products/inky-phat) / [wHAT](https://shop.pimoroni.com/products/inky-what) | various | [pi-png](https://github.com/dmellok/tesserae-device-pi-png) | works via `pi_png` |
+| [Inky Impression 4"](https://collabs.shop/ko5ulg) (6-colour Spectra 6) | 600×400 | [tesserae-device-pi](https://github.com/dmellok/tesserae-device-pi) | ✅ |
+| Inky Impression 4" (legacy 7-colour ACeP) | 640×400 | [tesserae-device-pi](https://github.com/dmellok/tesserae-device-pi) | ✅ |
+| [Inky Impression 5.7"](https://shop.pimoroni.com/products/inky-impression-5-7) (7-colour ACeP) | 600×448 | [tesserae-device-pi](https://github.com/dmellok/tesserae-device-pi) | ✅ |
+| [Inky Impression 7.3"](https://collabs.shop/ko5ulg) (6-colour Spectra 6) | 800×480 | [tesserae-device-pi](https://github.com/dmellok/tesserae-device-pi) | ✅ |
+| [Inky Impression 13.3"](https://collabs.shop/ko5ulg) (6-colour Spectra 6) | 1600×1200 | [tesserae-device-pi](https://github.com/dmellok/tesserae-device-pi) | ✅ |
+| Inky [pHAT](https://shop.pimoroni.com/products/inky-phat) / [wHAT](https://shop.pimoroni.com/products/inky-what) | various | [tesserae-device-pi](https://github.com/dmellok/tesserae-device-pi) | works via `pi_png` |
+
+The Inky Frame and the Badgers carry their own microcontroller, so they need no
+Raspberry Pi. The Inky Frame runs
+[tesserae-device-inkyframe](https://github.com/dmellok/tesserae-device-inkyframe)
+(Pico SDK firmware, the Tesserae fork of Carl Partridge's client: setup from a
+phone, button letters, signed over-the-air updates); flash it from the browser
+at [tesserae.ink/flash/inky-frame](https://tesserae.ink/flash/inky-frame)
+(Chrome / Edge, WebUSB, no toolchain). The Badgers run
+[tesserae-device-badger](https://github.com/dmellok/tesserae-device-badger), an
+app inside the badge's own launcher, so the badge keeps its other apps.
+
+| Panel | Resolution | Client | Status |
+|---|---|---|---|
+| [Inky Frame 7.3"](https://collabs.shop/7ab9wa) (6-colour Spectra 6, Pico 2 W) | 800×480 | [tesserae-device-inkyframe](https://github.com/dmellok/tesserae-device-inkyframe) | ✅ |
+| Inky Frame 7.3" (legacy 7-colour ACeP) | 800×480 | [tesserae-device-inkyframe](https://github.com/dmellok/tesserae-device-inkyframe) | TBD |
+| [Badger 2350](https://shop.pimoroni.com/products/badger-2350) | 264×176, 4-level grey | [tesserae-device-badger](https://github.com/dmellok/tesserae-device-badger) | ✅ |
+| [Badger 2040 W](https://shop.pimoroni.com/products/badger-2040-w) | 296×128, mono | [tesserae-device-badger](https://github.com/dmellok/tesserae-device-badger) | TBD |
 
 ### Waveshare
 

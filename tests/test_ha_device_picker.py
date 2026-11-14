@@ -157,3 +157,116 @@ def test_add_form_persists_picked_ha_device_id(app: Flask) -> None:
     assert resp.status_code in (302, 303)
     section = app.config["SETTINGS_STORE"].get_section("devices") or {}
     assert section.get("kitchen_tag", {}).get("ha_device_id") == "4ab9c7f0e2"
+
+
+def _devices_page(app: Flask) -> str:
+    client = app.test_client()
+    _sign_in(client)
+    resp = client.get("/settings/devices")
+    assert resp.status_code == 200
+    return resp.get_data(as_text=True)
+
+
+def test_add_form_points_at_the_bridge_without_a_ha_connection(
+    app: Flask, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No add-on and no Home Assistant Core connection: there is nothing to
+    push through, so the OpenDisplay tab explains the bridge instead."""
+    monkeypatch.delenv("TESSERAE_HA_INGRESS", raising=False)
+    monkeypatch.delenv("SUPERVISOR_TOKEN", raising=False)
+    html = _devices_page(app)
+    assert 'name="kind" value="opendisplay_ha"' not in html
+    assert "has no Home\n          Assistant connection" in html
+
+
+def test_add_form_offers_ha_push_outside_the_addon_once_ha_core_is_set(
+    app: Flask, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Tesserae on Docker / Proxmox with the Home Assistant Core plugin
+    configured can push through HA (frames are uploaded over its API), so
+    the form is no longer reserved for the add-on."""
+    monkeypatch.delenv("TESSERAE_HA_INGRESS", raising=False)
+    monkeypatch.delenv("SUPERVISOR_TOKEN", raising=False)
+    app.config["SETTINGS_STORE"].update_section(
+        "plugins", {"ha_core": {"base_url": "http://ha", "token_secret": "t"}}
+    )
+    html = _devices_page(app)
+    assert 'name="kind" value="opendisplay_ha"' in html
+    assert "uploads each frame to Home Assistant" in html
+
+
+def _add_tag(client, kind: str = "opendisplay_ha", device_id: str = "kitchen_tag") -> None:
+    resp = client.post(
+        "/settings/devices/add",
+        data={
+            "kind": kind,
+            "id": device_id,
+            "name": "Kitchen tag",
+            "panel_w": "296",
+            "panel_h": "128",
+            "panel_orientation": "landscape",
+        },
+    )
+    assert resp.status_code in (302, 303)
+
+
+def test_tag_page_offers_one_rotation_and_a_palette(app: Flask) -> None:
+    """An OpenDisplay tag cannot report its colours, so the operator picks
+    the palette. The page shows one Rotation: not the pi_png client options
+    HA never sees, and not the older HA turn on a tag that never set it."""
+    client = app.test_client()
+    _sign_in(client)
+    _add_tag(client)
+    html = client.get("/settings/devices/kitchen_tag").get_data(as_text=True)
+
+    assert 'name="panel_gamut"' in html
+    assert "Colour palette" in html
+    for label in ("Black and white", "Black, white and red", "Six colours (Spectra 6)"):
+        assert label in html
+    # The kind's spectra_6 default shows as the selected six-colour choice.
+    assert "Unavailable" not in html
+    assert 'name="panel_orientation"' in html
+    assert "Client rotation" not in html
+    assert "Letterbox colour" not in html
+    assert 'name="rotate"' not in html
+
+
+def test_tag_page_keeps_the_older_ha_turn_while_it_is_set(app: Flask) -> None:
+    """A tag that still relies on HA's rotation shows the setting, so it can
+    be seen and cleared."""
+    client = app.test_client()
+    _sign_in(client)
+    _add_tag(client)
+    app.config["SETTINGS_STORE"].patch_section("devices", {"kitchen_tag": {"rotate": "90"}})
+    html = client.get("/settings/devices/kitchen_tag").get_data(as_text=True)
+    assert 'name="rotate"' in html
+    assert "Turn in Home Assistant (older setup)" in html
+
+
+def test_bridge_tag_page_offers_a_palette(app: Flask) -> None:
+    client = app.test_client()
+    _sign_in(client)
+    _add_tag(client, kind="opendisplay", device_id="bridge_tag")
+    html = client.get("/settings/devices/bridge_tag").get_data(as_text=True)
+    assert 'name="panel_gamut"' in html
+    assert "Colour palette" in html
+
+
+def test_picked_palette_is_saved_on_the_panel(app: Flask) -> None:
+    client = app.test_client()
+    _sign_in(client)
+    _add_tag(client)
+    resp = client.post(
+        "/settings/devices/kitchen_tag/panel",
+        data={
+            "panel_w": "296",
+            "panel_h": "128",
+            "panel_orientation": "landscape",
+            "panel_gamut": "bwr_3",
+        },
+    )
+    assert resp.status_code in (302, 303)
+    device = app.config["DEVICE_REGISTRY"].get("kitchen_tag")
+    assert device.panel["gamut"] == "bwr_3"
+    html = client.get("/settings/devices/kitchen_tag").get_data(as_text=True)
+    assert 'value="bwr_3" selected' in html

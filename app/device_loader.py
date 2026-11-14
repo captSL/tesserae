@@ -30,6 +30,8 @@ from typing import Any
 
 import jsonschema
 
+from app import schema_validation
+
 logger = logging.getLogger(__name__)
 
 HOST_MAJOR_VERSION: int = 1
@@ -460,7 +462,7 @@ def discover(
             continue
 
         try:
-            jsonschema.validate(manifest, schema)
+            schema_validation.validate(manifest, schema)
         except jsonschema.ValidationError as err:
             field_path = ".".join(str(p) for p in err.absolute_path) or "<root>"
             registry.errors.append(
@@ -553,6 +555,20 @@ def has_touch(device: Any) -> bool:
     true``; absent means display-only)."""
     manifest = getattr(device, "manifest", None)
     return isinstance(manifest, dict) and manifest.get("touch") is True
+
+
+def has_battery(device: Any) -> bool:
+    """Whether the device may run on a battery. ``"battery": false`` in its
+    kind's manifest says it is mains powered; absent means it may."""
+    manifest = getattr(device, "manifest", None)
+    return not (isinstance(manifest, dict) and manifest.get("battery") is False)
+
+
+def uses_renderer_settings(device: Any) -> bool:
+    """Whether the per-device renderer settings reach the display.
+    ``"renderer_settings": false`` says the kind sends the composition itself."""
+    manifest = getattr(device, "manifest", None)
+    return not (isinstance(manifest, dict) and manifest.get("renderer_settings") is False)
 
 
 def takes_input(device: Any) -> bool:

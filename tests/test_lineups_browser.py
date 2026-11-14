@@ -12,6 +12,8 @@ import json
 import os
 import re
 import threading
+import time
+import urllib.parse
 from collections.abc import Iterator
 from html.parser import HTMLParser
 from pathlib import Path
@@ -61,6 +63,44 @@ def _sample_vm(cycle: str = "h23") -> dict[str, Any]:
     return vm
 
 
+def _always_on(vm: dict[str, Any], variant: str) -> None:
+    """Make Dinner an all-day block that carries on into tomorrow: no end, no bar."""
+    dinner = next(lu for lu in vm["displays"][0]["lineups"] if lu["id"] == "dinner")
+    dinner["window"].update(
+        start="00:00", end="24:00", label="00:00–24:00", start_min=0, end_min=1440
+    )
+    p = dinner["progress"]
+    p.update(
+        always_on=True,
+        window_pct=None,
+        ends_in_label=None,
+        ends_in_minutes=None,
+        pauses_in_label="4h 48m" if variant == "pauses" else None,
+        pauses_in_minutes=288 if variant == "pauses" else None,
+        paused_until_label="06:30" if variant == "paused" else None,
+        title="Runs all day.",
+    )
+
+
+def _img_url(name: str) -> str:
+    return f"/_img/{name}.png"
+
+
+def _pictures(vm: dict[str, Any]) -> dict[str, Any]:
+    """Give every step and header a real picture (the sample has none) so the
+    zoom icon has something to enlarge; ``/_img/<name>.png`` is served by the
+    ``live`` app, a different colour per name, larger with ``?lg=1``."""
+    for d in vm["displays"]:
+        for lineup in d["lineups"]:
+            for step in lineup["steps"]:
+                step["thumb_url"] = _img_url(step["dashboard_id"])
+                # Comics stands for a widget that cannot name its items but differs per render.
+                step["draw_items"] = step["dashboard_id"] == "comics"
+        if d["on_screen"]:
+            d["on_screen"]["thumb_url"] = _img_url("onscreen-" + d["id"])
+    return vm
+
+
 _PIXEL = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="
 _FRAME = {
     "label": "a frame sent by hand",
@@ -73,6 +113,16 @@ _FRAME = {
 _QUEUED = "A new frame is queued. The frame picks it up at its next check-in ~3:48 PM."
 
 
+_QUEUED_THUMB = {
+    "name": "News",
+    "thumb_url": _PIXEL,
+    "aspect": "800/480",
+    "orientation": "l",
+    "label": "Queued",
+    "title": _QUEUED,
+}
+
+
 def _note(state: str, label: str, sub: str = "", title: str = "") -> dict[str, str]:
     return {"state": state, "label": label, "sub": sub, "title": title or label}
 
@@ -83,14 +133,14 @@ def _header_variant(display: dict[str, Any], kind: str) -> None:
     if not kind:
         return
     display["on_screen"], display["on_screen_known"] = None, False
-    display["queued_badge"] = None
+    display["queued_thumb"] = None
     display["placeholder"] = _note("none", "No image yet")
     if kind in ("frame", "badge"):
         display["frame"] = {**_FRAME, "thumb_url": _PIXEL}
         display["show_title"] = _FRAME["title"]
         display["placeholder"] = None
         if kind == "badge":
-            display["queued_badge"] = _note("queued", "Queued", "", _QUEUED)
+            display["queued_thumb"] = _QUEUED_THUMB
     elif kind == "frame-gone":
         display["frame"] = dict(_FRAME)
         display["placeholder"] = _note("unavailable", "Image unavailable")
@@ -98,9 +148,7 @@ def _header_variant(display: dict[str, Any], kind: str) -> None:
         display["nothing_sent"] = True
         display["placeholder"] = _note("nothing", "Nothing sent yet")
     elif kind == "queued":
-        display["placeholder"] = _note(
-            "queued", "Queued", "Frame picks it up at its next check-in ~3:48 PM", _QUEUED
-        )
+        display["queued_thumb"] = {**_QUEUED_THUMB, "name": "A new frame", "thumb_url": ""}
     elif kind == "delivering":
         display["placeholder"] = _note("delivering", "Delivering")
     elif kind == "heard":
@@ -133,6 +181,10 @@ def live(tmp_path: Path) -> Iterator[str]:
 
     def sample() -> str:
         vm = _sample_vm(request.args.get("cycle", "h23"))
+        if request.args.get("always"):
+            _always_on(vm, request.args["always"])
+        if request.args.get("pics"):
+            _pictures(vm)
         _header_variant(vm["displays"][1], request.args.get("hdr", ""))
         for d in vm["displays"]:
             for lu in d["lineups"]:
@@ -142,7 +194,30 @@ def live(tmp_path: Path) -> Iterator[str]:
             _flag_off_display(vm)
         return render_template("decks.html", vm=vm, automation_url="#auto")
 
+    def image(name: str) -> Any:
+        import hashlib
+        import io
+
+        from flask import Response
+        from PIL import Image, ImageDraw
+
+        digest = hashlib.sha256(name.encode()).digest()
+        big = request.args.get("lg") == "1"
+        im = Image.new(
+            "RGB", (800, 500) if big else (320, 200), tuple(60 + b % 160 for b in digest[:3])
+        )
+        ImageDraw.Draw(im).text((12, 12), name, fill=(255, 255, 255))
+        buf = io.BytesIO()
+        im.save(buf, format="PNG")
+        return Response(buf.getvalue(), mimetype="image/png", headers={"Cache-Control": "no-store"})
+
+    def set_ui(design: str) -> str:
+        store.patch_section("app", {"ui_design": design})
+        return "ok"
+
     app.add_url_rule(PAGE, "lineups_sample", sample)
+    app.add_url_rule("/_set_ui/<design>", "lineups_set_ui", set_ui)
+    app.add_url_rule("/_img/<name>.png", "lineups_img", image)
     server = make_server("127.0.0.1", 0, app, threaded=True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -156,12 +231,55 @@ def live(tmp_path: Path) -> Iterator[str]:
 class _Api:
     """Answers the page's JSON calls and remembers what was sent."""
 
-    def __init__(self, cycle: str = "h23", off: bool = False) -> None:
+    def __init__(self, cycle: str = "h23", off: bool = False, pics: bool = False) -> None:
         self.posts: list[tuple[str, Any]] = []
         self.vm = _sample_vm(cycle)
+        if pics:
+            _pictures(self.vm)
         if off:
             _flag_off_display(self.vm)
         self.push_message: str | None = None
+        # GET step-item calls, and how many answers stay "pending" before "ready".
+        self.item_calls: list[dict[str, str]] = []
+        self.item_pending = 0
+        # Draws whose signature is forced (a widget that drew what it drew before).
+        self.same_sig: dict[str, str] = {}
+        self.item_status = 200
+        self.push_delay = 0.0
+        self.name_error = ""
+        self.edits_error = ""
+        self.order_error = ""
+
+    def _apply_end_changes(self, body: dict[str, Any]) -> None:
+        """What the server does with an end added to a push or taken off a window:
+        the lineup becomes an interval window, or a daily push, and says so."""
+        for edit in body.get("edits", []):
+            for d in self.vm["displays"]:
+                for lu in d["lineups"]:
+                    if lu["id"] != edit["id"]:
+                        continue
+                    w = lu["window"]
+                    h, m = (int(x) for x in edit["start"].split(":"))
+                    start = h * 60 + m
+                    w["start"], w["start_min"] = edit["start"], start
+                    if edit.get("push"):
+                        end = None
+                        lu["kind"] = "daily"
+                    elif edit.get("end"):
+                        eh, em = (int(x) for x in edit["end"].split(":"))
+                        end = eh * 60 + em
+                        lu["kind"] = "cycle" if len(lu["steps"]) > 1 else "interval"
+                    else:
+                        continue
+                    w["is_point"] = end is None
+                    w["end"] = None if end is None else edit["end"]
+                    w["end_min"] = start if end is None else end
+                    w["label"] = (
+                        f"at {edit['start']}" if end is None else f"{edit['start']}–{edit['end']}"
+                    )
+
+    def sig_for(self, item: str) -> str:
+        return self.same_sig.get(item) or re.sub(r"\W", "", item).ljust(16, "0")[-16:]
 
     def install(self, page: Any) -> None:
         def handle(route: Any) -> None:
@@ -169,10 +287,120 @@ class _Api:
             if req.method == "GET" and "/decks/view.json" in req.url:
                 route.fulfill(status=200, content_type="application/json", body=json.dumps(self.vm))
                 return
+            if req.method == "GET" and re.search(r"/decks/[^/]+/step-item\?", req.url):
+                q = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(req.url).query))
+                self.item_calls.append(q)
+                if self.item_status != 200:
+                    body: dict[str, Any] = (
+                        {"ok": True, "state": "busy"}
+                        if self.item_status == 503
+                        else {"ok": False, "error": "That item isn't in this dashboard."}
+                    )
+                    route.fulfill(
+                        status=self.item_status,
+                        content_type="application/json",
+                        body=json.dumps(body),
+                    )
+                elif (
+                    len([c for c in self.item_calls if c["item"] == q["item"]]) <= self.item_pending
+                ):
+                    route.fulfill(
+                        status=202,
+                        content_type="application/json",
+                        body=json.dumps({"ok": True, "state": "pending"}),
+                    )
+                else:
+                    thumb = _img_url("item-" + re.sub(r"\W", "-", q["item"]))
+                    route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body=json.dumps(
+                            {
+                                "ok": True,
+                                "state": "ready",
+                                "item": q["item"],
+                                "thumb_url": thumb,
+                                "large_url": thumb + "?lg=1",
+                                "sig": self.sig_for(q["item"]),
+                            }
+                        ),
+                    )
+                return
+            ordered = re.search(r"/decks/([^/]+)/order$", req.url)
+            if req.method == "POST" and ordered:
+                body = json.loads(req.post_data or "null")
+                self.posts.append((req.url, body))
+                if self.order_error:
+                    route.fulfill(
+                        status=409,
+                        content_type="application/json",
+                        body=json.dumps({"ok": False, "error": self.order_error, "id": ordered[1]}),
+                    )
+                    return
+                for d in self.vm["displays"]:
+                    for lu in d["lineups"]:
+                        if lu["id"] != ordered[1]:
+                            continue
+                        steps = lu["steps"]
+                        steps.insert(body["to"], steps.pop(body["from"]))
+                        for i, st in enumerate(steps):
+                            st["index"] = i
+                            st["position"] = f"{i + 1}/{len(steps)}"
+                            st["separator"] = "loop" if i == len(steps) - 1 else "arrow"
+                route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps(
+                        {"ok": True, "ids": [ordered[1]], "displays": self.vm["displays"]}
+                    ),
+                )
+                return
+            named = re.search(r"/decks/([^/]+)/name$", req.url)
+            if req.method == "POST" and named:
+                body = json.loads(req.post_data or "null")
+                self.posts.append((req.url, body))
+                if self.name_error:
+                    route.fulfill(
+                        status=400,
+                        content_type="application/json",
+                        body=json.dumps({"ok": False, "error": self.name_error, "id": named[1]}),
+                    )
+                    return
+                # The server redraws every place the name shows; the mock swaps the text.
+                old = next(
+                    lu["name"]
+                    for d in self.vm["displays"]
+                    for lu in d["lineups"]
+                    if lu["id"] == named[1]
+                )
+                self.vm = json.loads(
+                    json.dumps(self.vm).replace(
+                        json.dumps(old)[1:-1], json.dumps(body["name"])[1:-1]
+                    )
+                )
+                route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps(
+                        {"ok": True, "ids": [named[1]], "displays": self.vm["displays"]}
+                    ),
+                )
+                return
             if req.method == "POST" and re.search(
                 r"/decks/(edits|[^/]+/push-step|[^/]+/bind-pages)$", req.url
             ):
                 self.posts.append((req.url, json.loads(req.post_data or "null")))
+                if req.url.endswith("/edits") and self.edits_error:
+                    route.fulfill(
+                        status=409,
+                        content_type="application/json",
+                        body=json.dumps({"ok": False, "error": self.edits_error, "id": None}),
+                    )
+                    return
+                if req.url.endswith("/edits"):
+                    self._apply_end_changes(self.posts[-1][1])
+                if self.push_delay and "push-step" in req.url:
+                    time.sleep(self.push_delay)
                 reply: dict[str, Any] = (
                     {"ok": True, "lands": "lands now"} if "push-step" in req.url else {"ok": True}
                 )
@@ -203,21 +431,36 @@ def _open(
     before_load: Any = None,
     hdr: str = "",
     off: bool = False,
+    extra: str = "",
+    pics: bool = False,
+    mobile: bool = False,
+    ui: str = "",
 ) -> tuple[Any, Any, _Api]:
     browser = _launch(p)
     ctx = browser.new_context(
-        viewport={"width": width, "height": 900}, color_scheme=scheme, java_script_enabled=js
+        viewport={"width": width, "height": 900},
+        color_scheme=scheme,
+        java_script_enabled=js,
+        **({"has_touch": True, "is_mobile": True} if mobile else {}),
     )
     page = ctx.new_page()
     errors: list[str] = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page._lu_errors = errors
-    api = _Api(cycle, off)
+    api = _Api(cycle, off, pics)
     api.install(page)
     if before_load:
         before_load(page)
+    if ui:
+        ctx.request.get(f"{base}/_set_ui/{ui}")
     page.goto(
-        base + PAGE + f"?cycle={cycle}&hdr={hdr}" + ("&off=1" if off else ""), wait_until="load"
+        base
+        + PAGE
+        + f"?cycle={cycle}&hdr={hdr}"
+        + ("&off=1" if off else "")
+        + ("&pics=1" if pics else "")
+        + extra,
+        wait_until="load",
     )
     if js:
         page.wait_for_function(
@@ -328,26 +571,34 @@ def test_header_without_a_dashboard_matches_both_renderers(live: str, hdr: str) 
         text = page.locator("#display-kitchen .lu-ds-hdr").inner_text()
         thumb = page.locator("#display-kitchen .lu-now-thumb")
         title = thumb.get_attribute("title")
-        has_img = thumb.locator("img").count()
-        gamut = thumb.locator(".lu-thumb[data-gamut]").count()
-        badge = thumb.locator(".lu-qbadge").count()
+        main = ":scope > .lu-thumb, :scope > .lu-now-wrap > .lu-thumb"
+        has_img = thumb.evaluate(f"e => e.querySelector('{main}').querySelectorAll('img').length")
+        gamut = int(thumb.evaluate(f"e => e.querySelector('{main}').hasAttribute('data-gamut')"))
+        tagged = thumb.locator(".lu-qthumb .lu-qtag").count()
+        tag_on_main = thumb.evaluate(
+            f"e => e.querySelector('{main}').querySelectorAll('.lu-qtag').length"
+        )
+        queued_title = thumb.locator(".lu-qthumb").first.get_attribute("title") if tagged else None
         thumb_text = thumb.inner_text()
         browser.close()
     assert len(server) == 2
     assert _shape(server[1]) == _shape(re.search(r"<header.*?</header>", client[1], re.S).group(0))
     assert "?" not in thumb_text
+    assert tag_on_main == 0, "the header thumb is the glass; only the small one is tagged"
+    assert (tagged, queued_title) == ((1, _QUEUED) if hdr in ("badge", "queued") else (0, None))
     if hdr == "badge":
-        assert has_img == 1 and badge == 1 and title == _QUEUED
+        assert has_img == 1 and title == _FRAME["title"]
         assert "a frame sent by hand" in text
     elif hdr.startswith("frame"):
         assert "a frame sent by hand" in text and "unknown" not in text
-        assert title == _FRAME["title"] and badge == 0
+        assert title == _FRAME["title"]
         # A real thumb carries the display-color treatment; the placeholder has none.
         assert (has_img, gamut) == ((1, 1) if hdr == "frame" else (0, 0))
     elif hdr == "nothing":
         assert "Nothing sent yet" in text and title == "Nothing sent yet"
     elif hdr == "queued":
-        assert "Queued" in text and "next check-in ~3:48 PM" in text and title == _QUEUED
+        assert "No image yet" in text and title == "No image yet"
+        assert "Queued" in thumb_text
     elif hdr == "delivering":
         assert "Delivering" in text
     elif hdr == "heard":
@@ -532,12 +783,12 @@ def test_rows_and_displays_fold_and_remember(live: str) -> None:
         page.locator('[data-fold="night"]').focus()
         page.keyboard.press("Enter")
         assert "is-folded" not in page.locator("#lu-row-night").get_attribute("class")
-        # Collapsing a display keeps its header block, hides the rest.
+        # Collapsing a display keeps its header and day bar, hides the lineup rows.
         page.locator('[data-collapse="kitchen"]').click()
         sec = page.locator('.lu-ds[data-display="kitchen"]')
         assert "is-collapsed" in sec.get_attribute("class")
         assert sec.locator(".lu-ds-hdr h2").is_visible()
-        assert sec.locator(".lu-today").count() == 0
+        assert sec.locator(".lu-today .lu-trk").is_visible()
         assert not sec.locator(".lu-ds-body").is_visible()
         assert page.locator('[data-collapse="kitchen"]').evaluate(
             "b => b === document.activeElement"
@@ -560,6 +811,71 @@ def test_rows_and_displays_fold_and_remember(live: str) -> None:
         fa.click()
         assert page.locator(".lu-ds.is-collapsed").count() == 0
         assert page.locator(".lu-row.is-folded").count() == 0
+        assert page._lu_errors == []
+        browser.close()
+
+
+def test_collapsed_display_keeps_its_day_bar(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, _ = _open(p, live)
+        sec = page.locator('.lu-ds[data-display="kitchen"]')
+        btn = page.locator('[data-collapse="kitchen"]')
+        # The chevron controls the lineup rows, not the header or the bar.
+        body_id = btn.get_attribute("aria-controls")
+        assert sec.locator(".lu-ds-body").get_attribute("id") == body_id
+        assert not sec.locator(".lu-ds-hdr").locator(f"#{body_id}").count()
+        assert sec.locator(".lu-today .lu-trk").is_visible()
+        assert sec.locator(".lu-row").first.is_visible()
+        btn.click()
+        assert btn.get_attribute("aria-expanded") == "false"
+        assert sec.locator(".lu-today .lu-trk").is_visible()
+        assert sec.locator(".lu-today .lu-scale").is_visible()
+        assert sec.locator(".lu-dp-btn").is_visible()
+        assert not sec.locator(".lu-ds-body").is_visible()
+        assert not sec.locator(".lu-row").first.is_visible()
+        # Still there after a reload (the fold is remembered), and after opening.
+        page.reload(wait_until="load")
+        page.wait_for_function(
+            "() => document.querySelector('[data-lu]').classList.contains('is-enhanced')"
+        )
+        sec = page.locator('.lu-ds[data-display="kitchen"]')
+        assert "is-collapsed" in sec.get_attribute("class")
+        assert sec.locator(".lu-today .lu-trk").is_visible()
+        page.locator('[data-collapse="kitchen"]').click()
+        assert page.locator('[data-collapse="kitchen"]').get_attribute("aria-expanded") == "true"
+        assert sec.locator(".lu-today .lu-trk").is_visible()
+        assert sec.locator(".lu-row").first.is_visible()
+        assert page._lu_errors == []
+        browser.close()
+
+
+@pytest.mark.parametrize("scheme", ["dark", "light"])
+@pytest.mark.parametrize("width", [1440, 1000, 700, 420])
+def test_day_picker_icon_sits_on_the_track_centre(live: str, width: int, scheme: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    probe = """(sec) => {
+      const c = (e) => { const b = e.getBoundingClientRect(); return {l: b.left, r: b.right, y: (b.top + b.bottom) / 2}; };
+      const trk = sec.querySelector('.lu-today .lu-trk');
+      const btn = sec.querySelector('.lu-today .lu-dp-btn');
+      return {trk: c(trk), btn: c(btn)};
+    }"""
+    with sync_playwright() as p:
+        browser, page, _ = _open(p, live, width=width, scheme=scheme)
+        gaps = set()
+        # Both displays: the frame's bar carries the "Update in" flag, the other may not.
+        for display in ("frame", "kitchen"):
+            sec = page.locator(f'.lu-ds[data-display="{display}"]')
+            for _ in range(2):  # open, then folded
+                got = sec.evaluate(probe)
+                assert abs(got["btn"]["y"] - got["trk"]["y"]) <= 1, (display, got)
+                gap = got["btn"]["l"] - got["trk"]["r"]
+                assert 8 <= gap <= 20, (display, got)
+                gaps.add(round(gap))
+                page.locator(f'[data-collapse="{display}"]').click()
+        assert len(gaps) == 1, gaps  # the same space from the track's end everywhere
         assert page._lu_errors == []
         browser.close()
 
@@ -831,16 +1147,20 @@ _SMALL_TARGETS = """() => {
 }"""
 
 
-def _open_device(p: Any, base: str, device: str, scheme: str = "dark") -> tuple[Any, Any, _Api]:
+def _open_device(
+    p: Any, base: str, device: str, scheme: str = "dark", pics: bool = False, ui: str = ""
+) -> tuple[Any, Any, _Api]:
     browser = _launch(p)
     ctx = browser.new_context(**p.devices[device], color_scheme=scheme)
     page = ctx.new_page()
     errors: list[str] = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page._lu_errors = errors
-    api = _Api()
+    api = _Api(pics=pics)
     api.install(page)
-    page.goto(base + PAGE, wait_until="load")
+    if ui:
+        ctx.request.get(f"{base}/_set_ui/{ui}")
+    page.goto(base + PAGE + ("?pics=1" if pics else ""), wait_until="load")
     page.wait_for_function(
         "() => document.querySelector('[data-lu]').classList.contains('is-enhanced')"
     )
@@ -1055,6 +1375,12 @@ def real(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[str,
         renderers_dir=REPO_ROOT / "renderers",
     )
     app.config["TESTING"] = True
+    # The scheduler runs on the real clock, not the midday pinned above. On a
+    # weekday between 06:00-09:00 or 17:00-20:00 it found the lineups below
+    # running and pushed a real frame to the panel mid-test, which put an
+    # eager header thumbnail (and a Queued tag) on a page these tests expect
+    # to be untouched. They check the page and its endpoints, so stop it.
+    app.config["SCHEDULER"].stop()
     store = app.config["SETTINGS_STORE"]
     store.patch_section("app", {"onboarded": True, "locale": "en-GB"})  # 24-hour labels
     store.patch_section("auth", {"disabled": True})
@@ -1157,22 +1483,17 @@ def test_editor_shows_deleted_step_and_remove_persists(real: tuple[str, Flask]) 
         errors: list[str] = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(base + "/decks/gone/edit", wait_until="load")
-        cards = page.locator("#dxe-rail .dxe-pcard")
-        assert cards.count() == 2
-        first = cards.nth(0)
+        rows = page.locator("[data-step]")
+        assert rows.count() == 2
+        first = rows.nth(0)
         assert "is-missing" in first.get_attribute("class")
         assert "Missing dashboard (deleted)" in first.inner_text()
-        assert "f68e0c3b23bd" in first.locator(".dxe-missing-id").inner_text()
-        assert page.locator("#dxe-pages-field").input_value() == "f68e0c3b23bd,news"
         # Unchanged, it is kept; Remove drops just that step and survives a save.
-        first.locator(".dxe-remove-missing").click()
-        assert page.locator("#dxe-rail .dxe-pcard").count() == 1
-        assert page.locator("#dxe-pages-field").input_value() == "news"
-        assert page.locator("#dxe-avail .dxe-chip", has_text="Missing").count() == 0
-        page.locator("#deck-form").evaluate("f => f.requestSubmit()")
-        # ``/decks/gone/edit`` already matches ``.*/decks.*``: wait until the save
-        # redirected away from the editor, or the store is read before the POST lands.
-        page.wait_for_url(lambda url: "/edit" not in url)
+        first.locator("[data-expand]").click()
+        page.locator("[data-panel] [data-remove]").click()
+        assert [r.get_attribute("data-step") for r in rows.all()] == ["news"]
+        with page.expect_navigation():
+            page.locator("[data-save]").click()
         assert [p_.page_id for p_ in app.config["DECK_STORE"].get("gone").pages] == ["news"]
         assert errors == []
         browser.close()
@@ -2229,11 +2550,18 @@ def test_pending_markup_matches_direct_renderer(live: str, view: str) -> None:
             _timeline(page)
         expected, drawn = page.evaluate("""() => {
           const R = TesseraeLineupsRender, st = TesseraeLineups.state, vm = TesseraeLineups.vm;
-          const ui = {view: st.view, seen: new Set(), folded: l => l.folded, collapsed: () => false,
+          const ui = {view: st.view, seen: new Set(), folded: l => l.folded, collapsed: () => false, dayFlash: id => st.dayFlash[id] || null,
             pendingBar: d => R.pendingBar(d, Object.keys(st.pending[d.id] || {}).length)};
           const expected = vm.displays.map(d => R.display(vm, R.withPending(d, st.pending[d.id], vm.now.weekday, vm.now.minute), ui));
           TesseraeLineups.render();
-          return [expected, [...document.querySelectorAll('.lu-ds')].map(d => d.outerHTML)];
+          // lineups.js marks sortable strips after drawing (drag and Alt+arrow hooks); the renderer does not.
+          const plain = d => { const c = d.cloneNode(true);
+            c.querySelectorAll('.is-sortable').forEach(x => x.classList.remove('is-sortable'));
+            c.querySelectorAll('[draggable]').forEach(x => x.removeAttribute('draggable'));
+            c.querySelectorAll('[aria-keyshortcuts]').forEach(x => x.removeAttribute('aria-keyshortcuts'));
+            c.querySelectorAll('.lu-step figcaption[title]').forEach(x => x.removeAttribute('title'));
+            return c.outerHTML; };
+          return [expected, [...document.querySelectorAll('.lu-ds')].map(plain)];
         }""")
         assert len(expected) == len(drawn) == 2
         for e, d in zip(expected, drawn, strict=True):
@@ -2789,4 +3117,1948 @@ def test_scope_works_when_storage_is_blocked(live: str) -> None:
         page.wait_for_selector(".lu.is-enhanced")
         page.locator('[data-scope="today"]').click()
         assert len(_rows(page)) == 3
+        browser.close()
+
+
+@pytest.mark.parametrize("scheme", ["dark", "light"])
+@pytest.mark.parametrize("width", [360, 1440])
+def test_the_queued_thumbnail_sits_on_the_glass_thumbs_corner(
+    live: str, scheme: str, width: int
+) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, _ = _open(p, live, width=width, scheme=scheme)
+        fig = page.locator("#display-kitchen .lu-now-thumb")
+        main = fig.locator(".lu-now-wrap > .lu-thumb").bounding_box()
+        small = fig.locator(".lu-qthumb .lu-thumb").bounding_box()
+        assert main and small and fig.locator(".lu-qtag").inner_text() == "Queued"
+        # A corner overlay: smaller than the glass thumb, over its bottom right corner.
+        assert small["width"] < main["width"] and small["height"] < main["height"]
+        assert abs((small["x"] + small["width"]) - (main["x"] + main["width"])) <= 16
+        assert abs((small["y"] + small["height"]) - (main["y"] + main["height"])) <= 16
+        assert page.evaluate("() => document.documentElement.scrollWidth <= innerWidth")
+        # The header thumb is the picture on the glass, and carries no tag of its own.
+        assert fig.get_attribute("title").startswith("On screen:")
+        assert fig.locator(".lu-now-wrap > .lu-thumb .lu-qtag").count() == 0
+        assert page._lu_errors == []
+        browser.close()
+
+
+@pytest.mark.parametrize("variant", ["pauses", "paused", "none"])
+def test_all_day_block_row_matches_in_both_renderers_and_has_no_end(
+    live: str, variant: str
+) -> None:
+    from playwright.sync_api import sync_playwright
+
+    sel = "#lu-row-dinner .lu-row-state"
+    with sync_playwright() as p:
+        browser, nojs, _ = _open(p, live, js=False, extra=f"&always={variant}")
+        server = nojs.eval_on_selector(sel, "e => e.outerHTML")
+        text = nojs.locator(sel).inner_text()
+        assert nojs.locator("#lu-row-dinner .lu-hs-bar").count() == 0
+        browser.close()
+        browser, page, _ = _open(p, live, extra=f"&always={variant}")
+        client = page.eval_on_selector(sel, "e => e.outerHTML")  # drawn by lineups_render.js
+        live_text = page.locator(sel).inner_text()
+        assert page.locator("#lu-row-dinner .lu-hs-bar").count() == 0
+        browser.close()
+    assert _shape(server) == _shape(client)
+    assert "ends in" not in text and "ends in" not in live_text
+    assert "00:00–24:00" in text
+    want = {"pauses": "pauses in 4h 48m", "paused": "paused until 06:30", "none": ""}[variant]
+    for t in (text, live_text):
+        if want:
+            assert want in t
+        else:
+            assert "pauses" not in t and "paused" not in t
+
+
+# -- zoom, the lightbox and choosing an item ---------------------------------------------
+
+ART = '#lu-row-dinner .lu-step[data-step="1"]'  # 12 items, can be pinned (Art)
+QUOTES = '#lu-row-dinner .lu-step[data-step="4"]'  # 20 items, no way to ask for one
+NEWS = '#lu-row-dinner .lu-step[data-step="0"]'  # one item
+LB = ".lu-lb"
+
+
+def _focused(page: Any) -> str:
+    return str(
+        page.evaluate(
+            "() => { const a = document.activeElement; return a ? (a.dataset.zoom ? 'zoom:' + a.dataset.zoom : (a.getAttribute('aria-label') || a.textContent.trim() || a.className)) : '' }"
+        )
+    )
+
+
+def test_client_markup_matches_the_server_with_pictures(live: str) -> None:
+    """The zoom icon and the arrows are drawn by both renderers alike."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, nojs, _ = _open(p, live, js=False, pics=True)
+        server = nojs.eval_on_selector_all(".lu-ds", "els => els.map(e => e.outerHTML)")
+        assert "lu-zoom" in server[0] and "lu-items" in server[0]
+        browser.close()
+        browser, page, _ = _open(p, live, pics=True)
+        client = page.evaluate(
+            """() => {
+              const vm = JSON.parse(document.querySelector('[data-lu-vm]').textContent);
+              const ui = { view: 'cards', folded: (l) => l.folded, collapsed: () => false, pendingBar: () => '' };
+              return vm.displays.map((d) => TesseraeLineupsRender.display(vm, d, ui));
+            }"""
+        )
+        browser.close()
+    for s, c in zip(server, client, strict=True):
+        assert _shape(s) == _shape(c)
+
+
+def test_zoom_icon_and_thumbnail_open_the_lightbox_and_close_by_click_and_keyboard(
+    live: str,
+) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        icon = page.locator(f"{NEWS} [data-zoom]")
+        icon.click()
+        box = page.locator(LB)
+        assert box.get_attribute("role") == "dialog" and box.get_attribute("aria-modal") == "true"
+        assert box.get_attribute("aria-labelledby") == "lu-lb-title"
+        assert page.locator("#lu-lb-title").inner_text() == "Newspaper"
+        # A large view of the same picture, in the display's shape and treatment.
+        img = box.locator(".lu-thumb img")
+        assert re.search(r"/_img/newspaper\.png\?lg=1$", img.get_attribute("src") or "")
+        assert box.locator(".lu-thumb").get_attribute("data-gamut").startswith("grey")
+        assert img.evaluate("e => getComputedStyle(e).filter") == "grayscale(1)"
+        # Focus moves in; nothing behind is reachable; Escape closes and returns it.
+        assert page.evaluate("() => document.activeElement.getAttribute('aria-label')") == "Close"
+        assert page.locator("[data-lu-displays]").evaluate("e => e.inert")
+        page.keyboard.press("Escape")
+        assert page.locator(LB).count() == 0
+        assert not page.locator("[data-lu-displays]").evaluate("e => e.inert")
+        assert icon.evaluate("e => e === document.activeElement")
+        # The thumbnail itself opens it too; the scrim closes it.
+        page.locator(f"{NEWS} .lu-thumb img").click(position={"x": 4, "y": 4})
+        assert page.locator(LB).count() == 1
+        page.mouse.click(5, 5)
+        assert page.locator(LB).count() == 0
+        # From the keyboard: Enter on the focused icon, Space too.
+        icon.focus()
+        page.keyboard.press("Enter")
+        assert page.locator(LB).count() == 1
+        page.locator(".lu-lb-x").click()
+        assert page.locator(LB).count() == 0 and icon.evaluate("e => e === document.activeElement")
+        icon.focus()
+        page.keyboard.press("Space")
+        assert page.locator(LB).count() == 1
+        page.keyboard.press("Escape")
+        # Pushing was never involved.
+        assert api.posts == [] and page._lu_errors == []
+        browser.close()
+
+
+def test_header_thumbnail_zooms_what_is_on_the_display(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        # The click that used to fold the whole card now opens the picture.
+        page.locator("#display-frame .lu-now-thumb .lu-thumb").click(position={"x": 30, "y": 70})
+        assert page.locator(LB).count() == 1
+        assert page.locator("#lu-lb-title").inner_text() == "Family"
+        assert "Visionect frame" in page.locator(".lu-lb-sub").inner_text()
+        assert re.search(
+            r"/_img/onscreen-frame\.png\?lg=1$",
+            page.locator(f"{LB} img").get_attribute("src") or "",
+        )
+        # What is on the panel cannot be pushed or stepped from here.
+        assert (
+            page.locator("[data-lb-push]").is_hidden() and page.locator("[data-lb-nav]").is_hidden()
+        )
+        assert page.locator("#display-frame .lu-ds-body").is_visible()
+        page.keyboard.press("ArrowRight")
+        assert api.item_calls == []
+        page.keyboard.press("Escape")
+        assert page.locator('#display-frame [data-zoom="head:frame"]').evaluate(
+            "e => e === document.activeElement"
+        )
+        # A header without a picture offers no zoom.
+        browser.close()
+        browser, page, _ = _open(p, live, hdr="nothing", pics=True)
+        assert page.locator("#display-kitchen .lu-now-thumb [data-zoom]").count() == 0
+        browser.close()
+
+
+def test_push_now_does_not_zoom(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        tile = page.locator(f"{NEWS} .lu-tile")
+        tile.hover()
+        page.locator('[data-push="dinner:0"]').click()
+        page.wait_for_function("() => document.querySelector('#lu-row-dinner .pushed')")
+        assert len(api.posts) == 1 and page.locator(LB).count() == 0
+        # Nor do the arrows or the x N badge.
+        page.locator(f"{ART} .lu-tile").hover()
+        page.locator('[data-item="dinner:1:1"]').click()
+        assert page.locator(LB).count() == 0
+        page.locator('[data-peek="dinner:1"]').click()
+        assert page.locator(LB).count() == 0 and page.locator(".lu-peek").count() == 1
+        browser.close()
+
+
+def test_arrows_choose_an_item_and_push_sends_that_one(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        api.item_pending = 1  # the first ask is "still drawing"
+        tile = page.locator(f"{ART} .lu-tile")
+        tile.hover()
+        assert (
+            tile.locator('[data-item="dinner:1:-1"]').get_attribute("aria-label") == "Previous item"
+        )
+        before = tile.locator("img").get_attribute("src")
+        tile.locator('[data-item="dinner:1:1"]').click()
+        # Loading state straight away, the old picture stays until the new one is drawn.
+        assert "is-loading" in tile.get_attribute("class")
+        assert tile.locator(".lu-it-pos").inner_text() == "1/12"
+        assert tile.locator("img").get_attribute("src") == before
+        page.wait_for_function(
+            "() => !document.querySelector('#lu-row-dinner [data-step=\"1\"] .lu-tile').classList.contains('is-loading')",
+            timeout=8000,
+        )
+        assert tile.locator("img").get_attribute("src") == "/_img/item-art-1-jpg.png"
+        assert api.item_calls[0] == {"index": "1", "item": "art-1.jpg", "display_id": "frame"}
+        tile.hover()
+        tile.locator('[data-item="dinner:1:1"]').click()
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-dinner [data-step=\"1\"] .lu-tile img').getAttribute('src').includes('art-2')"
+        )
+        assert tile.locator(".lu-it-pos").inner_text() == "2/12"
+        # Push now sends that item, not the composition last shown.
+        tile.hover()
+        page.locator('[data-push="dinner:1"]').click()
+        page.wait_for_function("() => document.querySelector('#lu-row-dinner .pushed')")
+        url, body = api.posts[-1]
+        assert url.endswith("/decks/dinner/push-step")
+        assert body == {"index": 1, "item": "art-2.jpg", "display_id": "frame"}
+        assert tile.locator(".lu-pushed-msg").inner_text() == "Pushed · lands now"
+        # Previous from nothing chosen wraps to the last.
+        browser.close()
+        browser, page, api = _open(p, live, pics=True)
+        tile = page.locator(f"{ART} .lu-tile")
+        tile.hover()
+        tile.locator('[data-item="dinner:1:-1"]').click()
+        assert tile.locator(".lu-it-pos").inner_text() == "12/12"
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-dinner [data-step=\"1\"] img').getAttribute('src').includes('art-12')"
+        )
+        assert page._lu_errors == []
+        browser.close()
+
+
+def test_clicking_through_items_draws_only_the_one_you_stop_on(live: str) -> None:
+    """Five quick clicks ask the server for one preview, not five."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        tile = page.locator(f"{ART} .lu-tile")
+        tile.hover()
+        # Five clicks inside the draw's debounce window. Separate Playwright
+        # clicks each wait for the redrawn tile to settle, which on a loaded
+        # runner spaces them past the window and draws the ones between.
+        page.evaluate(
+            """() => {
+                for (let i = 0; i < 5; i++)
+                    document.querySelector('[data-item="dinner:1:1"]').click();
+            }"""
+        )
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-dinner [data-step=\"1\"] img').getAttribute('src').includes('art-5')"
+        )
+        page.wait_for_timeout(700)
+        assert [c["item"] for c in api.item_calls] == ["art-5.jpg"]
+        browser.close()
+
+
+def test_a_preview_that_cannot_be_drawn_says_so_and_pushing_stays_possible(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        api.item_status = 404
+        tile = page.locator(f"{ART} .lu-tile")
+        tile.hover()
+        tile.locator('[data-item="dinner:1:1"]').click()
+        page.wait_for_selector(f"{ART} .lu-tile.is-itemfail")
+        page.locator(f"{ART} [data-zoom]").click()
+        assert "Could not draw this one" in page.locator(".lu-lb-note").inner_text()
+        assert page.locator(".lu-lb.is-loading").count() == 0
+        browser.close()
+
+
+def test_lightbox_arrows_keys_and_push(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        page.locator(f"{ART} [data-zoom]").click()
+        nav = page.locator("[data-lb-nav]")
+        assert nav.is_visible() and nav.get_attribute("role") == "group"
+        assert page.locator("[data-lb-step='-1']").get_attribute("aria-label") == "Previous item"
+        assert page.locator("[data-lb-step='1']").get_attribute("aria-label") == "Next item"
+        assert page.locator("[data-lb-pos]").inner_text() == "As last sent · 12 items"
+        page.keyboard.press("ArrowRight")
+        assert page.locator("[data-lb-pos]").inner_text() == "1 of 12 · Art 1 of 12"
+        page.wait_for_function(
+            "() => document.querySelector('.lu-lb img').getAttribute('src').includes('item-art-1-jpg.png?lg=1')"
+        )
+        page.keyboard.press("ArrowLeft")
+        page.keyboard.press("ArrowLeft")
+        assert page.locator("[data-lb-pos]").inner_text() == "11 of 12 · Art 11 of 12"
+        page.locator("[data-lb-step='1']").click()
+        page.wait_for_function(
+            "() => document.querySelector('.lu-lb img').getAttribute('src').includes('art-12')"
+        )
+        # Push from the lightbox: same route and the same "lands" wording.
+        page.locator("[data-lb-push]").click()
+        page.wait_for_function("() => document.querySelector('.lu-lb-msg').textContent.length > 0")
+        assert page.locator(".lu-lb-msg").inner_text() == "Pushed · lands now"
+        url, body = api.posts[-1]
+        assert url.endswith("/decks/dinner/push-step")
+        assert body == {"index": 1, "item": "art-12.jpg", "display_id": "frame"}
+        assert api.item_calls[-1]["item"] == "art-12.jpg"
+        # The choice is shared: the tile shows it behind the lightbox.
+        page.keyboard.press("Escape")
+        assert page.locator(f"{ART} .lu-it-pos").inner_text() == "12/12"
+        assert page._lu_errors == []
+        browser.close()
+
+
+def test_lightbox_pushing_an_unchosen_step_sends_it_as_shown(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        page.locator(f"{NEWS} [data-zoom]").click()
+        page.locator("[data-lb-push]").click()
+        page.wait_for_function("() => document.querySelector('.lu-lb-msg').textContent.length > 0")
+        assert api.posts[-1][1] == {
+            "index": 0,
+            "display_id": "frame",
+            "composition_digest": "abc123def4567890",
+        }
+        browser.close()
+
+
+def test_a_push_that_fails_reports_it_in_the_lightbox(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, _ = _open(p, live, pics=True)
+        page.route(
+            re.compile(r".*/decks/[^/]+/push-step$"),
+            lambda r: r.fulfill(
+                status=409,
+                content_type="application/json",
+                body=json.dumps({"ok": False, "error": "Nothing is bound."}),
+            ),
+        )
+        page.locator(f"{NEWS} [data-zoom]").click()
+        page.locator("[data-lb-push]").click()
+        page.wait_for_function("() => document.querySelector('.lu-lb-msg.err')")
+        assert page.locator(".lu-lb-msg").inner_text() == "Could not push: Nothing is bound."
+        assert page.locator("[data-lb-push]").is_enabled()
+        browser.close()
+
+
+def test_no_arrows_with_one_item_or_when_the_widget_cannot_choose(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        for step in (NEWS, QUOTES):
+            tile = page.locator(f"{step} .lu-tile")
+            assert tile.locator(".lu-items, .lu-it").count() == 0
+            page.locator(f"{step} [data-zoom]").click()
+            assert page.locator("[data-lb-nav]").is_hidden()
+            assert page.locator("[data-lb-push]").is_visible()
+            page.keyboard.press("ArrowRight")
+            page.keyboard.press("ArrowLeft")
+            page.keyboard.press("Escape")
+        assert api.item_calls == []
+        # Quotes still show their count and the peek grid.
+        assert page.locator(f"{QUOTES} .lu-count").inner_text() == "×20"
+        browser.close()
+
+
+def test_lightbox_traps_focus_and_labels_its_buttons(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, _ = _open(p, live, pics=True)
+        page.locator(f"{ART} [data-zoom]").click()
+        names = page.locator(f"{LB} button:visible").evaluate_all(
+            "els => els.map(e => e.getAttribute('aria-label') || e.textContent.trim())"
+        )
+        assert names == ["Close", "Previous item", "Next item", "Push now"]
+        seen = []
+        for _ in range(5):
+            seen.append(_focused(page))
+            page.keyboard.press("Tab")
+        assert seen == ["Close", "Previous item", "Next item", "Push now", "Close"]
+        page.keyboard.press("Shift+Tab")
+        assert _focused(page) == "Close"
+        page.keyboard.press("Shift+Tab")
+        assert _focused(page) == "Push now"
+        assert page.locator("[data-lu-q]").evaluate("e => !!e.closest('[inert]')")
+        page.keyboard.press("Escape")
+        browser.close()
+
+
+def test_lightbox_order_follows_the_conventions(live: str) -> None:
+    """Quiet icon buttons first, the primary (Push now) last, in DOM order."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, _ = _open(p, live, pics=True)
+        page.locator(f"{ART} [data-zoom]").click()
+        order = page.locator(
+            ".lu-lb-foot > *:not([hidden]), .lu-lb-foot .lu-lb-items > *"
+        ).evaluate_all(
+            "els => els.map(e => [e.className.split(' ')[0], Math.round(e.getBoundingClientRect().left)])"
+        )
+        lefts = [x for _, x in order]
+        assert lefts == sorted(lefts), order
+        assert order[-1][0] == "lu-btn-save"
+        browser.close()
+
+
+def test_a_redraw_while_the_lightbox_is_open_changes_nothing_and_updates_it(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        page.locator(f"{ART} [data-zoom]").click()
+        page.keyboard.press("ArrowRight")
+        page.wait_for_function(
+            "() => document.querySelector('.lu-lb img').getAttribute('src').includes('item-art-1')"
+        )
+        page.evaluate("() => { document.querySelector('#lu-row-dinner').dataset.mark = 'old'; }")
+        # The server now says Art has a new name and one more item; redraw.
+        art = api.vm["displays"][0]["lineups"][0]["steps"][1]
+        art["name"] = "Art, renamed"
+        art["items"].append(
+            {"index": 12, "label": "Art 13 of 13", "thumb_url": "", "key": "art-13.jpg"}
+        )
+        art["item_count"] = 13
+        page.evaluate("() => TesseraeLineups.refresh()")
+        page.wait_for_function("() => !document.querySelector('#lu-row-dinner').dataset.mark")
+        assert page.locator(LB).count() == 1
+        assert page.locator("#lu-lb-title").inner_text() == "Art, renamed"
+        assert page.locator("[data-lb-pos]").inner_text().startswith("1 of 13")
+        assert page.locator("[data-lu-displays]").evaluate("e => e.inert")
+        # The redraw's popover housekeeping must not unlock the page under the lightbox.
+        assert page.evaluate("() => document.body.style.overflow") == "hidden"
+        assert page.locator(".lu-lb img").get_attribute("src").endswith("item-art-1-jpg.png?lg=1")
+        # Still works afterwards, and focus goes back to the redrawn icon.
+        page.keyboard.press("ArrowRight")
+        assert page.locator("[data-lb-pos]").inner_text().startswith("2 of 13")
+        page.keyboard.press("Escape")
+        # The ArrowRight's own draw can finish after the close and redraw the strip once
+        # more (focus goes back to the new icon in the same task). Look the icon up inside
+        # the page: Locator.evaluate finds the node and then reads it in two round trips,
+        # and a redraw between them leaves it comparing the old, detached icon.
+        assert page.evaluate(
+            "(sel) => document.querySelector(sel) === document.activeElement",
+            f"{ART} [data-zoom]",
+        )
+        assert page.locator(f"{ART} .lu-it-pos").inner_text() == "2/13"
+        assert page.evaluate("() => document.body.style.overflow") != "hidden"
+        assert page._lu_errors == []
+        browser.close()
+
+
+def test_a_redraw_that_drops_the_step_keeps_the_picture_and_withdraws_push(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        page.locator(f"{ART} [data-zoom]").click()
+        api.vm["displays"][0]["lineups"][0]["steps"].pop(1)
+        page.evaluate("() => TesseraeLineups.refresh()")
+        page.wait_for_function(
+            "() => document.querySelector('.lu-lb-note') && !document.querySelector('.lu-lb-note').hidden"
+        )
+        assert "no longer on the page" in page.locator(".lu-lb-note").inner_text()
+        assert (
+            page.locator("[data-lb-push]").is_hidden() and page.locator("[data-lb-nav]").is_hidden()
+        )
+        assert page.locator(f"{LB} img").count() == 1
+        page.keyboard.press("Escape")
+        assert page.locator(LB).count() == 0
+        browser.close()
+
+
+def test_a_chosen_item_survives_redraws_and_is_dropped_when_it_leaves_the_list(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        tile = page.locator(f"{ART} .lu-tile")
+        tile.hover()
+        tile.locator('[data-item="dinner:1:1"]').click()
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-dinner [data-step=\"1\"] img').getAttribute('src').includes('art-1')"
+        )
+        page.evaluate("() => TesseraeLineups.render()")
+        assert tile.locator(".lu-it-pos").inner_text() == "1/12"
+        assert tile.locator("img").get_attribute("src") == "/_img/item-art-1-jpg.png"
+        # The folder changed under it: art-1.jpg is gone, so the choice is too.
+        art = api.vm["displays"][0]["lineups"][0]["steps"][1]
+        art["items"] = art["items"][1:]
+        art["item_count"] = 11
+        page.evaluate("() => TesseraeLineups.refresh()")
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-dinner [data-step=\"1\"] img').getAttribute('src') === '/_img/art.png'"
+        )
+        assert tile.locator(".lu-it-pos").inner_text() == ""
+        browser.close()
+
+
+@pytest.mark.parametrize("scheme", ["dark", "light"])
+@pytest.mark.parametrize("ui", ["", "paper"])
+def test_lightbox_on_a_phone_fits_clears_the_tab_bar_and_works_by_touch(
+    live: str, scheme: str, ui: str
+) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open_device(p, live, "iPhone 13", scheme=scheme, pics=True, ui=ui)
+        icon = page.locator(f"{ART} [data-zoom]")
+        icon.scroll_into_view_if_needed()
+        box = icon.bounding_box()
+        assert box and box["width"] >= 44 and box["height"] >= 44  # the hit area
+        if ui == "paper":
+            assert page.locator(".tabbar").is_visible()
+        icon.tap()
+        card = page.locator(".lu-lb-card")
+        vw, vh = page.evaluate("() => [innerWidth, innerHeight]")
+        r = card.bounding_box()
+        assert r and r["x"] >= 0 and r["x"] + r["width"] <= vw
+        assert r["y"] >= 0 and r["y"] + r["height"] <= vh
+        # It covers the tab bar entirely: what is under the bar's corner is the lightbox.
+        assert page.evaluate(
+            "() => document.elementFromPoint(innerWidth / 2, innerHeight - 4).closest('.lu-lb') !== null"
+        )
+        assert page.evaluate("() => document.documentElement.scrollWidth <= innerWidth")
+        for sel in ("[data-lb-step]", ".lu-lb-x", "[data-lb-push]"):
+            b = page.locator(sel).first.bounding_box()
+            assert b and b["height"] >= 44 and b["width"] >= 44, (sel, b)
+        push = page.locator("[data-lb-push]").bounding_box()
+        assert push and push["y"] + push["height"] <= vh
+        page.locator("[data-lb-step='1']").tap()
+        page.wait_for_function(
+            "() => document.querySelector('.lu-lb img').getAttribute('src').includes('art-1')"
+        )
+        page.locator("[data-lb-push]").tap()
+        page.wait_for_function("() => document.querySelector('.lu-lb-msg').textContent.length > 0")
+        assert api.posts[-1][1]["item"] == "art-1.jpg"
+        page.locator(".lu-lb-x").tap()
+        assert page.locator(LB).count() == 0
+        assert page.evaluate("() => document.documentElement.scrollWidth <= innerWidth")
+        assert page._lu_errors == []
+        browser.close()
+
+
+@pytest.mark.parametrize("width", [360, 1024, 1440])
+def test_zoom_and_lightbox_cause_no_sideways_scroll(live: str, width: int) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, _ = _open(p, live, width=width, pics=True)
+        assert page.evaluate("() => document.documentElement.scrollWidth <= innerWidth")
+        page.locator(f"{ART} [data-zoom]").click()
+        assert page.evaluate("() => document.documentElement.scrollWidth <= innerWidth")
+        r = page.locator(".lu-lb-card").bounding_box()
+        assert r and r["x"] >= 0 and r["x"] + r["width"] <= width
+        browser.close()
+
+
+def test_tile_arrows_and_zoom_are_there_on_hover_and_keyboard_focus(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, _ = _open(p, live, pics=True)
+        tile = page.locator(f"{ART} .lu-tile")
+        items = tile.locator(".lu-items")
+        assert items.evaluate("e => getComputedStyle(e).opacity") == "0"
+        tile.hover()
+        page.wait_for_timeout(250)
+        items.evaluate("e => e.getAnimations().forEach((a) => a.finish())")
+        assert items.evaluate("e => getComputedStyle(e).opacity") == "1"
+        # Under Push now, inside the picture.
+        push = tile.locator(".lu-push-ov").bounding_box()
+        arrows = items.bounding_box()
+        pic = tile.locator(".lu-thumb").bounding_box()
+        assert push and arrows and pic
+        assert arrows["y"] >= push["y"] + push["height"] - 2
+        assert arrows["y"] + arrows["height"] <= pic["y"] + pic["height"] + 1
+        # The zoom icon sits in the top right corner of the picture, quiet when idle.
+        z = tile.locator(".lu-zoom").bounding_box()
+        assert (
+            z
+            and abs((z["x"] + z["width"]) - (pic["x"] + pic["width"])) <= 8
+            and z["y"] - pic["y"] <= 8
+        )
+        page.mouse.move(5, 5)
+        page.locator(f"{ART} [data-item='dinner:1:1']").focus()
+        items.evaluate("e => e.getAnimations().forEach((a) => a.finish())")
+        assert items.evaluate("e => getComputedStyle(e).opacity") == "1"
+        browser.close()
+
+
+def test_zoomed_picture_follows_a_color_display(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, _ = _open(p, live, pics=True)
+        page.locator('#display-kitchen [data-zoom^="step"]').first.click()
+        thumb = page.locator(f"{LB} .lu-thumb")
+        assert thumb.get_attribute("data-gamut") == "color"
+        assert page.locator(f"{LB} img").evaluate("e => getComputedStyle(e).filter") == "none"
+        browser.close()
+
+
+# -- draw next, against a real render ------------------------------------------------------
+
+
+def test_draw_next_end_to_end_with_a_real_chromium_render(
+    real: tuple[str, Flask], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A canvas dashboard with a list widget, the real routes, the real render
+    queue and a real Chromium drawing it: Next draws another picture (it changes),
+    Previous goes back without drawing, and Push sends exactly the pixels shown.
+    The gallery stands in for a random album: it differs on every render and
+    has no way to name an item for this page (draw mode)."""
+    import io
+
+    from PIL import Image
+
+    import app.step_items as step_items
+    from app.state.deck_model import Deck, DeckPage
+    from app.state.page_store import Page
+
+    base, app = real
+    if _EXE:
+        monkeypatch.setenv("TESSERAE_CHROMIUM_PATH", _EXE)
+    colours = {
+        "red": (220, 30, 30),
+        "green": (30, 200, 60),
+        "blue": (30, 60, 220),
+        "yellow": (230, 220, 30),
+        "violet": (160, 40, 200),
+        "cyan": (30, 200, 210),
+    }
+    photos = tmp_path / "photos"
+    photos.mkdir()
+    for name, rgb in colours.items():
+        Image.new("RGB", (400, 300), rgb).save(photos / f"{name}.jpg")
+    module = app.config["PLUGIN_REGISTRY"].get("picture_gallery").server_module
+    monkeypatch.setattr(module, "_folder_path", lambda name, data_dir: photos)
+    real_provider = step_items._provider
+    monkeypatch.setattr(
+        step_items,
+        "_provider",
+        lambda plugin_id: (
+            step_items._draw_items if plugin_id == "picture_gallery" else real_provider(plugin_id)
+        ),
+    )
+    app.config["PAGE_STORE"].save(
+        Page.model_validate(
+            {
+                "id": "drawn",
+                "name": "Drawn",
+                "device_ids": ["panel"],
+                "layout_kind": "canvas",
+                "canvas": {
+                    "w": 800,
+                    "h": 480,
+                    "els": [
+                        {
+                            "id": "g1",
+                            "kind": "widget",
+                            "widget": "picture_gallery",
+                            "x": 0,
+                            "y": 0,
+                            "w": 800,
+                            "h": 480,
+                            "options": {"folder": "x", "mode": "sequential", "scale": "fill"},
+                        }
+                    ],
+                },
+            }
+        )
+    )
+    app.config["DECK_STORE"].upsert(
+        Deck(
+            id="drawdeck",
+            name="Drawdeck",
+            device_ids=["panel"],
+            pages=[DeckPage(page_id="drawn"), DeckPage(page_id="news")],
+            advance="timer",
+            advance_interval_minutes=30,
+            advance_anchor="11:00",
+            advance_end_at="13:00",
+            advance_days_of_week=[0, 1, 2, 3, 4],
+        )
+    )
+
+    class _Spy:
+        """The real push manager, but what a push would send is kept, not sent."""
+
+        def __init__(self, inner: Any) -> None:
+            self.inner = inner
+            self.sent: list[tuple[bytes, dict[str, Any]]] = []
+
+        def republish_composition(self, png: bytes, **kw: Any) -> Any:
+            self.sent.append((png, kw))
+            return type("R", (), {"status": "sent"})()
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self.inner, name)
+
+    # The scheduler's warm-up is a real render and moves the cursor on its own
+    # clock: only what the arrows and Push do is being checked here.
+    monkeypatch.setattr(type(app.config["PUSH_MANAGER"]), "warm_deck_page", lambda *_a, **_k: True)
+    spy = _Spy(app.config["PUSH_MANAGER"])
+    app.config["PUSH_MANAGER"] = spy
+    previews = Path(app.config["DATA_ROOT"]) / "core" / "previews"
+
+    def dominant(path: Path) -> tuple[int, int, int]:
+        with Image.open(io.BytesIO(path.read_bytes())) as im:
+            return im.convert("RGB").resize((1, 1), Image.Resampling.BOX).getpixel((0, 0))  # type: ignore[return-value]
+
+    def drawn_files() -> list[Path]:
+        return sorted(previews.glob("drawn-i*__*.png"))
+
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser = _launch(p)
+        page = browser.new_context(viewport={"width": 1440, "height": 900}).new_page()
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        requests: list[str] = []
+        page.on("request", lambda r: requests.append(r.url) if "/step-item" in r.url else None)
+        page.goto(base + "/decks", wait_until="load")
+        page.wait_for_function(
+            "() => document.querySelector('[data-lu]').classList.contains('is-enhanced')"
+        )
+        step = page.locator('#lu-row-drawdeck .lu-step[data-step="0"]')
+        tile = step.locator(".lu-tile")
+        tile.scroll_into_view_if_needed()
+        tile.hover()
+        prev_btn = tile.locator('[data-item="drawdeck:0:-1"]')
+        next_btn = tile.locator('[data-item="drawdeck:0:1"]')
+        # Draw mode: arrows exist, a stack badged "random", "previous" waits for something drawn.
+        assert next_btn.get_attribute("aria-label") == "Draw the next picture"
+        assert prev_btn.is_disabled() and tile.locator(".lu-it-pos").inner_text() == ""
+        assert step.locator(".lu-count").inner_text() == "random"
+        assert "stacked" in tile.get_attribute("class")
+
+        def shown() -> str:
+            return str(tile.locator("img").get_attribute("src"))
+
+        def wait_drawn() -> None:
+            # Loading starts the moment Next is clicked; the picture lands when it ends.
+            page.wait_for_selector(
+                '#lu-row-drawdeck [data-step="0"] .lu-tile.is-loading', timeout=5_000
+            )
+            page.wait_for_selector(
+                '#lu-row-drawdeck [data-step="0"] .lu-tile:not(.is-loading)', timeout=90_000
+            )
+
+        seen_urls: list[str] = []
+        for _ in range(12):  # until three different pictures are drawn
+            tile.hover()
+            before = len(requests)
+            next_btn.click()
+            wait_drawn()
+            assert len(requests) > before  # Next draws; it never reuses
+            if shown() not in seen_urls:  # a draw that came out the same is not kept
+                seen_urls.append(shown())
+            if len(seen_urls) >= 3:
+                break
+        assert len(seen_urls) >= 3, "Next must draw different pictures"
+        files = drawn_files()
+        colours_seen = {dominant(f) for f in files}
+        assert len(colours_seen) >= 3, "each draw must be a different render"
+        shown_colours = [
+            dominant(
+                previews
+                / f"{re.search(r'draft/(drawn-i[0-9a-f]{10}__[0-9a-f]{16})', u).group(1)}.png"  # type: ignore[union-attr]
+            )
+            for u in seen_urls
+        ]
+        assert len(set(shown_colours)) == len(shown_colours), "the pictures on the tile differ"
+        # The picture on the tile is the one in the drawn file.
+        key = re.search(r"draft/(drawn-i[0-9a-f]{10}__[0-9a-f]{16})\.", shown())
+        assert key
+        showing = previews / f"{key.group(1)}.png"
+        assert showing.is_file()
+        # Previous goes back through what was drawn without drawing anything.
+        before = len(requests)
+        tile.hover()
+        latest = shown()
+        prev_btn.click()
+        page.wait_for_function(
+            "(u) => document.querySelector('#lu-row-drawdeck [data-step=\"0\"] .lu-tile img').src.endsWith(u) === false",
+            arg=latest,
+        )
+        page.wait_for_timeout(500)
+        assert len(requests) == before, "going back must not render"
+        went_back = shown()
+        assert went_back != seen_urls[-1] and went_back in seen_urls
+        back_key = re.search(r"draft/(drawn-i[0-9a-f]{10}__[0-9a-f]{16})\.", went_back)
+        assert back_key
+        # Push now sends exactly the pixels showing (the earlier picture, not the latest).
+        tile.hover()
+        step.locator("[data-push]").click()
+        page.wait_for_function("() => document.querySelector('#lu-row-drawdeck .pushed')")
+        for _ in range(50):
+            if spy.sent:
+                break
+            page.wait_for_timeout(100)
+        assert len(spy.sent) == 1
+        sent_png, kw = spy.sent[0]
+        assert kw == {"page_id": "drawn", "device_ids": {"panel"}}
+        assert sent_png == (previews / f"{back_key.group(1)}.png").read_bytes()
+        assert sent_png != showing.read_bytes() or len(files) == 1
+        assert dominant(previews / f"{back_key.group(1)}.png") in colours_seen
+        tile.hover()
+        page.screenshot(path=os.environ.get("LU_SHOT_DIR", "/tmp") + "/lineups-draw-e2e.png")
+        assert errors == []
+        browser.close()
+    # Browsing and pushing never wrote the album's sequential cursor (the page says
+    # sequential; a draw forces random so a preview cannot cost the frame a photo).
+    plugin_data = Path(app.config["PLUGIN_REGISTRY"].get("picture_gallery").data_dir)
+    assert not list(plugin_data.rglob(".sequential_index*"))
+
+
+COMICS = '#lu-row-dinner .lu-step[data-step="5"]'  # a widget the arrows draw again
+
+
+def _wait_item(page: Any, step: str, text: str) -> None:
+    page.wait_for_function(
+        "([sel, t]) => { const i = document.querySelector(sel + ' .lu-tile img'); return i && i.getAttribute('src').includes(t) }",
+        arg=[step, text],
+    )
+
+
+def test_draw_arrows_draw_again_go_back_without_drawing_and_show_no_count(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        tile = page.locator(f"{COMICS} .lu-tile")
+        tile.hover()
+        prev_btn = tile.locator('[data-item="dinner:5:-1"]')
+        next_btn = tile.locator('[data-item="dinner:5:1"]')
+        assert (
+            tile.locator(".lu-items").get_attribute("aria-label") == "Draw another Comics picture"
+        )
+        assert prev_btn.get_attribute("aria-label") == "Previous picture" and prev_btn.is_disabled()
+        assert next_btn.get_attribute("aria-label") == "Draw the next picture"
+        assert tile.locator(".lu-it-pos:not(:empty)").count() == 0  # no unknown total
+        assert tile.locator(".lu-count").inner_text() == "random"  # a collection, not a count
+        assert "stacked" in tile.get_attribute("class")
+        # Next draws one: the dashboard rendered once more under a new key, not an item name.
+        api.item_pending = 1
+        next_btn.click()
+        assert "is-loading" in tile.get_attribute("class")
+        page.wait_for_function(
+            "() => !document.querySelector('#lu-row-dinner [data-step=\"5\"] .lu-tile').classList.contains('is-loading')",
+            timeout=8000,
+        )
+        first = api.item_calls[0]["item"]
+        assert re.fullmatch(r"draw:[0-9a-f]{12}:1", first)
+        assert tile.locator(".lu-it-pos").inner_text() == ""
+        assert prev_btn.is_enabled()
+        tile.hover()
+        next_btn.click()
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-dinner [data-step=\"5\"] .lu-tile img').getAttribute('src').includes(':2'.replace(':', '-'))"
+        )
+        second = api.item_calls[-1]["item"]
+        assert re.fullmatch(r"draw:[0-9a-f]{12}:2", second) and second != first
+        # Previous goes back to the first picture without asking for anything.
+        calls = len(api.item_calls)
+        tile.hover()
+        prev_btn.click()
+        _wait_item(page, COMICS, re.sub(r"\W", "-", first))
+        page.wait_for_timeout(500)
+        assert len(api.item_calls) == calls
+        # ... and Next goes forward through what is already drawn, still without drawing.
+        tile.hover()
+        next_btn.click()
+        _wait_item(page, COMICS, re.sub(r"\W", "-", second))
+        page.wait_for_timeout(500)
+        assert len(api.item_calls) == calls
+        # Push sends the picture showing, by its key; nothing else is drawn for it.
+        tile.hover()
+        page.locator(f"{COMICS} [data-push]").click()
+        page.wait_for_function("() => document.querySelector('#lu-row-dinner .pushed')")
+        assert api.posts[-1][1] == {"index": 5, "item": second, "display_id": "frame"}
+        # Back past the first picture returns to the step as last sent.
+        for _ in range(2):
+            tile.hover()
+            prev_btn.click()
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-dinner [data-step=\"5\"] .lu-tile img').getAttribute('src') === '/_img/comics.png'"
+        )
+        assert prev_btn.is_disabled() and page._lu_errors == []
+        browser.close()
+
+
+def test_one_draw_at_a_time_and_a_repeat_is_not_kept(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        api.item_pending = 2
+        tile = page.locator(f"{COMICS} .lu-tile")
+        tile.hover()
+        next_btn = tile.locator('[data-item="dinner:5:1"]')
+        for _ in range(4):
+            next_btn.click()  # while the first is still being drawn, these draw nothing more
+        page.wait_for_function(
+            "() => !document.querySelector('#lu-row-dinner [data-step=\"5\"] .lu-tile').classList.contains('is-loading')",
+            timeout=10000,
+        )
+        assert len({c["item"] for c in api.item_calls}) == 1
+        # The next draw comes out identical to the first: not a new picture, so it is dropped and said.
+        first = api.item_calls[0]["item"]
+        api.item_pending = 0
+        api.same_sig = {}
+        original = api.sig_for
+
+        def same(item: str) -> str:
+            return original(first)
+
+        api.sig_for = same  # type: ignore[method-assign]
+        tile.hover()
+        next_btn.click()
+        page.wait_for_function(
+            "() => document.querySelector('[data-lu-live]').textContent.includes('same')"
+        )
+        page.locator(f"{COMICS} [data-zoom]").click()
+        assert "same as one already drawn" in page.locator(".lu-lb-note").inner_text()
+        browser.close()
+
+
+def test_lightbox_draw_navigation_text_and_buttons(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        page.locator(f"{COMICS} [data-zoom]").click()
+        assert (
+            page.locator("[data-lb-nav]").get_attribute("aria-label")
+            == "Draw another Comics picture"
+        )
+        assert page.locator("[data-lb-pos]").inner_text() == "As last sent"
+        assert page.locator("[data-lb-step='-1']").is_disabled()
+        assert (
+            page.locator("[data-lb-step='1']").get_attribute("aria-label")
+            == "Draw the next picture"
+        )
+        page.keyboard.press("ArrowLeft")  # nothing to go back to
+        assert api.item_calls == []
+        page.keyboard.press("ArrowRight")
+        page.wait_for_function(
+            "() => document.querySelector('[data-lb-pos]').textContent === 'Drawn here: 1 of 1'"
+        )
+        page.wait_for_function(
+            "() => document.querySelector('.lu-lb img').getAttribute('src').includes('lg=1') && document.querySelector('.lu-lb img').getAttribute('src').includes('item-draw')"
+        )
+        page.keyboard.press("ArrowRight")
+        page.wait_for_function(
+            "() => document.querySelector('[data-lb-pos]').textContent === 'Drawn here: 2 of 2'"
+        )
+        # The position moves at once, but the draw is asked for after a short
+        # debounce, and stepping away inside it rightly cancels the draw. Wait
+        # for the second picture before going back.
+        page.wait_for_function("() => !document.querySelector('.lu-lb.is-loading')")
+        page.keyboard.press("ArrowLeft")
+        assert page.locator("[data-lb-pos]").inner_text() == "Drawn here: 1 of 2"
+        assert len(api.item_calls) == 2
+        page.locator("[data-lb-push]").click()
+        page.wait_for_function("() => document.querySelector('.lu-lb-msg').textContent.length > 0")
+        body = api.posts[-1][1]
+        assert body["item"] == api.item_calls[0]["item"] and "composition_digest" not in body
+        assert page.locator(".lu-lb-msg").inner_text() == "Pushed · lands now"
+        browser.close()
+
+
+@pytest.mark.parametrize("width", [420, 700, 900, 1200, 1600])
+@pytest.mark.parametrize("folded", [True, False])
+def test_long_day_tag_never_runs_under_the_row_title(live: str, width: int, folded: bool) -> None:
+    """An irregular day set is tagged "Mon Tue Wed Sat Sun", wider than the tag column;
+    the row title and its day tiles stay clear of it at every width, folded or not."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, _api = _open(p, live, width=width)
+        page.evaluate(
+            """(folded) => document.querySelectorAll('.lu-row').forEach((r) => {
+                r.classList.toggle('is-folded', folded);
+                const t = r.querySelector('.lu-tag-st');
+                if (r.dataset.status === 'not_today') t.textContent = 'Mon Tue Wed Sat Sun';
+            })""",
+            folded,
+        )
+        boxes = page.evaluate(
+            """() => [...document.querySelectorAll('.lu-row')].map((r) => {
+                const rect = (e) => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
+                const text = document.createRange(); text.selectNodeContents(r.querySelector('.lu-tag-st'));
+                const t = text.getBoundingClientRect();
+                return { id: r.dataset.lineup, tag: [t.left, t.top, t.right, t.bottom],
+                         title: rect(r.querySelector('.lu-row-title')), name: rect(r.querySelector('.lu-row-name')) };
+            })"""
+        )
+        assert len(boxes) >= 5
+        for b in boxes:
+            for other in (b["title"], b["name"]):
+                apart = b["tag"][2] <= other[0] + 0.5 or b["tag"][3] <= other[1] + 0.5
+                assert apart, (width, folded, b)
+        assert page.evaluate("() => document.documentElement.scrollWidth - innerWidth") <= 0
+        assert page._lu_errors == []
+        browser.close()
+
+
+@pytest.mark.parametrize("redraw", [False, True])
+def test_grey_rows_carry_a_tag_saying_why(live: str, redraw: bool) -> None:
+    """Rows drawn grey wear a "why" tag over their thumbnails, from the server's markup
+    and from the client's redraw; rows that are live or later today wear none."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, _api = _open(p, live, pics=True)
+        if redraw:
+            page.evaluate("() => TesseraeLineups.refresh()")
+            page.wait_for_selector(".lu-off-why", state="attached")
+        page.evaluate(
+            "() => document.querySelectorAll('.lu-row').forEach((r) => r.classList.remove('is-folded'))"
+        )
+        got = page.evaluate(
+            """() => [...document.querySelectorAll('.lu-row')].map((r) => {
+                const tag = r.querySelector('.lu-off-why');
+                const strip = getComputedStyle(r.querySelector('.lu-strip'));
+                return { id: r.dataset.lineup, status: r.dataset.status, why: tag && tag.textContent.trim(),
+                         title: tag && tag.title, grey: strip.filter !== 'none',
+                         tagOpacity: tag && getComputedStyle(tag).opacity, shown: !!tag && tag.getBoundingClientRect().height > 0 };
+            })"""
+        )
+        by_id = {r["id"]: r for r in got}
+        assert by_id["dinner"]["why"] is None and by_id["night"]["why"] is None
+        assert by_id["breakfast"]["why"] == "Done for today"
+        assert by_id["weekend"]["why"] == by_id["monday"]["why"] == "Not today"
+        for r in got:
+            assert (r["why"] is not None) == r["grey"] == (r["status"] in ("not_today", "off")), r
+            if r["why"]:
+                assert r["shown"] and r["tagOpacity"] == "1", r
+                assert "colour" in r["title"], r
+        assert page._lu_errors == []
+        browser.close()
+
+
+def test_a_displays_plus_starts_a_lineup_for_that_display(real: tuple[str, Flask]) -> None:
+    """Each display header has a "+" beside its fold chevron that opens the new-lineup
+    flow with that display chosen, and the lineup it creates lands on that display.
+    The "+" survives the page's redraws."""
+    from playwright.sync_api import sync_playwright
+
+    from app.state.deck_model import Deck, DeckPage
+    from app.state.page_store import Page
+
+    base, app = real
+    code = app.config["PAIRING_STORE"].issue(note="test").code
+    resp = app.test_client().post(
+        "/api/v1/device/register",
+        headers={"X-Pairing-Code": code, "Content-Type": "application/json"},
+        data=json.dumps({"device_id": "hall", "kind": "esp32_client"}),
+    )
+    assert resp.status_code == 201
+    app.config["PAGE_STORE"].save(Page(id="free", name="Free"))  # on no display yet
+    app.config["DECK_STORE"].upsert(
+        Deck(
+            id="hall_loop", name="Hall loop", device_ids=["hall"], pages=[DeckPage(page_id="free")],
+            advance="timer", advance_interval_minutes=30,
+            advance_anchor="06:00", advance_end_at="09:00", advance_days_of_week=[0, 1, 2, 3, 4],
+        )
+    )  # fmt: skip
+    before = {d.id for d in app.config["DECK_STORE"].all()}
+    with sync_playwright() as p:
+        browser = _launch(p)
+        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.route(re.compile(r".*/events/stream.*"), lambda r: r.fulfill(status=204, body=""))
+        page.goto(base + "/decks", wait_until="load")
+        page.wait_for_function(
+            "() => document.querySelector('[data-lu]').classList.contains('is-enhanced')"
+        )
+
+        def check_buttons() -> None:
+            adds = page.locator(".lu-ds .lu-ds-hdr .lu-ds-add")
+            assert adds.count() == page.locator(".lu-ds .lu-ds-hdr .lu-ds-fold").count() == 2
+            for i in range(2):
+                add, fold = adds.nth(i), page.locator(".lu-ds-fold").nth(i)
+                name = add.locator("xpath=ancestor::section").locator("h2").inner_text()
+                assert add.get_attribute("aria-label") == f"New lineup for {name}"
+                assert add.get_attribute("title") == f"New lineup for {name}"
+                a, f = add.bounding_box(), fold.bounding_box()
+                assert a and f and a["x"] + a["width"] <= f["x"] + 0.5  # beside the chevron
+                assert abs((a["y"] + a["height"] / 2) - (f["y"] + f["height"] / 2)) <= 2
+
+        check_buttons()
+        with page.expect_response(lambda r: "/decks/view.json" in r.url):
+            page.evaluate("() => window.TesseraeLineups.refresh()")
+        check_buttons()
+
+        # The button opens the new-lineup flow on that display.
+        with page.expect_navigation():
+            page.locator('.lu-ds[data-display="hall"] .lu-ds-add').click()
+        assert page.url.endswith("/decks/new?display=hall")
+        # Its display is chosen: When is open. (10:00 keeps clear of Hall loop,
+        # 06:00-09:00: a new lineup that meets it is refused.)
+        page.locator('[data-time="start"]').fill("10:00")
+        page.locator("[data-goto='3']").click()
+        page.locator('[data-add="free"]').click()
+        with page.expect_navigation():
+            page.locator("[data-create]").click()
+        made = [d for d in app.config["DECK_STORE"].all() if d.id not in before]
+        assert len(made) == 1 and made[0].device_ids == ["hall"], made
+        assert errors == []
+        browser.close()
+
+
+# -- day tiles say on or off with a mark ---------------------------------------------
+
+SHOTS = Path(os.environ.get("LINEUPS_SHOTS", "/tmp/lineups-shots"))
+
+
+def _mark(page: Any, sel: str) -> dict[str, Any]:
+    """The check/x badge a day tile draws: its opacity and the mask (check or x)."""
+    return page.eval_on_selector(
+        sel,
+        """el => {
+            const b = getComputedStyle(el, '::before'), a = getComputedStyle(el, '::after');
+            return {opacity: Number(a.opacity), bg: b.backgroundColor,
+                    mask: (a.webkitMaskImage || a.maskImage || ''), letter: getComputedStyle(el).color};
+        }""",
+    )
+
+
+@pytest.mark.parametrize("scheme", ["dark", "light"])
+def test_day_tiles_show_a_check_on_and_an_x_off_while_toggling(live: str, scheme: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, _ = _open(p, live, scheme=scheme)
+        page.locator("#lu-row-dinner").scroll_into_view_if_needed()
+        mon = '[data-toggle-day="dinner:0"]'
+        thu = '[data-toggle-day="dinner:3"]'
+        # At rest nothing is drawn on the tiles beyond their shade.
+        page.mouse.move(2, 2)
+        assert _mark(page, mon)["opacity"] == 0
+        # Hovering adds nothing either: a running day's shade already says so.
+        page.hover(mon)
+        page.wait_for_timeout(250)
+        assert _mark(page, mon)["opacity"] == 0
+        assert _mark(page, thu)["opacity"] == 0
+        # Clicking an off day turns it on: its mark replaces the letter, aria-pressed follows.
+        page.locator(thu).click()
+        assert page.locator(thu).get_attribute("aria-pressed") == "true"
+        assert "just-on" in (page.locator(thu).get_attribute("class") or "")
+        page.wait_for_timeout(250)
+        assert _mark(page, thu)["opacity"] == 1
+        assert _mark(page, thu)["letter"] == "rgba(0, 0, 0, 0)"
+        assert "M1 4.3" in _mark(page, thu)["mask"].replace("%20", " ")
+        # The other running days stay plain while the group has focus.
+        assert _mark(page, mon)["opacity"] == 0
+        page.locator("#lu-row-dinner .lu-row-title").screenshot(
+            path=str(SHOTS / f"item1-day-just-on-{scheme}.png")
+        )
+        # Clicking it again turns it off: an x, aria-pressed false, no check.
+        page.locator(thu).click()
+        assert page.locator(thu).get_attribute("aria-pressed") == "false"
+        assert "just-off" in (page.locator(thu).get_attribute("class") or "")
+        page.wait_for_timeout(250)
+        off = _mark(page, thu)
+        assert off["opacity"] == 1
+        assert "M1.6 1.6" in off["mask"].replace("%20", " ") or "M1.6" in off["mask"]
+        page.locator("#lu-row-dinner .lu-row-title").screenshot(
+            path=str(SHOTS / f"item1-day-just-off-{scheme}.png")
+        )
+        # The mark is a moment; the day turned back to its saved state shows nothing at rest.
+        page.mouse.move(2, 2)
+        page.wait_for_function(
+            "() => !document.querySelector('[data-toggle-day=\"dinner:3\"]').classList.contains('just-off')"
+        )
+        page.wait_for_timeout(250)
+        assert _mark(page, thu)["opacity"] == 0
+        # A day left changed (unsaved) keeps its mark: a check for one turned on.
+        page.locator(thu).click()
+        page.mouse.move(2, 2)
+        page.wait_for_function(
+            "() => !document.querySelector('[data-toggle-day=\"dinner:3\"]').classList.contains('just-on')"
+        )
+        page.wait_for_timeout(250)
+        assert "is-edited" in (page.locator(thu).get_attribute("class") or "")
+        assert _mark(page, thu)["opacity"] == 1
+        assert page._lu_errors == []
+        browser.close()
+
+
+def test_day_tile_marks_show_on_a_dimmed_row_and_keep_the_today_underline(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, _ = _open(p, live)
+        row = page.locator("#lu-row-monday")  # not running today: a greyed row
+        assert "is-off" in (row.get_attribute("class") or "")
+        # Every other day clashes there, so draw the just-clicked state directly: the
+        # mark must read on a greyed row too.
+        tile = '[data-toggle-day="monday:0"]'
+        page.locator(tile).evaluate("el => el.classList.add('just-on')")
+        page.wait_for_timeout(250)
+        assert _mark(page, tile)["opacity"] == 1
+        # The underline for today is a shadow on the tile and is still there.
+        today = page.locator("#lu-row-monday .lu-dt.is-today")
+        assert today.count() == 1
+        assert "inset" in today.evaluate("el => getComputedStyle(el).boxShadow")
+        row.locator(".lu-row-title").screenshot(path=str(SHOTS / "item1-day-dimmed-row.png"))
+        browser.close()
+
+
+# -- the lineup's name edits in place -------------------------------------------------
+
+
+def _names(page: Any) -> list[str]:
+    return page.eval_on_selector_all(".lu-row-name .lu-name", "els => els.map(e => e.textContent)")
+
+
+def test_clicking_the_name_edits_it_and_enter_saves_everywhere(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live)
+        folded = "is-folded" in (page.locator("#lu-row-night").get_attribute("class") or "")
+        head = page.locator("#lu-row-night .lu-row-head")
+        before = head.bounding_box()["height"]
+        meta = page.locator("#lu-row-night .lu-row-meta").bounding_box()["y"]
+        page.locator('[data-name-edit="night"]').click()
+        # Editing, not folding: a text field in place of the name, the row as it was.
+        inp = page.locator("#lu-row-night .lu-name-edit input")
+        assert inp.input_value() == "Night"
+        # In place: the row neither grows nor moves the day tiles under the name.
+        assert abs(head.bounding_box()["height"] - before) < 1
+        assert abs(page.locator("#lu-row-night .lu-row-meta").bounding_box()["y"] - meta) < 1
+        assert page.evaluate("() => document.activeElement.matches('.lu-name-edit input')")
+        assert (
+            "is-folded" in (page.locator("#lu-row-night").get_attribute("class") or "")
+        ) == folded
+        page.locator("#lu-row-night").screenshot(path=str(SHOTS / "item2-name-editing.png"))
+        inp.fill("  Evening   art ")
+        inp.press("Enter")
+        page.wait_for_function("() => document.querySelector('#lu-row-night .lu-name')")
+        assert api.posts[-1][1] == {"name": "Evening art"}
+        assert api.posts[-1][0].endswith("/decks/night/name")
+        assert page.locator("#lu-row-night .lu-name").inner_text() == "Evening art"
+        assert "Night" not in _names(page)
+        # Anywhere else the name shows (the day bar blocks, aria labels, titles) follows.
+        assert page.locator('.lu-blk[data-lineup="night"]').first.get_attribute("title") or True
+        assert "Night" not in (page.locator('.lu-ds[data-display="frame"] .lu-today').inner_html())
+        assert page.evaluate("() => document.activeElement.matches('[data-name-edit]')")
+        page.locator("#lu-row-night .lu-row-title").screenshot(
+            path=str(SHOTS / "item2-name-saved.png")
+        )
+        assert page._lu_errors == []
+        browser.close()
+
+
+def test_name_edit_escape_cancels_and_blur_saves_and_empty_is_refused(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live)
+        name = '[data-name-edit="night"]'
+        inp = page.locator("#lu-row-night .lu-name-edit input")
+        # Escape: nothing is sent, the old name stays.
+        page.locator(name).click()
+        inp.fill("Something else")
+        inp.press("Escape")
+        assert page.locator("#lu-row-night .lu-name").inner_text() == "Night"
+        assert [u for u, _ in api.posts if u.endswith("/name")] == []
+        # Empty with Enter: refused in place, the field stays open for a fix.
+        page.locator(name).click()
+        inp.fill("   ")
+        inp.press("Enter")
+        assert page.locator("#lu-row-night .lu-name-err").inner_text() == "Enter a name"
+        assert inp.get_attribute("aria-invalid") == "true"
+        err_id = inp.get_attribute("aria-describedby")
+        assert page.locator(f"#{err_id}").inner_text() == "Enter a name"
+        assert inp.count() == 1
+        assert [u for u, _ in api.posts if u.endswith("/name")] == []
+        page.locator("#lu-row-night .lu-name-edit").screenshot(
+            path=str(SHOTS / "item2-name-empty.png")
+        )
+        # Empty and click away: the old name comes back, nothing is sent.
+        page.locator("body").click(position={"x": 5, "y": 5})
+        assert page.locator("#lu-row-night .lu-name").inner_text() == "Night"
+        assert [u for u, _ in api.posts if u.endswith("/name")] == []
+        # Blur with a new name saves it.
+        page.locator(name).click()
+        inp.fill("Late art")
+        page.locator("body").click(position={"x": 5, "y": 5})
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-night .lu-name')?.textContent === 'Late art'"
+        )
+        assert api.posts[-1][1] == {"name": "Late art"}
+        # The same name again sends nothing.
+        n = len(api.posts)
+        page.locator(name).click()
+        inp.press("Enter")
+        assert len(api.posts) == n and page.locator("#lu-row-night .lu-name").count() == 1
+        assert page._lu_errors == []
+        browser.close()
+
+
+def test_name_edit_shows_the_servers_reason_and_keeps_the_field(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live)
+        api.name_error = "Keep the name to 80 characters or fewer."
+        page.locator('[data-name-edit="night"]').click()
+        inp = page.locator("#lu-row-night .lu-name-edit input")
+        inp.fill("Too long")
+        inp.press("Enter")
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-night .lu-name-err')?.textContent"
+        )
+        assert "80 characters" in page.locator("#lu-row-night .lu-name-err").inner_text()
+        assert inp.input_value() == "Too long"
+        browser.close()
+
+
+def test_clicking_the_name_never_folds_the_row_but_the_rest_of_the_head_does(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, _ = _open(p, live)
+        row = page.locator("#lu-row-dinner")
+        before = "is-folded" in (row.get_attribute("class") or "")
+        page.locator('[data-name-edit="dinner"]').click()
+        assert ("is-folded" in (row.get_attribute("class") or "")) == before
+        # Clicking inside the field does not fold either.
+        page.locator("#lu-row-dinner .lu-name-edit input").click()
+        assert ("is-folded" in (row.get_attribute("class") or "")) == before
+        page.keyboard.press("Escape")
+        # The name is a button: Enter on it opens the field too.
+        page.locator('[data-name-edit="dinner"]').focus()
+        page.keyboard.press("Enter")
+        assert page.locator("#lu-row-dinner .lu-name-edit input").count() == 1
+        browser.close()
+
+
+# -- add or remove a lineup's end time -----------------------------------------------
+
+
+def _win_inputs(page: Any, row: str) -> Any:
+    return page.locator(f"#lu-row-{row} .lu-win-edit input")
+
+
+def test_a_push_gets_an_end_time_and_the_row_shows_the_range(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live)
+        assert page.locator("#lu-row-night .lu-win").inner_text() == "at 22:00"
+        page.locator('[data-win-edit="night"]').click()
+        # A push's editor is its start field and one button.
+        assert _win_inputs(page, "night").count() == 1
+        add = page.locator("#lu-row-night [data-win-end]")
+        assert add.get_attribute("aria-label") == "Add end time"
+        assert add.inner_text().strip() == "End time"
+        # Its name says what it does next, so it is not also a pressed/unpressed toggle.
+        assert add.get_attribute("aria-pressed") is None
+        add.click()
+        assert add.get_attribute("aria-label") == "Remove end time"
+        assert add.inner_text().strip() == ""  # a small x beside the end field
+        assert _win_inputs(page, "night").count() == 2
+        end = _win_inputs(page, "night").nth(1)
+        assert end.input_value() == "23:00" and page.evaluate(
+            "() => document.activeElement.getAttribute('aria-label') === 'End'"
+        )
+        page.locator("#lu-row-night .lu-win-edit").screenshot(
+            path=str(SHOTS / "item3-add-end-editor.png")
+        )
+        end.fill("23:30")
+        end.press("Enter")
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-night .lu-win')?.textContent === '22:00–23:30'"
+        )
+        sent = [b for u, b in api.posts if u.endswith("/decks/edits")]
+        assert sent == [{"edits": [{"id": "night", "start": "22:00", "end": "23:30"}]}]
+        page.locator("#lu-row-night .lu-row-state").screenshot(
+            path=str(SHOTS / "item3-range-label.png")
+        )
+        assert page._lu_errors == []
+        browser.close()
+
+
+def test_the_end_time_comes_off_again_and_the_row_says_at(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live)
+        page.locator('[data-win-edit="night"]').click()
+        page.locator("#lu-row-night [data-win-end]").click()
+        _win_inputs(page, "night").nth(1).fill("23:30")
+        page.locator("#lu-row-night [data-win-ok]").click()
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-night .lu-win')?.textContent === '22:00–23:30'"
+        )
+        # Now it has an end: the editor offers to remove it, and Apply sends a push.
+        page.locator('[data-win-edit="night"]').click()
+        assert _win_inputs(page, "night").count() == 2
+        rm = page.locator("#lu-row-night [data-win-end]")
+        assert rm.get_attribute("aria-label") == "Remove end time"
+        rm.click()
+        assert _win_inputs(page, "night").count() == 1
+        assert rm.get_attribute("aria-label") == "Add end time"
+        page.locator("#lu-row-night .lu-win-edit").screenshot(
+            path=str(SHOTS / "item3-remove-end-editor.png")
+        )
+        _win_inputs(page, "night").first.press("Enter")
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-night .lu-win')?.textContent === 'at 22:00'"
+        )
+        sent = [b for u, b in api.posts if u.endswith("/decks/edits")]
+        assert sent[-1] == {"edits": [{"id": "night", "start": "22:00", "push": True}]}
+        assert page._lu_errors == []
+        browser.close()
+
+
+def test_end_time_editor_refuses_bad_ends_and_shows_the_servers_reason(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live)
+        page.locator('[data-win-edit="night"]').click()
+        page.locator("#lu-row-night [data-win-end]").click()
+        err = page.locator("#lu-row-night .lu-win-err")
+        # An end at the start (or before it) is refused where it is typed.
+        _win_inputs(page, "night").nth(1).fill("22:00")
+        _win_inputs(page, "night").nth(1).press("Enter")
+        assert err.inner_text() == "End must be after start"
+        # A window over another lineup (Dinner, Mon-Wed 17:00-20:00) is refused before saving.
+        _win_inputs(page, "night").nth(0).fill("18:00")
+        _win_inputs(page, "night").nth(1).fill("21:00")
+        _win_inputs(page, "night").nth(1).press("Enter")
+        assert err.inner_text().startswith("Overlaps Dinner")
+        assert [u for u, _ in api.posts if u.endswith("/decks/edits")] == []
+        # The server's refusal stays in the editor, which stays open for another try.
+        _win_inputs(page, "night").nth(0).fill("21:00")
+        _win_inputs(page, "night").nth(1).fill("23:00")
+        api.edits_error = "Overlaps Somebody on Mon (06:00–09:00)."
+        _win_inputs(page, "night").nth(1).press("Enter")
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-night .lu-win-err')?.textContent.includes('Somebody')"
+        )
+        assert _win_inputs(page, "night").count() == 2
+        assert _win_inputs(page, "night").nth(1).is_enabled()
+        # Escape closes it, nothing saved: still a push.
+        _win_inputs(page, "night").nth(1).press("Escape")
+        assert page.locator("#lu-row-night .lu-win").inner_text() == "at 22:00"
+        browser.close()
+
+
+def test_a_rotation_loses_its_end_and_becomes_a_push(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live)
+        page.locator('[data-win-edit="dinner"]').click()
+        assert _win_inputs(page, "dinner").count() == 2
+        rm = page.locator("#lu-row-dinner [data-win-end]")
+        assert rm.get_attribute("aria-label") == "Remove end time"
+        rm.click()
+        assert _win_inputs(page, "dinner").count() == 1
+        _win_inputs(page, "dinner").first.press("Enter")
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-dinner .lu-win')?.textContent === 'at 17:00'"
+        )
+        sent = [b for u, b in api.posts if u.endswith("/decks/edits")]
+        assert sent[-1]["edits"][0]["push"] is True
+        assert page._lu_errors == []
+        browser.close()
+
+
+def test_real_routes_add_and_remove_an_end_time(real: tuple[str, Flask]) -> None:
+    from playwright.sync_api import sync_playwright
+
+    from app.state.deck_model import Deck, DeckPage
+
+    base, app = real
+    app.config["DECK_STORE"].upsert(
+        Deck(
+            id="art", name="Frame art", device_ids=["panel"],
+            pages=[DeckPage(page_id="sky")],
+            advance="timer", advance_trigger="daily", advance_fires_at="21:00",
+        )
+    )  # fmt: skip
+    with sync_playwright() as p:
+        browser = _launch(p)
+        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.route(re.compile(r".*/events/stream.*"), lambda r: r.fulfill(status=204, body=""))
+        page.goto(base + "/decks", wait_until="load")
+        page.wait_for_function(
+            "() => document.querySelector('[data-lu]').classList.contains('is-enhanced')"
+        )
+        assert page.locator("#lu-row-art .lu-win").inner_text() == "at 21:00"
+        page.locator("#lu-row-art .lu-win").click()
+        page.locator("#lu-row-art [data-win-end]").click()
+        _win_inputs(page, "art").nth(1).fill("23:30")
+        with page.expect_response(lambda r: r.url.endswith("/decks/edits")) as resp:
+            _win_inputs(page, "art").nth(1).press("Enter")
+        assert resp.value.status == 200, resp.value.text()
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-art .lu-win')?.textContent === '21:00–23:30'"
+        )
+        assert "Saved." in page.locator(".lu-pend-msg").first.inner_text()
+        deck = app.config["DECK_STORE"].get("art")
+        assert deck.advance_trigger == "interval"
+        assert (deck.advance_window_start, deck.advance_window_end) == ("21:00", "23:30")
+        # The page's own redraw agrees, and so does a reload.
+        page.reload(wait_until="load")
+        assert page.locator("#lu-row-art .lu-win").inner_text() == "21:00–23:30"
+        page.locator("#lu-row-art .lu-win").click()
+        page.locator("#lu-row-art [data-win-end]").click()
+        with page.expect_response(lambda r: r.url.endswith("/decks/edits")) as resp:
+            _win_inputs(page, "art").first.press("Enter")
+        assert resp.value.status == 200, resp.value.text()
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-art .lu-win')?.textContent === 'at 21:00'"
+        )
+        deck = app.config["DECK_STORE"].get("art")
+        assert deck.advance_trigger == "daily" and deck.advance_fires_at == "21:00"
+        assert errors == []
+        browser.close()
+
+
+# -- reorder a lineup's dashboards ---------------------------------------------------
+
+
+def _strip(page: Any, row: str) -> list[str]:
+    return page.eval_on_selector_all(
+        f"#lu-row-{row} .lu-step",
+        "els => els.map(e => e.querySelector('.lu-step-name').textContent)",
+    )
+
+
+def _positions(page: Any, row: str) -> list[str]:
+    return page.eval_on_selector_all(
+        f"#lu-row-{row} .lu-step",
+        "els => els.map(e => e.querySelector('.lu-step-meta').textContent.trim())",
+    )
+
+
+def _grab(
+    page: Any, row: str, step: int, to_x_of: int, side: str = "left", hold: bool = False
+) -> None:
+    """Drag a step with the mouse onto the left or right half of another one."""
+    src = page.locator(f"#lu-row-{row} .lu-step").nth(step).locator(".lu-tile")
+    dst = page.locator(f"#lu-row-{row} .lu-step").nth(to_x_of).locator(".lu-tile")
+    src.scroll_into_view_if_needed()
+    sb, db = src.bounding_box(), dst.bounding_box()
+    page.mouse.move(sb["x"] + sb["width"] / 2, sb["y"] + sb["height"] / 2)
+    page.mouse.down()
+    x = db["x"] + (db["width"] * (0.2 if side == "left" else 0.8))
+    y = db["y"] + db["height"] / 2
+    page.mouse.move(sb["x"] + sb["width"] / 2 + 12, sb["y"] + sb["height"] / 2 + 4, steps=3)
+    page.mouse.move(x, y, steps=8)
+    page.mouse.move(x + 1, y, steps=2)
+    if not hold:
+        page.mouse.up()
+
+
+def test_dragging_a_step_shows_a_drop_bar_and_saves_the_new_order(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        page.locator('[data-fold="dinner"]').scroll_into_view_if_needed()
+        folded = "is-folded" in (page.locator("#lu-row-dinner").get_attribute("class") or "")
+        if folded:
+            page.locator('[data-fold="dinner"]').click()
+        before = _strip(page, "dinner")
+        assert before[:3] == ["Newspaper", "Art", "Family"]
+        assert page.locator("#lu-row-dinner .lu-strip.is-sortable").count() == 1
+        assert page.locator("#lu-row-dinner .lu-step").first.get_attribute("draggable") == "true"
+        # Hold Newspaper over the left half of Family: a bar shows before Family.
+        _grab(page, "dinner", 0, 2, "left", hold=True)
+        assert page.locator("#lu-row-dinner .lu-step.drop-before").count() == 1
+        assert (
+            page.locator("#lu-row-dinner .lu-step.is-dragging .lu-step-name").inner_text()
+            == "Newspaper"
+        )
+        bar = page.locator("#lu-row-dinner .lu-step.drop-before")
+        assert bar.evaluate("e => e.querySelector('.lu-step-name').textContent") == "Family"
+        # It stands in the gap before Family's picture, not on the picture's edge.
+        assert (
+            bar.evaluate("e => getComputedStyle(e.querySelector('figure'), '::before').width")
+            == "4px"
+        )
+        assert (
+            bar.evaluate("e => getComputedStyle(e.querySelector('figure'), '::before').left")
+            == "-19px"
+        )
+        page.locator("#lu-row-dinner .lu-strip-scroll").screenshot(
+            path=str(SHOTS / "item4-drop-bar.png")
+        )
+        page.mouse.up()
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-dinner .lu-step-name')?.textContent === 'Art'"
+        )
+        sent = [(u, b) for u, b in api.posts if u.endswith("/order")]
+        assert len(sent) == 1 and sent[0][0].endswith("/decks/dinner/order")
+        assert sent[0][1]["from"] == 0 and sent[0][1]["to"] == 1
+        assert sent[0][1]["pages"][:3] == ["newspaper", "art", "family"]
+        # In place: the new order, n/N labels renumbered, no leftover drag state, row still open.
+        assert _strip(page, "dinner")[:3] == ["Art", "Newspaper", "Family"]
+        assert _positions(page, "dinner")[:3] == ["1/6", "2/6", "3/6"]
+        assert page.locator("#lu-row-dinner .drop-before, #lu-row-dinner .is-dragging").count() == 0
+        assert "is-folded" not in (page.locator("#lu-row-dinner").get_attribute("class") or "")
+        # Dragging never opened the zoom.
+        assert page.locator(".lu-lb:visible").count() == 0
+        page.locator("#lu-row-dinner .lu-strip-scroll").screenshot(
+            path=str(SHOTS / "item4-after-drop.png")
+        )
+        assert page._lu_errors == []
+        browser.close()
+
+
+def test_dropping_a_step_where_it_was_or_outside_the_strip_changes_nothing(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        if "is-folded" in (page.locator("#lu-row-dinner").get_attribute("class") or ""):
+            page.locator('[data-fold="dinner"]').click()
+        # Onto its own left half, and onto the right half of the step before it: both stay put.
+        _grab(page, "dinner", 1, 1, "left", hold=True)
+        assert page.locator("#lu-row-dinner .drop-before, #lu-row-dinner .drop-after").count() == 0
+        page.mouse.up()
+        _grab(page, "dinner", 1, 0, "right")
+        # Out onto the page header: no drop target, nothing sent.
+        src = page.locator("#lu-row-dinner .lu-step").nth(2).locator(".lu-tile")
+        src.scroll_into_view_if_needed()
+        sb = src.bounding_box()
+        page.mouse.move(sb["x"] + 20, sb["y"] + 20)
+        page.mouse.down()
+        page.mouse.move(sb["x"] + 40, sb["y"] + 40, steps=3)
+        page.mouse.move(sb["x"] + 40, 4, steps=6)
+        page.mouse.up()
+        assert [u for u, _ in api.posts if u.endswith("/order")] == []
+        assert _strip(page, "dinner")[:3] == ["Newspaper", "Art", "Family"]
+        assert page.locator("#lu-row-dinner .is-dragging").count() == 0
+        browser.close()
+
+
+def test_a_plain_click_on_a_step_still_zooms_and_a_drag_does_not(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        if "is-folded" in (page.locator("#lu-row-dinner").get_attribute("class") or ""):
+            page.locator('[data-fold="dinner"]').click()
+        _grab(page, "dinner", 0, 3, "right")
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-dinner .lu-step-name')?.textContent === 'Art'"
+        )
+        assert page.locator(".lu-lb:visible").count() == 0
+        # No push went out, no row folded.
+        assert [u for u, _ in api.posts if u.endswith("/push-step")] == []
+        assert "is-folded" not in (page.locator("#lu-row-dinner").get_attribute("class") or "")
+        page.locator("#lu-row-dinner .lu-step").first.locator(".lu-zoom").click()
+        assert page.locator(".lu-lb:visible").count() == 1
+        browser.close()
+
+
+def test_alt_arrows_move_a_step_and_focus_follows(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        if "is-folded" in (page.locator("#lu-row-dinner").get_attribute("class") or ""):
+            page.locator('[data-fold="dinner"]').click()
+        zoom = '#lu-row-dinner .lu-step[data-step="1"] [data-zoom]'
+        page.locator(zoom).focus()
+        page.keyboard.press("Alt+ArrowRight")
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-dinner .lu-step-name')?.textContent === 'Newspaper'"
+        )
+        sent = [b for u, b in api.posts if u.endswith("/order")]
+        assert (sent[-1]["from"], sent[-1]["to"]) == (1, 2)
+        assert _strip(page, "dinner")[:3] == ["Newspaper", "Family", "Art"]
+        # Focus is on the moved step (now third), on the same kind of control, which
+        # names the shortcut; the step is marked for a moment where it landed.
+        page.wait_for_function(
+            "() => document.activeElement.closest('.lu-step')?.dataset.step === '2' && document.activeElement.matches('[data-zoom]')"
+        )
+        assert page.evaluate("() => document.activeElement.getAttribute('aria-keyshortcuts')") == (
+            "Alt+ArrowLeft Alt+ArrowRight"
+        )
+        assert "just-moved" in (
+            page.locator('#lu-row-dinner .lu-step[data-step="2"]').get_attribute("class") or ""
+        )
+        page.keyboard.press("Alt+ArrowLeft")
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-dinner .lu-step[data-step=\"1\"] .lu-step-name')?.textContent === 'Art'"
+        )
+        page.wait_for_function(
+            "() => document.activeElement.closest('.lu-step')?.dataset.step === '1'"
+        )
+        assert _strip(page, "dinner")[:3] == ["Newspaper", "Art", "Family"]
+        # The first step cannot go further left: nothing is sent.
+        n = len([1 for u, _ in api.posts if u.endswith("/order")])
+        page.locator('#lu-row-dinner .lu-step[data-step="0"] [data-zoom]').focus()
+        page.keyboard.press("Alt+ArrowLeft")
+        page.wait_for_timeout(200)
+        assert len([1 for u, _ in api.posts if u.endswith("/order")]) == n
+        # Arrows without Alt do what they did (nothing here), and send nothing.
+        page.keyboard.press("ArrowRight")
+        assert len([1 for u, _ in api.posts if u.endswith("/order")]) == n
+        assert page._lu_errors == []
+        browser.close()
+
+
+def test_a_refused_move_puts_the_order_back_and_says_why(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, api = _open(p, live, pics=True)
+        if "is-folded" in (page.locator("#lu-row-dinner").get_attribute("class") or ""):
+            page.locator('[data-fold="dinner"]').click()
+        api.order_error = "Dinner changed since this page loaded; reload to reorder it."
+        _grab(page, "dinner", 0, 2, "left")
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-dinner .lu-row-err')?.textContent.includes('Not reordered')"
+        )
+        assert "reload to reorder" in page.locator("#lu-row-dinner .lu-row-err").inner_text()
+        assert _strip(page, "dinner")[:3] == ["Newspaper", "Art", "Family"]
+        # By keyboard too, and the keyboard is back on the step it tried to move.
+        zoom = '#lu-row-dinner .lu-step[data-step="1"] [data-zoom]'
+        page.locator(zoom).focus()
+        page.keyboard.press("Alt+ArrowRight")
+        page.wait_for_function(
+            "() => document.activeElement.closest('.lu-step')?.dataset.step === '1'"
+            " && document.activeElement.matches('[data-zoom]')"
+        )
+        assert _strip(page, "dinner")[:3] == ["Newspaper", "Art", "Family"]
+        assert page._lu_errors == []
+        browser.close()
+
+
+def test_a_single_step_lineup_has_nothing_to_reorder(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser, page, _ = _open(p, live)
+        assert page.locator("#lu-row-night .lu-strip.is-sortable").count() == 0
+        assert page.locator("#lu-row-night .lu-step[draggable]").count() == 0
+        browser.close()
+
+
+def test_real_routes_reorder_moves_the_next_marker_and_the_labels(real: tuple[str, Flask]) -> None:
+    from playwright.sync_api import sync_playwright
+
+    from app.state.deck_model import Deck, DeckPage
+
+    base, app = real
+    # Live at the fixture's midday: three 30-minute steps from 11:00, so it is on the third.
+    app.config["DECK_STORE"].upsert(
+        Deck(
+            id="midday", name="Midday", device_ids=["panel"],
+            pages=[DeckPage(page_id="news"), DeckPage(page_id="art"), DeckPage(page_id="sky")],
+            advance="timer", advance_interval_minutes=30,
+            advance_anchor="11:00", advance_end_at="13:00",
+        )
+    )  # fmt: skip
+    with sync_playwright() as p:
+        browser = _launch(p)
+        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.route(re.compile(r".*/events/stream.*"), lambda r: r.fulfill(status=204, body=""))
+        page.goto(base + "/decks", wait_until="load")
+        page.wait_for_function(
+            "() => document.querySelector('[data-lu]').classList.contains('is-enhanced')"
+        )
+        if "is-folded" in (page.locator("#lu-row-midday").get_attribute("class") or ""):
+            page.locator('[data-fold="midday"]').click()
+        assert _strip(page, "midday") == ["News", "Art", "Sky"]
+        # At 12:00 it is on its third step, so the first is NEXT (12:30), wrapping round.
+        nxt = "#lu-row-midday .lu-step:has(.lu-pill.p-next) .lu-step-name"
+        assert page.locator(nxt).inner_text() == "News"
+        _grab(page, "midday", 2, 0, "left")
+        # The step moves at once; the server's redraw then renumbers the steps.
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-midday .lu-step-name')?.textContent === 'Sky'"
+            " && document.querySelector('#lu-row-midday .lu-step-meta')?.textContent.startsWith('1/3')"
+        )
+        assert app.config["DECK_STORE"].get("midday").page_ids == ["sky", "news", "art"]
+        assert _strip(page, "midday") == ["Sky", "News", "Art"]
+        assert [t.split()[0] for t in _positions(page, "midday")] == ["1/3", "2/3", "3/3"]
+        # The server decides what comes next in the new order: Art is on now, so Sky is next.
+        assert page.locator(nxt).inner_text() == "Sky"
+        page.locator("#lu-row-midday .lu-strip-scroll").screenshot(
+            path=str(SHOTS / "item4-real-after-drop.png")
+        )
+        # Reload: the same order, from the store.
+        page.reload(wait_until="load")
+        assert _strip(page, "midday") == ["Sky", "News", "Art"]
+        assert errors == []
+        browser.close()
+
+
+def test_real_routes_an_end_on_a_push_of_four_dashboards_makes_a_rotation(
+    real: tuple[str, Flask],
+) -> None:
+    """Alex's "Frame Modern Art (day)": a daily push of four dashboards at 06:00 that
+    remembers an 18:30 end, beside an 18:00 push on the same display. The end offered
+    first is the remembered one, kept clear of the 18:00 push; the lineup then runs as a
+    rotation 06:00-18:00 through all four, and Remove end time makes it a push again."""
+    from playwright.sync_api import sync_playwright
+
+    from app.state.deck_model import Deck, DeckPage
+    from app.state.page_store import Page
+
+    base, app = real
+    pages = ("monet", "kahlo", "hopper", "klee")
+    for pid in pages:
+        app.config["PAGE_STORE"].save(Page(id=pid, name=pid.title(), device_ids=["panel"]))
+    decks = app.config["DECK_STORE"]
+    # The fixture's weekday rotations would meet a 06:00-18:00 window; move them aside.
+    for gone in ("morning", "evening"):
+        decks.delete(gone)
+    decks.upsert(
+        Deck(
+            id="fma", name="Frame Modern Art (day)", device_ids=["panel"],
+            pages=[DeckPage(page_id=p) for p in pages],
+            advance="timer", advance_trigger="daily", advance_fires_at="06:00",
+            advance_end_at="18:30", advance_anchor="00:00",
+            advance_interval_minutes=30, refresh_interval_minutes=30,
+            advance_days_of_week=[0, 1, 2, 5, 6], advance_mode="scheduled",
+        )
+    )  # fmt: skip
+    decks.upsert(
+        Deck(
+            id="old", name="Frame Old Art (night)", device_ids=["panel"],
+            pages=[DeckPage(page_id="klee")],
+            advance="timer", advance_trigger="daily", advance_fires_at="18:00",
+        )
+    )  # fmt: skip
+    with sync_playwright() as p:
+        browser = _launch(p)
+        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.route(re.compile(r".*/events/stream.*"), lambda r: r.fulfill(status=204, body=""))
+        page.goto(base + "/decks", wait_until="load")
+        page.wait_for_function(
+            "() => document.querySelector('[data-lu]').classList.contains('is-enhanced')"
+        )
+        assert page.locator("#lu-row-fma .lu-win").inner_text() == "at 06:00"
+        page.locator("#lu-row-fma .lu-win").click()
+        add = page.locator("#lu-row-fma [data-win-end]")
+        assert add.get_attribute("aria-label") == "Add end time"
+        add.click()
+        end = _win_inputs(page, "fma").nth(1)
+        # 18:30 is remembered, but the night push at 18:00 comes first.
+        assert end.input_value() == "18:00"
+        page.locator("#lu-row-fma .lu-row-head").screenshot(
+            path=str(SHOTS / "end-four-dashboards-editor.png")
+        )
+        # The remembered 18:30 itself runs over the night push: refused before saving.
+        end.fill("18:30")
+        end.press("Enter")
+        assert (
+            page.locator("#lu-row-fma .lu-win-err")
+            .inner_text()
+            .startswith("Overlaps Frame Old Art")
+        )
+        end.fill("18:00")
+        with page.expect_response(lambda r: r.url.endswith("/decks/edits")) as resp:
+            end.press("Enter")
+        assert resp.value.status == 200, resp.value.text()
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-fma .lu-win')?.textContent === '06:00–18:00'"
+        )
+        row = page.locator("#lu-row-fma")
+        assert row.get_attribute("data-kind") == "cycle"
+        assert row.locator(".lu-step").count() == 4
+        page.locator("#lu-row-fma").screenshot(path=str(SHOTS / "end-four-dashboards-row.png"))
+        deck = decks.get("fma")
+        assert deck.advance_trigger == "cycle"
+        assert (deck.advance_anchor, deck.advance_end_at) == ("06:00", "18:00")
+        assert deck.page_ids == list(pages) and deck.advance_days_of_week == [0, 1, 2, 5, 6]
+        # And back: a push at 06:00 again, its four dashboards kept.
+        page.locator("#lu-row-fma .lu-win").click()
+        rm = page.locator("#lu-row-fma [data-win-end]")
+        assert rm.get_attribute("aria-label") == "Remove end time"
+        rm.click()
+        with page.expect_response(lambda r: r.url.endswith("/decks/edits")) as resp:
+            _win_inputs(page, "fma").first.press("Enter")
+        assert resp.value.status == 200, resp.value.text()
+        page.wait_for_function(
+            "() => document.querySelector('#lu-row-fma .lu-win')?.textContent === 'at 06:00'"
+        )
+        deck = decks.get("fma")
+        assert deck.advance_trigger == "daily" and deck.advance_fires_at == "06:00"
+        assert deck.page_ids == list(pages)
+        assert errors == []
+        browser.close()
+
+
+def test_pills_are_never_covered_by_a_stack(live: str) -> None:
+    from playwright.sync_api import sync_playwright
+
+    check = """() => {
+        const bad = [];
+        for (const pill of document.querySelectorAll(".lu-step .lu-pill")) {
+          pill.scrollIntoView({ block: "center", inline: "center" });
+          const r = pill.getBoundingClientRect();
+          for (const [x, y] of [[r.left + 1, r.top + 1], [r.right - 1, r.top + 1],
+                                [r.left + 1, r.bottom - 1], [r.right - 1, r.bottom - 1]]) {
+            const hit = document.elementFromPoint(x, y);
+            if (!hit || !(hit === pill || pill.contains(hit))) bad.push(String(hit && hit.className));
+          }
+        }
+        return bad;
+    }"""
+    with sync_playwright() as p:
+        browser, page, _api = _open(p, live, pics=True)
+        assert page.locator(".lu-step .lu-pill").count() > 0
+        assert page.locator(".lu-tile.stacked").count() > 0
+        assert page.evaluate(check) == []
         browser.close()

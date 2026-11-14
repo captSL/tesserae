@@ -50,6 +50,7 @@ from flask import (
 )
 from werkzeug.wrappers import Response
 
+from app import schema_validation
 from app.capabilities import Capabilities, set_delegate_resolver
 from app.capabilities import parse as _parse_capabilities
 from app.state.settings_store import SettingsStore
@@ -561,7 +562,7 @@ def _scan_plugin_dir(
             continue
 
         try:
-            jsonschema.validate(manifest, schema)
+            schema_validation.validate(manifest, schema)
         except jsonschema.ValidationError as err:
             field_path = ".".join(str(p) for p in err.absolute_path) or "<root>"
             registry.errors.append(
@@ -884,6 +885,55 @@ def register_routes(app: Flask, registry: PluginRegistry, *, gate: bool = True) 
     @bp.post("/enable")
     def enable_plugin() -> Response | tuple[Response, int]:
         return _toggle(False)
+
+    @bp.post("/<plugin_id>/query-preview")
+    def query_preview(plugin_id: str) -> Response | tuple[Response, int]:
+        """Preview an opted-in widget's unsaved filters without a settled render."""
+        from app.capabilities import capability_scope
+        from app.page_routes import _cell_options_from_form
+
+        plugin = _live_registry().get(plugin_id)
+        callback = getattr(plugin.server_module, "query_preview", None) if plugin else None
+        if (
+            plugin is None
+            or plugin.manifest.get("query_preview") is not True
+            or not callable(callback)
+        ):
+            abort(404)
+        try:
+            width, height = (int(request.form.get(key, "0")) for key in ("cell_w", "cell_h"))
+            if not (1 <= width <= 16384 and 1 <= height <= 16384):
+                raise ValueError
+        except (TypeError, ValueError):
+            return jsonify({"error": "Choose a valid target cell size."}), 400
+        store = current_app.config.get("SETTINGS_STORE")
+        settings = (
+            store.get_for_runtime("plugins", plugin_id, plugin.manifest.get("settings", []))
+            if store
+            else {}
+        )
+        options = {**plugin.cell_option_defaults(), **_cell_options_from_form(plugin, request.form)}
+        try:
+            with capability_scope(plugin.capabilities):
+                result = callback(
+                    options,
+                    settings,
+                    ctx={
+                        "data_dir": str(plugin.data_dir),
+                        "cell_w": width,
+                        "cell_h": height,
+                        "panel_w": width,
+                        "panel_h": height,
+                        "preview": True,
+                        "settled": False,
+                    },
+                )
+            if not isinstance(result, dict) or not isinstance(result.get("images"), list):
+                raise ValueError("Invalid query preview response")
+            return jsonify({**result, "images": result["images"][:20]})
+        except Exception:
+            logger.exception("Plugin %s query preview failed", plugin_id)
+            return jsonify({"error": "Could not preview these filters. Try again shortly."}), 502
 
     @bp.get("/<plugin_id>/<path:asset>")
     def plugin_asset(plugin_id: str, asset: str) -> Response:

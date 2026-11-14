@@ -1,20 +1,39 @@
 """Push Tesserae frames to OpenDisplay tags through Home Assistant.
 
 For each ``opendisplay_ha`` device, when its rendered frame changes this
-writes the composition PNG into Home Assistant's media folder and calls the
+puts the composition PNG into Home Assistant's media folder and calls the
 ``opendisplay.upload_image`` action (via the ha_core connection); HA's
 OpenDisplay integration then pushes it to the tag over Bluetooth LE. No BLE
 on the Tesserae host, and it scales to many tags (each targets its own HA
 device id).
 
-The service takes a media source, not a URL, so the frame is written to
-``<media_root>/tesserae/<device_id>.png`` and referenced as
-``media-source://media_source/local/tesserae/<device_id>.png``. A stable
-per-device filename, overwritten in place, means the folder never grows
-beyond one small PNG per device: no per-push accumulation to prune. Writes
-are atomic (temp + rename) so HA never reads a half-written frame, a
-deleted device's file is removed, and a startup sweep clears orphans left
-by renamed / removed devices.
+The service takes a media source, not a URL, so the frame has to be in HA's
+media folder as ``tesserae/<device_id>.png``, referenced as
+``media-source://media_source/local/tesserae/<device_id>.png``. It gets
+there one of two ways:
+
+* **Shared folder.** As the HA add-on (or with ``app.opendisplay_media_root``
+  pointing at a mount of HA's media folder) the file is written straight to
+  ``<media_root>/tesserae/``. Writes are atomic (temp + rename) so HA never
+  reads a half-written frame, a deleted device's file is removed, and a
+  startup sweep clears orphans left by renamed / removed devices.
+* **Upload.** Anywhere else (Docker, Proxmox, bare metal) Tesserae has no
+  filesystem in common with HA, so the frame is sent through HA's media
+  upload endpoint with the ha_core token, which must belong to an
+  administrator. The add-on also falls back to this when its media folder
+  is not writable. HA's REST API cannot delete media, so a removed device
+  leaves its one small PNG behind in HA.
+
+Either way the filename is stable per device and overwritten in place, so
+the folder never grows beyond one small PNG per device.
+
+The frame is turned to the tag's own (landscape) buffer before it leaves,
+from the device's Panel rotation, and inset by its underscan: the same
+mapping the ``pi_png`` renderer gives a polled client, so one Rotation
+control means the same thing on every kind. A device saved with the older
+``rotate`` option (a turn applied by HA's upload action) keeps that
+behaviour until the option is cleared: its upright composition is sent as
+it was and HA does the turning.
 
 Registered as a PushManager listener, so it reacts to every push and acts
 only on the ``opendisplay_ha`` devices whose frame actually changed. mypy
@@ -27,7 +46,6 @@ import contextlib
 import json
 import logging
 import os
-import shutil
 import threading
 import urllib.error
 from collections.abc import Callable
@@ -38,6 +56,9 @@ from flask import Flask
 
 from app import background_loops, ha_telemetry
 from app.device_loader import Device, DeviceRegistry
+from app.ha_options import is_ha_addon
+from app.panel import device_panel
+from app.quantizer import apply_underscan, rotate_png
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +66,10 @@ KIND = "opendisplay_ha"
 # Subdirectory under the HA media root; also the media-source path segment.
 MEDIA_SUBDIR = "tesserae"
 DEFAULT_MEDIA_ROOT = "/media"
+# HA's local media source, the folder the upload endpoint writes under.
+MEDIA_SOURCE_LOCAL = "media-source://media_source/local"
+# Sending one small PNG over the LAN; generous for a slow or busy HA host.
+MEDIA_UPLOAD_TIMEOUT_S = 30
 # How often to pull each tag's telemetry from HA (battery / signal / fw).
 # Telemetry changes independently of renders, so this is its own cadence,
 # not tied to pushes. Overridable via app.opendisplay_telemetry_interval_s.
@@ -82,10 +107,18 @@ class OpenDisplayHaPublisher:
         self._settings = settings
         self._renders_dir = Path(renders_dir)
         self._latest = latest_render_fn
+        configured_root = self._configured_root()
         self._media_root = (
-            Path(media_root) if media_root is not None else Path(self._configured_root())
+            Path(media_root)
+            if media_root is not None
+            else Path(configured_root or DEFAULT_MEDIA_ROOT)
         )
         self._media_dir = self._media_root / MEDIA_SUBDIR
+        # Write the frame to a folder only when that folder is known to be
+        # HA's: an explicit root (constructor or setting), or the add-on's
+        # /media mapping. On any other host a writable /media is just a
+        # local directory HA never sees, so the frame is uploaded instead.
+        self._shared_folder = media_root is not None or bool(configured_root) or is_ha_addon()
         self._last_sent: dict[str, str] = {}
         self._media_warned = False
         self._lock = threading.Lock()
@@ -99,11 +132,12 @@ class OpenDisplayHaPublisher:
         self._worker_running = False
 
     def _configured_root(self) -> str:
+        """The operator's ``app.opendisplay_media_root``, or "" when unset."""
         try:
             root = self._settings.get_section("app").get("opendisplay_media_root")
         except Exception:
             root = None
-        return str(root) if isinstance(root, str) and root.strip() else DEFAULT_MEDIA_ROOT
+        return root.strip() if isinstance(root, str) else ""
 
     # -- push reaction ----------------------------------------------------
 
@@ -159,10 +193,15 @@ class OpenDisplayHaPublisher:
         digest = str(latest.get("composition_digest") or "")
         if not digest:
             return
-        with self._lock:
-            if self._last_sent.get(device.id) == digest:
-                return
         cfg = self._device_cfg(device.id)
+        rotate = self._parse_rotate(cfg.get("rotate"))
+        quarters, underscan = (0, 0) if rotate else self._tag_mapping(device)
+        # The same composition is a different frame once the mount changes,
+        # so the turn and inset are part of what "already sent" means.
+        sent_key = f"{digest}:{quarters}:{underscan}:{rotate}"
+        with self._lock:
+            if self._last_sent.get(device.id) == sent_key:
+                return
         ha_device_id = str(cfg.get("ha_device_id") or "").strip()
         if not ha_device_id:
             logger.warning(
@@ -173,31 +212,32 @@ class OpenDisplayHaPublisher:
         if not src.exists():
             logger.warning("opendisplay_ha %s: composition %s missing on disk", device.id, digest)
             return
-        try:
-            media_id = self._write_media(device.id, src)
-        except OSError as exc:
-            # Most likely the HA media folder isn't writable: the add-on
-            # needs the media:rw mapping and a writable /media (the
-            # tesserae subdir is chowned to the app user at container
-            # start). Warn once, actionably, instead of a traceback per
-            # render; clear the flag on success so a later fix re-arms it.
-            if not self._media_warned:
-                self._media_warned = True
-                logger.warning(
-                    "opendisplay_ha %s: can't write frame to %s (%s). In the HA add-on "
-                    "this needs the media:rw mapping and a writable /media; update the "
-                    "add-on and restart. Frames won't reach the tag until this is fixed.",
-                    device.id,
-                    self._media_dir,
-                    exc,
-                )
+        frame = src.read_bytes()
+        if quarters:
+            frame = rotate_png(frame, quarters=quarters)
+        if underscan:
+            frame = apply_underscan(frame, underscan=underscan)
+        media_id = self._stage_frame(device.id, frame)
+        if media_id is None:
             return
-        self._media_warned = False
-        rotate = self._parse_rotate(cfg.get("rotate"))
         if self._call_upload(ha_device_id, media_id, rotate):
             with self._lock:
-                self._last_sent[device.id] = digest
+                self._last_sent[device.id] = sent_key
             logger.info("opendisplay_ha %s: pushed frame to HA device %s", device.id, ha_device_id)
+
+    @staticmethod
+    def _tag_mapping(device: Device) -> tuple[int, int]:
+        """Clockwise quarter-turns and underscan that put the upright
+        composition onto the tag's landscape buffer, from the device's Panel
+        settings. Mirrors ``pi_png``'s transform: a portrait panel is turned
+        onto the landscape buffer, and a flipped mount adds a half turn."""
+        panel = device_panel(device)
+        if panel is None:
+            return 0, 0
+        quarters = 3 if panel.w < panel.h else 0
+        if panel.flip:
+            quarters = (quarters + 2) % 4
+        return quarters, max(0, int(panel.underscan))
 
     @staticmethod
     def _parse_rotate(raw: Any) -> int:
@@ -209,15 +249,93 @@ class OpenDisplayHaPublisher:
 
     # -- media file -------------------------------------------------------
 
-    def _write_media(self, device_id: str, src: Path) -> str:
-        """Atomically copy the composition PNG to the device's stable media
-        file and return its media-source id."""
+    def _stage_frame(self, device_id: str, frame: bytes) -> str | None:
+        """Get the frame into HA's media folder and return its media-source
+        id, or None when it could not be delivered.
+
+        A shared folder is written directly; without one, or when that write
+        fails, the frame is uploaded through HA's API. A failure warns once,
+        actionably, instead of a traceback per render; the flag clears on
+        success so a later fix re-arms it."""
+        write_error: OSError | None = None
+        if self._shared_folder:
+            try:
+                media_id = self._write_media(device_id, frame)
+            except OSError as exc:
+                # Most likely the add-on's media folder isn't writable: it
+                # needs the media:rw mapping and a writable /media (the
+                # tesserae subdir is chowned to the app user at container
+                # start). The upload below does not depend on either.
+                write_error = exc
+            else:
+                self._media_warned = False
+                return media_id
+        try:
+            media_id = self._upload_media(device_id, frame)
+        except Exception as exc:
+            if not self._media_warned:
+                self._media_warned = True
+                self._warn_undelivered(device_id, write_error, exc)
+            return None
+        self._media_warned = False
+        return media_id
+
+    def _warn_undelivered(
+        self, device_id: str, write_error: OSError | None, upload_error: Exception
+    ) -> None:
+        hint = ""
+        if isinstance(upload_error, urllib.error.HTTPError) and upload_error.code in (401, 403):
+            hint = (
+                " Home Assistant only accepts media uploads from an administrator: "
+                "use a long-lived token from an admin account in Settings -> Plugins "
+                "-> Home Assistant Core."
+            )
+        if write_error is not None:
+            logger.warning(
+                "opendisplay_ha %s: can't write frame to %s (%s), and uploading it to "
+                "Home Assistant failed too (%s).%s In the HA add-on the folder needs the "
+                "media:rw mapping and a writable /media. Frames won't reach the tag "
+                "until one of the two works.",
+                device_id,
+                self._media_dir,
+                write_error,
+                upload_error,
+                hint,
+            )
+            return
+        logger.warning(
+            "opendisplay_ha %s: can't upload frame to Home Assistant (%s).%s Frames "
+            "won't reach the tag until this is fixed.",
+            device_id,
+            upload_error,
+            hint,
+        )
+
+    def _upload_media(self, device_id: str, frame: bytes) -> str:
+        """Send the frame to HA's media folder through its upload API and
+        return the media-source id HA stored it under."""
+        mod = _ha_core_module(self._app)
+        if mod is None or not hasattr(mod, "upload_media"):
+            raise RuntimeError("ha_core plugin unavailable")
+        with self._app.app_context():
+            media_id = mod.upload_media(
+                f"{MEDIA_SOURCE_LOCAL}/{MEDIA_SUBDIR}",
+                f"{device_id}.png",
+                frame,
+                content_type="image/png",
+                timeout=MEDIA_UPLOAD_TIMEOUT_S,
+            )
+        return str(media_id)
+
+    def _write_media(self, device_id: str, frame: bytes) -> str:
+        """Atomically write the frame to the device's stable media file and
+        return its media-source id."""
         self._media_dir.mkdir(parents=True, exist_ok=True)
         dst = self._media_dir / f"{device_id}.png"
         tmp = dst.with_name(dst.name + ".tmp")
-        shutil.copyfile(src, tmp)
+        tmp.write_bytes(frame)
         tmp.replace(dst)
-        return f"media-source://media_source/local/{MEDIA_SUBDIR}/{device_id}.png"
+        return f"{MEDIA_SOURCE_LOCAL}/{MEDIA_SUBDIR}/{device_id}.png"
 
     def _call_upload(self, ha_device_id: str, media_id: str, rotate: int) -> bool:
         registry = self._app.config.get("PLUGIN_REGISTRY")
@@ -256,16 +374,21 @@ class OpenDisplayHaPublisher:
     # -- housekeeping -----------------------------------------------------
 
     def cleanup_device(self, device_id: str) -> None:
-        """Drop a device's media file + cached digest (call on delete)."""
+        """Drop a device's media file + cached digest (call on delete).
+
+        An uploaded frame stays in HA: its REST API has no media delete."""
         with self._lock:
             self._last_sent.pop(device_id, None)
+        if not self._shared_folder:
+            return
         with contextlib.suppress(OSError):
             (self._media_dir / f"{device_id}.png").unlink(missing_ok=True)
 
     def prune_orphans(self) -> int:
         """Remove media files for device ids that are no longer registered
-        opendisplay_ha instances. Returns the count removed."""
-        if not self._media_dir.exists():
+        opendisplay_ha instances. Returns the count removed. Only a shared
+        folder is swept; without one the directory is not Tesserae's."""
+        if not self._shared_folder or not self._media_dir.exists():
             return 0
         live = {d.id for d in self._ha_devices()}
         removed = 0
