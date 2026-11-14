@@ -234,6 +234,14 @@ Tesserae includes 37 widgets. To add your own, put its folder under `plugins/<id
 
     **Sizes:** `sm` `md` `lg` &middot; **Tier:** Local
 
+-   **Home Assistant, Heat Pump** &middot; `ha_heat_pump`
+
+    ---
+
+    Shows compressor status, heating and hot-water temperatures, operating modes, seasonal performance, and daily electricity use from configurable Home Assistant entities. The full widget adapts from a compact status and temperature view to detailed energy counters with yesterday's values; the canvas picker also offers independent compressor, temperature, current-power, and energy fragments. Temperature gauges, yesterday's energy values, and the overall SPF display can be toggled in the cell options.
+
+    **Sizes:** `xs` `sm` `md` `lg` &middot; **Tier:** Local
+
 -   **Home Assistant, Entities** &middot; `ha_entities`
 
     ---
